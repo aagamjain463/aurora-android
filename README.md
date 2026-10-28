@@ -13,6 +13,7 @@ account, no analytics and no `INTERNET` permission.
 - Brand and design system: [`docs/BRAND.md`](docs/BRAND.md)
 - Architecture and decisions: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Roadmap to 1.0 and beyond: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- Plans and limits (aurora Free and aurora plus): [`docs/BUSINESS_MODEL.md`](docs/BUSINESS_MODEL.md)
 
 ## Status: Phase 1 (foundation)
 

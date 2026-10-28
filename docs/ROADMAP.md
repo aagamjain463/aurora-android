@@ -1,15 +1,20 @@
 # aurora Android roadmap
 
 This plan takes aurora from the Phase 1 foundation to a 1.0 release on Google Play, and then to
-1.1. It covers Shield, Intent, Focus, Insights, schedules, gamification, premium subscriptions,
-testing and release for 1.0, and website filtering and supported content blocking for 1.1.
+1.1. It has 13 phases. **Phase 2 is the next implementation phase.**
 
-Read it with [`BRAND.md`](BRAND.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md). Those documents
-still win: if this plan and the brand disagree, the brand is right and this plan is wrong.
+Read it with:
+
+- [`BUSINESS_MODEL.md`](BUSINESS_MODEL.md): aurora Free and aurora plus, the limits, how they are
+  counted, and the entitlement system;
+- [`BRAND.md`](BRAND.md): the brand and design system;
+- [`ARCHITECTURE.md`](ARCHITECTURE.md): the current architecture.
+
+`BRAND.md` wins over this plan. `BUSINESS_MODEL.md` wins on what each plan includes.
 
 - **Status:** approved plan. Implementation has not started.
-- **Settled decisions:** D2 (free and premium), D4 (website filtering approach) and D13 (1.0
-  scope), on 2026-10-28. See [section 9](#9-decisions).
+- **Settled decisions:** D2 (business model), D4 (website filtering approach), D10 (India prices)
+  and D13 (1.0 scope). See [section 9](#9-decisions).
 - **Rule:** every unverified Android or Play assumption is a **blocking gate** for the phase that
   depends on it. See [section 5](#5-validation-gates).
 - **Last reviewed against the code:** 2026-10-28, commit `1270c69`.
@@ -18,7 +23,8 @@ still win: if this plan and the brand disagree, the brand is right and this plan
 
 ## 1. Where aurora is today
 
-Phase 1 is a working, honest shell. It is one Gradle module of about 3,500 lines.
+Phase 1 is a working, honest shell. It is one Gradle module of about 3,500 lines. This roadmap
+keeps all of it and builds on it.
 
 | Area | State | Where |
 | --- | --- | --- |
@@ -45,21 +51,22 @@ Constraints the current code sets, which this plan keeps unless a decision chang
 
 ## 2. Vocabulary
 
-| Name in this plan | What it is | Where it lives in the app |
-| --- | --- | --- |
-| **Shield** | The app-protection engine and the full-screen moment that appears over a protected app. | Configured on the Protect tab. Engine in a new `protect/` package. |
-| **Intent** | "Pause before opening": a breath, a question about why, then a time-boxed opening. | A Shield mode, chosen per app. |
-| **Focus** | The existing session timer, now enforced, with notifications and history. | Focus screen, Today hero. |
-| **Insights** | Today plus history: week view, trends, Shield and Focus results. | Insights tab. |
-| **Schedules** | Time windows when Shield is on without starting a session. | Protect tab. |
-| **Time limits** | A daily budget per app. Shield appears when it runs out. | Protect tab, per app. |
-| **Strict mode** | A commitment that hides in-app ways to turn protection off until it ends. | Focus setup, schedules. |
-| **Light** | aurora's gentle progress system (gamification). | Insights, completion moments. |
-| **aurora plus** | The premium subscription. The brand name stays lowercase, as `BRAND.md` requires. | Settings, upgrade moments. |
-| **Website filtering** (1.1) | Shield for chosen domains in supported browsers. | Protect tab. |
-| **Supported content blocking** (1.1) | Shield for specific in-app surfaces, such as short-video feeds, in supported apps. | Protect tab. |
+Full definitions are in `BUSINESS_MODEL.md` section 3. In short:
 
-D1 settles whether the tab is called "Protect" or "Shield".
+| Term | Meaning |
+| --- | --- |
+| **Shield** | The protection engine, and the full-screen moment that appears over a protected item. Configured on the Protect tab (D1). |
+| **Protected item** | An app (1.0) or a website (1.1) that aurora watches. Free allows 5 in total. |
+| **Protection modes** | Each item's everyday behaviour: Flexible, Friction, Cooldown, Intent, or Only during focus. |
+| **Intent** | Intentional opening: a breath, a question about why, then a time-boxed opening. Free allows 3 apps. |
+| **Focus session** | A timed session that shields a profile's items behind a Friction wait. Unlimited on Free. |
+| **Focus profile** | A saved session setup: name, length, items, Lockdown on or off. Free allows 1. |
+| **Lockdown** | The only state with no in-app way through. Free allows 120 minutes per local day. It replaces "strict mode" from earlier drafts. |
+| **Daily app-limit rule** | A daily budget for one app or a group of apps. Free allows 3. |
+| **Recurring schedule** | Starts a Focus profile on chosen days and times. Free allows 1. |
+| **Light** | aurora's gentle progress system: points of light, goals, gentle streaks (Free) and challenges (plus). |
+| **Entitlement** | The current plan (`Free` or `Plus`) and its limits, from one central module. |
+| **aurora plus** | The premium subscription. Brand stays lowercase. |
 
 ## 3. Architecture direction
 
@@ -68,135 +75,156 @@ first needs it, not earlier.
 
 ### 3.1 One decision function
 
-Every feature is an input to one pure function:
+Every protection feature is an input to one pure function:
 
 ```kotlin
 // protect/Policy.kt (Phase 3), grown by later phases
 fun decide(target: Target, now: Long, state: PolicyState): Decision
 ```
 
-- `Target` is an app package. In 1.1 it can also be a web domain (Phase 12) or a content
-  surface (Phase 13).
-- `PolicyState` holds the protected set, per-app modes, the active session, schedules, limits,
-  today's usage, open grants and strict commitments. It is a plain data snapshot.
-- `Decision` is `Allow`, `Shield(reason)`, or `Intent(reason)`. `reason` drives the copy.
+- `Target` is an app package. In 1.1 it can also be a web domain or a content surface.
+- `PolicyState` holds the protected items and their modes, the active session, Lockdown,
+  schedules, limits, today's usage and open grants. It is a plain data snapshot.
+- `Decision` is `Allow`, `Shield(reason, wayThrough)`, or `Intent(reason)`. `wayThrough` is
+  `Immediate` (Flexible), `AfterWait(ms)` (Friction) or `None` (Lockdown only).
+- When several rules apply, the strongest wins: Lockdown, then an active Cooldown or Focus
+  session or spent limit (Friction), then the item's everyday mode, then Allow.
 
 The accessibility service only translates events into `Target`, calls `decide`, and acts on the
-result. All rules are unit tested through `decide` with no Android in the loop. This is the
-most important technical decision in the plan.
+result. All rules are unit tested through `decide` with no Android in the loop.
 
-### 3.2 Packages, not modules
+**`decide` never reads the plan.** Both plans get the same protection strength
+(`BUSINESS_MODEL.md` principle 1). A test runs every policy case under `Free` and `Plus` and
+expects identical decisions.
+
+### 3.2 Entitlements
+
+One central, pure module, `plan/Plan.kt`, built in Phase 2 (`BUSINESS_MODEL.md` section 5):
+
+- `Plan` (`Free`, `Plus`), `Allowance`, `Feature`, the `FreeLimits` table, `canAdd()` and `has()`.
+- One source of the current plan: always `Free` in release builds until Phase 11, with a debug-only
+  switch to `Plus` for testing. From Phase 11, Play Billing feeds it.
+- **Limits are implemented with their features.** Each feature phase checks its own allowance in the
+  ViewModel action that adds or enables something. No limit is checked inside the protection engine.
+- Before Phase 11, aurora never mentions plus at a limit, because it can't be bought yet.
+
+### 3.3 Packages, not modules
 
 Stay in one Gradle module. New packages:
 
 ```
 app/src/main/java/app/aurora/
-├── protect/    ShieldService (AccessibilityService), Policy.kt, ProtectionStatus, the Shield surface
-├── focus/      Session alarms and notifications (Phase 5)
-├── rules/      Schedules, limits, strict mode models and pure evaluation (Phase 6)
-├── light/      Progress rules (Phase 8)
-├── billing/    Play Billing wrapper and entitlement (Phase 9)
-├── web/        Browser URL readers, domain matching (Phase 12, 1.1)
+├── plan/       Plan, allowances, FreeLimits, the plan source (Phase 2)
+├── protect/    ShieldService (AccessibilityService), Policy.kt, ProtectionStatus, the Shield surface (Phase 3)
+├── focus/      Session alarms, notifications, profiles (Phase 5)
+├── rules/      Schedules, limits, Lockdown and its daily ledger (Phase 6)
+├── light/      Goals, streaks, challenges (Phase 8)
+├── billing/    Play Billing wrapper that feeds the plan source (Phase 11)
+├── web/        Browser URL readers, domain matching (Phase 13, 1.1)
 ├── content/    Surface rules and matchers (Phase 13, 1.1)
 └── data/       Existing repositories, plus the Room database from Phase 5
 ```
 
 Split into Gradle modules only if build times or ownership make it necessary.
 
-### 3.3 Storage
+### 3.4 Storage
 
 | Data | Store | Introduced |
 | --- | --- | --- |
-| Preferences, protected set, active session, per-app mode | DataStore Preferences (existing) | Phase 1 |
-| Open grants ("allowed until") | DataStore Preferences | Phase 4 |
-| Focus history, Shield and Intent events, schedules, limits, Light | Room | Phase 5 |
-| Entitlement cache | DataStore Preferences | Phase 9 |
-| Blocked domains, content rules | Room, bundled asset | Phase 12, 13 |
+| Preferences, protected items and modes, active session | DataStore Preferences (existing) | Phase 1, extended in Phase 3 |
+| Debug plan switch | DataStore Preferences (debug builds only) | Phase 2 |
+| Open grants, Cooldown timers | DataStore Preferences | Phase 4 |
+| Focus history, shield and Intent events, profiles | Room | Phase 5 |
+| Schedules, limit rules, Lockdown ledger | Room, DataStore for the ledger | Phase 6 |
+| Daily per-app usage totals (only if D14 says yes) | Room | Phase 7 |
+| Goals, streaks, challenges | Room (computed from events where possible) | Phase 8 |
+| Entitlement cache | DataStore Preferences | Phase 11 |
+| Blocked domains, content rules | Room, bundled asset | Phase 13 |
 
-Room arrives in Phase 5, when the first history appears. It adds the Room runtime and the KSP
-plugin. Never store a URL, page title or screen content. Only store the matched rule and a timestamp.
+Never store a URL, page title or screen content. Store only the matched rule and a timestamp.
 
-### 3.4 Platform mechanisms
+### 3.5 Platform mechanisms
 
-Each mechanism below depends on a gate in section 5. None of them is confirmed yet.
+Each mechanism depends on a gate in section 5. None of them is confirmed yet.
 
 | Need | Proposed mechanism | Gate |
 | --- | --- | --- |
 | Know which app is in front | `AccessibilityService`, `TYPE_WINDOW_STATE_CHANGED` | G2 |
-| Show the Shield | An aurora activity started from the service in its own task, or an accessibility overlay window if that fails | G1 |
+| Show the Shield | An aurora activity started from the service in its own task. The spike rejected an accessibility overlay as the primary Shield: the app underneath stays resumed and Recents removes it | G1 |
+| Detect a disabled service | Service connection state plus `AccessibilityManager` checks on resume | G3 |
 | Focus countdown outside the app | A notification with a countdown chronometer, no foreground service | G5 |
-| Focus end alert | `AlarmManager`: exact when `canScheduleExactAlarms()`, otherwise inexact while-idle | G6 |
+| Focus and Lockdown end alert | `AlarmManager`: exact when `canScheduleExactAlarms()`, otherwise inexact while-idle | G6 |
 | Re-arm after reboot | `RECEIVE_BOOT_COMPLETED` receiver | — |
 | Schedules | Evaluated inside `decide` at each foreground event, so no alarm is needed to enforce them | — |
-| Time limits | Existing `foregroundTime()` over `UsageStatsManager` events | — |
-| Week view | `UsageStatsManager` event history | G7 |
-| Subscriptions | Google Play Billing Library | G8 |
+| Daily limits | Existing `foregroundTime()` over `UsageStatsManager` events | — |
+| Week view and longer history | `UsageStatsManager` history, plus local daily totals if D14 says yes | G7 |
+| Subscriptions | Google Play Billing Library | G8, G13 |
 | Read a browser URL (1.1) | Accessibility node tree of supported browsers' address bars | G10, G11 |
 | Detect an in-app surface (1.1) | Accessibility node signatures per supported app version | G12 |
 
-Usage-stats polling as a Shield fallback for people who refuse accessibility access is deferred.
-Add it only if beta data shows many people decline accessibility but still want protection, or if
-G1 or G2 fails.
-
-## 4. Brand guardrails for new surfaces
+## 4. Brand guardrails
 
 These rules apply to every phase. Reviewers check them in each acceptance pass.
 
-1. **Shield is calm, not a wall.** Use the full-screen dark field, a dim neutral `HorizonGlow`,
-   the rising point, one Primary action ("Close app") and one Quiet action. Never use red, sirens,
-   a shaking animation or guilt copy. Example: "This is one of your protected apps. Ready to
-   head back?"
-2. **Intent is a breath.** The delay uses the glow's 4.2 s breath. With reduced motion on, show a
-   static glow and a plain countdown label. Never loop.
+1. **Shield is calm, not a wall.** Use the full-screen dark field, a dim neutral `HorizonGlow`, the
+   rising point, one Primary action ("Close app") and one Quiet way through where the mode allows
+   one. Never use red, sirens, a shaking animation or guilt copy.
+2. **Friction and Intent are a breath.** Waits use the glow's 4.2 s breath. With reduced motion on,
+   show a static glow and a plain countdown label. Never loop.
 3. **Light is the reward.** Progress shows as more light: a brighter horizon and points of light.
    There are no badges, confetti, mascots or leaderboards.
-4. **No streak anxiety.** Nothing resets to zero because of a missed day.
-5. **Honest status everywhere.** Each capability gets a `ProtectionStatus`-style truth source.
-   The UI never claims more than the engine does. Unsupported cases and strict-mode limits are
-   stated in the interface.
-6. **Premium is respectful.** Show the real price and renewal terms. Show no countdown timers,
-   fake discounts or pre-ticked trials. Never interrupt a Focus session or a Shield moment with an
-   upsell. Turning protection off is never paywalled.
-7. **Components first.** Build from `ui/components/`. Draw new icons in `AuroraIcons` (24dp grid,
+4. **Streaks are gentle.** A missed day ends a run but never erases it. The best run and total days
+   stay visible. One rest day a week doesn't break a run. No copy says "lost" or "broken", and no
+   notification asks the person to protect a streak (`BUSINESS_MODEL.md` 3.7).
+5. **Honest status everywhere.** The UI never claims more than the engine does. Lockdown always
+   says what it can't stop.
+6. **Limits are calm.** At a limit, aurora explains it and offers a way forward that doesn't involve
+   paying. From Phase 11 it may add a Quiet link to plus. Never show an upsell during Focus, a
+   shield moment or Lockdown. Turning protection off is never paywalled.
+7. **Premium is respectful.** Show the real price and renewal terms. No countdown timers, fake
+   discounts or pre-ticked trials. Never advertise a feature that doesn't exist, including cloud sync.
+8. **Components first.** Build from `ui/components/`. Draw new icons in `AuroraIcons` (24dp grid,
    1.75 stroke). Retire each `ComingSoonRow` only when the feature behind it is live.
-8. **Accessibility.** Every new screen has headings, roles and labels. It works at 200% font
-   scale and with TalkBack. Timers announce at minute precision.
+9. **Accessibility.** Every new screen has headings, roles and labels. It works at 200% font scale
+   and with TalkBack. Timers announce at minute precision.
 
 ## 5. Validation gates
 
 Every Android or Play policy assumption in this plan is unverified. Each one is a **blocking
-gate**: its dependent phase must not start implementation until the gate passes.
+gate**: its dependent phase, or the named part of it, must not start implementation until the gate
+passes.
 
 ### 5.1 Rules
 
 1. **Spike, don't build.** Validate a gate with a throwaway spike on its own branch, named
    `spike/<gate-id>`. Never merge spike code into `main`. The phase rebuilds the mechanism properly.
 2. **Record the result.** Write the result, the devices and API levels tested, and the date into
-   the gate table below. Write the chosen mechanism into `ARCHITECTURE.md`.
-3. **A failed gate stops the phase.** Re-plan the phase from the result. Never build around a failed
-   gate quietly, and never ship UI that implies a capability a failed gate ruled out.
+   the gate table. Write the chosen mechanism into `ARCHITECTURE.md`.
+3. **A failed gate stops the phase.** Re-plan from the result. Never build around a failed gate
+   quietly, and never ship UI that implies a capability a failed gate ruled out.
 4. **Policy gates need an authoritative source.** Use the current Google Play policy text and the
-   Play Console declaration form, quoted with a date. Where possible, confirm through a Play
-   review of a minimal build on a closed testing track (Phase 2 sets up the Play Console app).
-5. **Re-check before release.** Policies and platform behaviour change. Phase 11 re-validates
-   every passed gate against the current Android release and Play policy.
+   Play Console declaration form, quoted with a date. Where possible, confirm through a Play review
+   of a minimal build on a closed testing track. Phase 2 sets up the Play Console app.
+5. **Re-check before release.** Phase 12 re-validates every passed gate against the current Android
+   release and Play policy.
 
 ### 5.2 Gate table
 
 | Gate | Assumption to validate | Blocks | Status |
 | --- | --- | --- | --- |
-| **G1** | Full-screen interception is feasible (details in 5.3). | **Phase 3, all of it** | Not started |
+| **G1** | Full-screen interception is feasible (details in 5.3). | **Phase 3, all of it** | In progress. Works on the API 36 emulator (activity Shield). Devices, other API levels and latency pending. See [`ENFORCEMENT_FEASIBILITY.md`](ENFORCEMENT_FEASIBILITY.md) |
 | G2 | Play allows a digital-wellbeing app to use `AccessibilityService` for app protection, with a prominent disclosure, a Play Console declaration and `isAccessibilityTool=false`. | Phase 3 | Not started |
-| G3 | aurora can detect when Android (for example Advanced Protection mode) or an OEM disables or kills a non-tool accessibility service, and can report `NeedsPermission`. | Phase 3 | Not started |
-| G4 | Sideloaded test builds on Android 13+ need "Allow restricted settings" before the service can be enabled, and Play installs don't. | Phase 3 tester instructions | Not started |
+| G3 | aurora can detect when Android (for example Advanced Protection mode) or an OEM disables or kills a non-tool accessibility service, and can report `NeedsPermission`. | Phase 3 | In progress. Revoke, force-stop (which turns the service off), process kill and reboot detected on the API 36 emulator. Android 17 AAPM and OEMs untested |
+| G4 | Sideloaded test builds on Android 13+ need "Allow restricted settings" before the service can be enabled, and Play installs don't. | Phase 3 tester instructions | Not started. `adb install` builds are not restricted (API 36 emulator), so test a file-manager install |
 | G5 | A notification with a countdown chronometer and `setTimeoutAfter` keeps correct time without a foreground service, on API 26–37. | Phase 5 notification work | Not started |
-| G6 | Measured delivery delay of inexact while-idle alarms in Doze. It also decides whether aurora can ever qualify for exact-alarm access under Play policy. | Phase 5 alarm work | Not started |
-| G7 | `UsageStatsManager` keeps enough event history for a 7-day week view on most devices. | Phase 7 week view | Not started |
-| G8 | Play Billing Library works without forcing permissions that break the privacy claim. If it adds network permissions, the privacy copy and Data safety answers are rewritten before Phase 9 ships. | Phase 9 | Not started |
-| G9 | Current Play rules for new developer accounts (for example, a closed test with a minimum number of testers for a minimum period before production). | Phase 11 schedule | Not started |
-| G10 | Play allows reading browser address bars through accessibility for website filtering. | Phase 12 (1.1) | Not started |
-| G11 | The address-bar node is readable in each candidate browser, in normal and private tabs. Each browser passes or fails on its own. | Phase 12, per browser | Not started |
+| G6 | Measured delivery delay of inexact while-idle alarms in Doze, and whether aurora can qualify for exact-alarm access under Play policy. | Phase 5 alarm work | Not started |
+| G7 | How much usage history `UsageStatsManager` keeps (events, and daily and weekly aggregates) on common devices. This sets what basic insights can show and whether advanced insights need local totals (D14). | Phase 7 | Not started |
+| G8 | Play Billing Library works without forcing permissions that break the privacy claim. If it adds network permissions, every privacy claim and Data safety answer is rewritten before Phase 11 ships. | Phase 11 | Not started |
+| G9 | Current Play rules for new developer accounts, for example a closed test with a minimum number of testers for a minimum period before production. | Phase 10 plan, Phase 12 date | Not started |
+| G10 | Play allows reading browser address bars through accessibility for website filtering. | Phase 13 websites | Not started |
+| G11 | The address-bar node is readable in each candidate browser, in normal and private tabs. Each browser passes or fails on its own. | Phase 13, per browser | Not started |
 | G12 | Each candidate content surface can be detected reliably through accessibility, and Play policy allows acting on it. | Phase 13, per surface | Not started |
+| G13 | Play India pricing: ₹149 and ₹1,199 are valid price points, Play shows them to buyers including tax, and the service fee on subscriptions. | Phase 11 product setup | Not started |
 
 ### 5.3 G1: full-screen interception feasibility
 
@@ -208,10 +236,10 @@ This gate comes first. Nothing in Phase 3 is implemented until it passes.
    API 26, 29, 31, 34, 36 and 37? Check the background activity start rules for each level.
 2. If not, does a `TYPE_ACCESSIBILITY_OVERLAY` window drawn by the service work as the Shield,
    with focus, TalkBack and the keyboard behaving correctly?
-3. How long does it take from the protected app's window event to the visible Shield? Measure
-   the P90 over 50 opens on a mid-range device.
-4. Is the protected app's content hidden and impossible to use behind the Shield? Check that
-   Back, Home, Recents and the notification shade never reveal it or let it take input.
+3. How long does it take from the protected app's window event to the visible Shield? Measure the
+   P90 over 50 opens on a mid-range device.
+4. Is the protected app's content hidden and impossible to use behind the Shield? Check that Back,
+   Home, Recents and the notification shade never reveal it or let it take input.
 5. Does interception work when the app opens from the launcher, Recents, a notification, a deep
    link, a widget, split-screen and picture-in-picture?
 6. Does it work on a Pixel (stock Android), a Samsung (One UI) and one OEM with aggressive battery
@@ -222,50 +250,58 @@ This gate comes first. Nothing in Phase 3 is implemented until it passes.
 **Output:** a short written result in the gate table and `ARCHITECTURE.md`, with the chosen
 mechanism, the measured latency and any device exceptions.
 
-**If G1 fails:** stop Phase 3. Evaluate the fallbacks in this order and present them for a decision:
+**If G1 fails:** stop Phase 3. Evaluate these fallbacks in order and present them for a decision:
 
 1. send the person home with `GLOBAL_ACTION_HOME`, then show the Shield inside aurora;
 2. a slower, usage-stats-based check with a notification instead of a full-screen Shield.
 
-Either fallback changes the product promise. Update the brand copy before building it.
+Either fallback changes the product promise. Update the brand copy and `BUSINESS_MODEL.md` before
+building it.
 
 ## 6. Phase overview
 
-| Phase | Name | Depends on | Gates | Size | Release |
-| --- | --- | --- | --- | --- | --- |
-| 2 | Groundwork: test, CI, permissions UX, Play Console | 1 | — | S | 1.0 |
-| 3 | Shield core | 2 | **G1**, G2, G3, G4 | L | 1.0 |
-| 4 | Intent | 3 | (Phase 3 gates) | M | 1.0 |
-| 5 | Focus, enforced | 3 | G5, G6 | M | 1.0 |
-| 6 | Schedules, time limits, strict mode | 3, 5 | — | L | 1.0 |
-| 7 | Insights history | 4, 5, 6 | G7 | M | 1.0 |
-| 8 | Light (gamification) | 4, 5, 7 | — | M | 1.0 |
-| 9 | aurora plus (premium) | 3–8 | G8 | M | 1.0 |
-| 10 | Hardening: accessibility, localisation, performance, Android 17 | 2–9 | — | M | 1.0 |
-| 11 | Release 1.0 | 2–10 | G9, re-check all | M | 1.0 |
-| 12 | Website filtering | 1.0 shipped | G10, G11 | L | 1.1 |
-| 13 | Supported content blocking | 12 | G12 | L | 1.1 |
+| Phase | Name | Depends on | Gates | Free limits wired | Size | Release |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Foundation | — | — | — | done | — |
+| **2** | **Groundwork and entitlement core** | 1 | — | none (core only) | S | 1.0 |
+| 3 | Shield core | 2 | **G1**, G2, G3, G4 | 5 protected items | L | 1.0 |
+| 4 | Protection modes and Intent | 3 | (Phase 3 gates) | 3 Intent apps | M | 1.0 |
+| 5 | Focus, enforced, with profiles | 3 | G5, G6 | 1 Focus profile | M | 1.0 |
+| 6 | Schedules, daily limits and Lockdown | 4, 5 | — | 1 schedule, 3 limit rules, 120 Lockdown min/day | L | 1.0 |
+| 7 | Insights: basic and advanced | 4, 5, 6 | G7 | advanced insights (plus feature) | M | 1.0 |
+| 8 | Light: goals, streaks, challenges | 5, 7 | — | challenges (plus feature) | M | 1.0 |
+| 9 | Hardening | 2–8 | — | — | M | 1.0 |
+| 10 | Closed beta | 9 | G9 | — | M | 1.0 |
+| 11 | aurora plus: billing and subscriptions | 2–10 | G8, G13 | plan source switches to Play | M | 1.0 |
+| 12 | Release 1.0 | 2–11 | re-check all | — | M | 1.0 |
+| 13 | Website filtering and supported content blocking | 12 | G10, G11, G12 | websites join the 5-item pool | XL | 1.1 |
 
-Sizes are relative: S ≈ days, M ≈ 1–2 weeks, L ≈ 2–4 weeks for one developer.
+Sizes are relative: S ≈ days, M ≈ 1–2 weeks, L ≈ 2–4 weeks, XL ≈ 4–8 weeks, for one developer.
 
 **1.0 priorities (D13).** Reliable app protection, intentional use, Focus and Insights come first.
-If the schedule slips, cut from the end of the 1.0 list (Light, then parts of Phase 6) before
-cutting reliability work in Phases 3, 5 or 10.
+If the schedule slips, cut from Light (Phase 8) and advanced insights before cutting reliability
+work in Phases 3, 5 or 9.
 
-**1.1.** Phases 12 and 13 start after 1.0 is live. Their gates (G10–G12) may be checked earlier,
-but only if that doesn't delay 1.0.
+**Why billing comes after the beta.** Every feature and its Free limit is built and tested on Free
+first. The closed beta (Phase 10) can then start the Play testing period that G9 may require while
+billing is built in Phase 11. Billing is tested on internal testing and in a second closed round
+inside Phase 12.
 
-**Versions.** `0.2.x` after Phases 3–5, `0.3.x` after Phases 6–8, `1.0.0` at release, `1.1.0` with
-website filtering.
+**1.1.** Phase 13 starts after 1.0 is live. It may ship in two releases: websites first, content
+blocking after. Its gates may be checked earlier, but only if that doesn't delay 1.0.
+
+**Versions.** `0.2.x` after Phases 3–5, `0.3.x` after Phases 6–8, `0.9.x` for the beta, `1.0.0` at
+release, `1.1.0` with Phase 13.
 
 ---
 
-## Phase 2: Groundwork
+## Phase 2: Groundwork and entitlement core
 
-**Goal.** Make the next phases safe to build: automated checks, UI test infrastructure, one
-consistent way to ask for permissions, and a Play Console app for policy validation.
+**Goal.** Make the next phases safe to build: automated checks, UI test infrastructure, one way to
+ask for permissions, a Play Console app for policy gates, and the central entitlement module that
+every later phase uses.
 
-**Gates:** none.
+**Gates:** none. **Free limits wired:** none. This phase builds the core only.
 
 ### Tasks
 
@@ -274,33 +310,45 @@ consistent way to ask for permissions, and a Play Console app for policy validat
    (API 26, 30, 34 and 36) that runs instrumented tests once they exist.
 2. **Compose UI tests.** Add `androidx.compose.ui:ui-test-junit4` and the instrumentation runner.
    Write the first smoke tests: onboarding completes, tabs switch, Focus starts and ends early.
-3. **Screenshot tests.** Pick one tool (D8). Cover each screen in light, dark, 200% font scale
-   and reduced motion. Check the baseline images into the repository.
+3. **Screenshot tests.** Pick one tool (D8). Cover each existing screen in light, dark, 200% font
+   scale and reduced motion. Check the baseline images into the repository.
 4. **Permission flow helpers.** Add one reusable "explain, open Settings, re-check on resume"
    pattern. Generalise `rememberUsageAccess()` into small `remember…Access()` helpers for usage
    access, accessibility, notifications and exact alarms. Reuse `EmptyState`, `Notice` and
    `AuroraDialog`.
-5. **Play Console.** Create the developer account and the app entry, so policy gates (G2, G9) can
+5. **Entitlement core.** Add `plan/Plan.kt` as described in `BUSINESS_MODEL.md` section 5:
+   `Plan`, `Allowance`, `Feature`, `FreeLimits`, `limit()`, `canAdd()` and `has()`, all pure.
+   Add a plan source to `AuroraApplication`: always `Free` in release builds, and in debug builds a
+   DataStore-backed switch shown as a debug-only row in Settings. No feature uses it yet.
+6. **Play Console.** Create the developer account and the app entry, so policy gates (G2, G9) can
    use a closed testing review. Create no products and publish no listing yet.
-6. **Strings.** Keep copy inline. It moves to `strings.xml` in Phase 10, as `ARCHITECTURE.md` says.
-7. **Lint.** Turn on `warningsAsErrors` for new code, with a baseline for current warnings if needed.
+7. **Strings.** Keep copy inline. It moves to `strings.xml` in Phase 9, as `ARCHITECTURE.md` says.
+8. **Lint.** Turn on `warningsAsErrors` for new code, with a baseline for current warnings if needed.
 
 ### Dependencies
 
-- `androidx.compose.ui:ui-test-junit4`, `androidx.test:runner`, `androidx.test.ext:junit`, and
-  one screenshot tool.
+- `androidx.compose.ui:ui-test-junit4`, `androidx.test:runner`, `androidx.test.ext:junit`, and one
+  screenshot tool. No new runtime dependency for the entitlement core.
 - GitHub Actions on `github.com/aagamjain463/aurora-android`.
 
 ### Acceptance criteria
 
 - CI is green on `main`, and a failing unit test blocks a merge.
-- At least 3 Compose UI tests and a screenshot set for all six screens exist and pass.
+- At least 3 Compose UI tests and a screenshot set for all six existing screens pass.
 - The permission helpers replace the ad-hoc checks without changing behaviour.
+- `plan/Plan.kt` exists with the Free limits from `BUSINESS_MODEL.md`, and all limit numbers live
+  only there.
+- A release build has no way to switch to `Plus`. The debug switch is absent from release builds.
+- The Phase 1 app looks and behaves exactly as before: screenshot baselines match the current UI.
 - The Play Console app exists and can receive a closed testing build.
 
 ### Testing
 
 - Existing `LogicTest` keeps passing.
+- **Unit:** `canAdd()` and `limit()` for every allowance under both plans: below, at and above each
+  limit, and `null` (unlimited) for `Plus`.
+- **Build check:** a test or lint check confirms the debug switch is not compiled into release
+  (for example, the source set lives in `src/debug/`).
 - A person reviews screenshot diffs on every change to `ui/theme/` or `ui/components/`.
 
 ---
@@ -310,126 +358,171 @@ consistent way to ask for permissions, and a Play Console app for policy validat
 **Goal.** Opening a protected app shows the aurora Shield, reliably, and every surface tells the
 truth about whether protection is on.
 
-**Gates:** **G1 first, before any other Phase 3 work.** Then G2, G3 and G4. If G1 fails, follow
-the fallback in section 5.3 and do not start these tasks.
+**Gates:** **G1 first, before any other Phase 3 work.** Then G2, G3 and G4. If G1 fails, follow the
+fallback in section 5.3 and do not start these tasks.
+**Free limit wired:** 5 protected items.
 
 ### Tasks
 
 1. **`protect/Policy.kt`.** Add `Target`, `PolicyState`, `Decision` and `decide()` (section 3.1).
-   The first rule is: shield a protected package during an active Focus session, or always if the
-   person picks "always" for that app (D3).
-2. **`ShieldService`.** An `AccessibilityService` that listens to `TYPE_WINDOW_STATE_CHANGED`
-   only, with `canRetrieveWindowContent=false` and `isAccessibilityTool=false`.
-   - Ignore aurora itself, the launcher, the system UI, the keyboard, and the dialer during
-     calls. Never shield emergency or phone flows.
-   - Debounce repeated events for the same package.
+   This phase supports two modes: **Flexible** and **Only during focus**. The existing Focus session
+   shields items behind a Friction wait.
+2. **`ShieldService`.** An `AccessibilityService` that listens to `TYPE_WINDOW_STATE_CHANGED` only,
+   with `canRetrieveWindowContent=false` and `isAccessibilityTool=false`.
+   - Ignore aurora itself, the launcher, the system UI, the keyboard, and the dialer during calls.
+     Never shield emergency or phone flows.
+   - Treat repeated events from the same opening as one opening, but show the Shield again on every
+     protected event. An app can start its own activity over the Shield during its background-start
+     grace period (seen with Chrome in the G1 spike).
    - Read `PolicyState` from an in-memory snapshot kept current by collecting the repositories.
      Do not read DataStore on every event.
 3. **The Shield surface.** Use the mechanism that G1 chose. It shows the app icon and label, the
-   reason ("You're in a focus session until 14:30"), "Close app" (Primary: go home) and, outside
-   strict mode, a Quiet "Open anyway" action. Back goes home, not into the protected app.
-4. **`ProtectionStatus`.** A flow with the values `Off`, `NeedsPermission`, `Active` and `Paused`,
-   derived from "the service is enabled and connected" plus "at least one app protected". It
-   uses the detection method that G3 confirmed. It replaces:
+   reason ("You're in a focus session until 14:30"), "Close app" (Primary: go home) and the mode's
+   way through as a Quiet action. Back goes home, not into the protected app.
+4. **`ProtectionStatus`.** A flow with the values `Off`, `NeedsPermission`, `NotRunning` (enabled but
+   not connected, for example just after a reboot), `Blocked` (Android 17+ Advanced Protection), `Active`
+   and `Paused`,
+   from the service state (using the detection method G3 confirmed) plus "at least one item
+   protected". It replaces:
    - the "Preview" `Notice` on Protect;
    - "Saved · blocking arrives in an update" on Today;
    - the Focus setup caption "Your apps stay available during a session…";
    - the "App blocking" row in Settings, which becomes a live status row.
 5. **Accessibility disclosure.** A prominent in-app disclosure before sending the person to
    Accessibility settings. It states what is read (the name of the app in front), that nothing
-   leaves the phone, and how to turn it off. G2 decides the exact required wording. The same text
-   goes into the Play declaration.
-6. **Onboarding.** Update the "how it works" step to describe what Shield really does. Keep the
-   permission optional during onboarding, and ask for it in context on Protect.
-7. **Per-app mode.** Replace the checkbox with a mode per app: `Off`, `Shield` and, in Phase 4,
-   `Intent`. Store it in DataStore as a map from package to mode. Migrate the existing
-   `protectedApps` set to `Shield` mode with a one-time read of the old key.
-8. **Uninstalled apps.** Prune package names that no longer resolve, on catalog load.
-9. **Tester instructions.** Document how to enable the service on sideloaded builds, based on G4.
+   leaves the phone, and how to turn it off. G2 decides the exact wording. The same text goes into
+   the Play declaration.
+6. **Per-item mode.** Replace the checkbox on Protect with a mode per app. Store it in DataStore as
+   a map from package to mode. Migrate the existing `protectedApps` set to "Only during focus",
+   which matches what Phase 1 promised, with a one-time read of the old key.
+7. **5-item limit.** `ProtectViewModel` checks `canAdd(plan, ProtectedItems, count)` before
+   protecting another app. At the limit, show the calm message from `BUSINESS_MODEL.md` section 4,
+   with no mention of plus. If the migrated set has more than 5 apps, keep them all and block only
+   new additions until the count drops below 5.
+8. **Uninstalled apps.** Prune package names that no longer resolve, on catalog load. This frees slots.
+9. **Onboarding.** Update the "how it works" step to describe what Shield really does. Keep the
+   permission optional during onboarding, and ask in context on Protect.
+10. **Tester instructions.** Document how to enable the service on sideloaded builds, based on G4.
 
 ### Dependencies
 
-- Phase 2 permission helpers and UI test infrastructure.
+- Phase 2: permission helpers, UI test infrastructure, entitlement core.
 - Passed gates G1–G4.
+
+### Android limitations
+
+- Shield works only while the accessibility service is on. The person, the OEM or Android itself
+  can turn it off (G3).
+- The service sees window changes, not intentions. Some OEM launchers and split-screen setups may
+  report events late. G1 measures this.
+- Force-stopping aurora turns the accessibility service off. Only the person can turn it back on.
+- After a reboot, the service connects some time after boot. It took about 29 s on the emulator. Apps
+  opened before that are not shielded.
 
 ### Acceptance criteria
 
-- With the service enabled and a session running, opening a protected app from every entry point
-  listed in G1 shows the Shield. P90 latency is under 300 ms on the reference mid-range device.
+- With the service enabled, opening a protected app from every entry point listed in G1 shows the
+  Shield. P90 latency is under 300 ms on the reference mid-range device.
 - "Close app" lands on the home screen. Back from the Shield never reveals the protected app.
-- When the service is disabled (by the person, by the system or after a crash), every surface
-  shows `NeedsPermission` within one resume, and nothing claims protection.
+- When the service is disabled, every surface shows `NeedsPermission` within one resume, and
+  nothing claims protection.
 - No Shield appears for aurora, the launcher, system UI, the keyboard, or phone and emergency flows.
 - The service holds no work when no rule is active: no wake locks and no polling.
+- On Free, a 6th item can't be added, and the message offers removing an item.
 - Copy passes the voice rules in `BRAND.md`.
 
 ### Testing
 
-- **Unit:** `decide()` truth table: protected or not, session or not, session just ended, app
+- **Unit:** `decide()` truth table: protected or not, mode, session or not, session just ended, app
   uninstalled, aurora itself, launcher.
-- **Unit:** the migration from `protectedApps` to per-app modes.
-- **Instrumented:** a UiAutomator test that protects a stock emulator app (for example Clock),
-  starts a session, opens the app and asserts that the Shield is visible. Enable the service in
-  test setup with `adb shell settings put secure enabled_accessibility_services …`.
-- **Manual matrix:** the three G1 devices. Check reboot, force-stop of aurora, low-memory kill
-  and split-screen.
+- **Unit:** every `decide()` case gives the same result under `Free` and `Plus`.
+- **Unit:** migration from `protectedApps`, including a migrated set larger than 5.
+- **Compose UI:** the limit message at 5 items. With the debug switch on `Plus`, a 6th item is added.
+- **Instrumented:** a UiAutomator test that protects a stock emulator app (for example Clock), opens
+  it and asserts that the Shield is visible. Enable the service in test setup with
+  `adb shell settings put secure enabled_accessibility_services …`. Create `UiAutomation` with
+  `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`. Otherwise it turns the service off, and so does
+  `uiautomator dump`.
+- **Manual matrix:** the three G1 devices. Check reboot, force-stop of aurora, low-memory kill and
+  split-screen.
 
 ---
 
-## Phase 4: Intent
+## Phase 4: Protection modes and Intent
 
-**Goal.** For apps in Intent mode, aurora asks for a moment before the app opens, then lets the
-person in for a time they choose.
+**Goal.** Every protected item gets the everyday behaviour the person chooses: Flexible, Friction,
+Cooldown or Intent.
 
 **Gates:** none of its own. It relies on the Shield surface that passed G1.
+**Free limit wired:** 3 Intent apps.
 
 ### Tasks
 
-1. **Intent flow** on the Shield surface:
-   1. A breath: the glow brightens over one 4.2 s breath. With reduced motion, a static glow and
-      "Take a breath" with a plain 4-second label.
-   2. A question: "What are you opening Instagram for?" with quick choices (for example
-      "A message", "Something specific", "Just browsing") and an optional short text.
+1. **Friction.** The Shield's "Continue" appears after a wait: one 4.2 s breath by default, or a
+   length the person chooses. With reduced motion, a static glow and a plain countdown label.
+2. **Cooldown.** Each opening allows a set time (for example 10 minutes). Then the app closes and
+   stays shielded for a cooldown (for example 30 minutes). The Shield shows when the app opens
+   again. Opening during the cooldown needs a Friction wait (`BUSINESS_MODEL.md` Q9). Store the
+   cooldown timers in DataStore.
+3. **Intent flow** on the Shield surface:
+   1. A breath, as in Friction.
+   2. A question: "What are you opening Instagram for?" with quick choices ("A message",
+      "Something specific", "Just browsing") and an optional short text.
    3. A choice of time: 5, 10 or 15 minutes, using `ChoicePills`.
-   4. Two actions: "Open for 5 min" (Secondary) and "Not now" (Primary). The intentional choice
-      is the Primary action.
-2. **Grants.** Opening creates a grant `{ package, until }` in DataStore. `decide()` returns
-   `Allow` while a grant is open. When it expires and the app is still in front, Intent appears
-   again with "Your 5 minutes are up".
-3. **Events.** Record each Intent outcome (opened or not, reason, minutes) for Insights and Light.
-   They are stored in Room from Phase 5. If Phase 4 ships first, keep outcomes in memory only
-   and note it in the code.
-4. **Retire** the "Pause before opening" `ComingSoonRow`.
+   4. Two actions: "Open for 5 min" (Secondary) and "Not now" (Primary). The intentional choice is
+      the Primary action.
+4. **Grants.** Opening through Intent creates a grant `{ package, until }` in DataStore. `decide()`
+   returns `Allow` while a grant is open. When it expires and the app is still in front, Intent
+   appears again with "Your 5 minutes are up".
+5. **3 Intent apps.** The mode picker checks `canAdd(plan, IntentApps, count)` before switching an
+   app to Intent. At the limit, Intent shows as unavailable with the reason. The other modes stay
+   available for every item.
+6. **Events.** Record each shield and Intent outcome (continued or not, reason, minutes) for
+   Insights and Light. They are stored in Room from Phase 5. If Phase 4 ships first, keep outcomes
+   in memory only and note it in the code.
+7. **Retire** the "Pause before opening" `ComingSoonRow`.
+
+### Android limitations
+
+- A timer set by aurora can't close another app by itself. When a grant or Cooldown opening ends,
+  the next foreground event shows the Shield. If the person stays in the app with no new window
+  events, the service re-checks on its next event, or aurora's own alarm wakes it (decided with G6).
 
 ### Acceptance criteria
 
-- An app in Intent mode never opens without the breath, unless an open grant exists.
-- Grants survive process death and are honoured to the minute.
-- "Not now" is the visually primary action. "Open" is always available outside strict mode.
-- Reduced motion shows no movement at all in the flow.
+- Each mode behaves as defined in `BUSINESS_MODEL.md` 3.2, and the same way on both plans.
+- An Intent app never opens without the breath, unless an open grant exists.
+- Grants and cooldowns survive process death and are honoured to the minute.
+- "Not now" is the visually primary action.
+- On Free, a 4th Intent app can't be set, and the other modes still can.
+- Reduced motion shows no movement at all in Friction or Intent.
 - TalkBack reads the question, the choices and the time, and the breath doesn't block focus.
 
 ### Testing
 
-- **Unit:** grant expiry at `until - 1`, `until` and `until + 1`, overlapping grants, clock changes.
-- **Compose UI:** the full flow in both themes, with reduced motion on and off.
-- **Instrumented:** open, wait for expiry (shortened with a debug-only duration), see Intent again.
+- **Unit:** Friction wait, Cooldown timing at the boundaries, grant expiry at `until - 1`, `until`
+  and `until + 1`, overlapping grants, clock changes.
+- **Unit:** the Intent limit under both plans.
+- **Compose UI:** each mode's Shield in both themes, with reduced motion on and off.
+- **Instrumented:** open, wait for expiry (shortened with a debug-only duration), see the Shield again.
 
 ---
 
-## Phase 5: Focus, enforced
+## Phase 5: Focus, enforced, with profiles
 
-**Goal.** A focus session protects the person even when aurora is closed, ends with a gentle
-notification, and is remembered.
+**Goal.** A Focus session protects the person even when aurora is closed, ends with a gentle
+notification, is remembered, and can be saved as a profile.
 
-**Gates:** G5 blocks the countdown notification. G6 blocks the end-alarm design. The Room and
-enforcement work can start without them.
+**Gates:** G5 blocks the countdown notification. G6 blocks the end-alarm design. Room, enforcement
+and profiles can start without them.
+**Free limit wired:** 1 Focus profile. Basic sessions stay unlimited.
 
 ### Tasks
 
-1. **Room.** Add the database with a `focus_session` table (start, planned duration, actual end,
-   intention, outcome: completed or ended early) and a `shield_event` table (time, target, kind,
-   outcome). Export the schema to `app/schemas/` and test migrations from version 1 onward.
+1. **Room.** Add the database with `focus_session` (start, planned duration, actual end, intention,
+   profile, outcome), `shield_event` (time, target, kind, outcome) and `focus_profile` (name,
+   default length, items, Lockdown flag) tables. Export the schema to `app/schemas/` and test
+   migrations from version 1 onward.
 2. **Session lifecycle.** On "Begin focus":
    - write the session (existing DataStore keys) and a Room row;
    - post an ongoing countdown notification (mechanism from G5);
@@ -437,35 +530,44 @@ enforcement work can start without them.
 
    On completion or early end: update the Room row, cancel the alarm and notification, and post
    "Time well spent" on completion.
-3. **Permissions.** Ask for `POST_NOTIFICATIONS` (API 33+) in context, at the first session start.
+3. **Profiles.** The default profile covers all protected items and the person's default length.
+   Free can edit it but can't add a second (`canAdd(plan, FocusProfiles, count)`). The Lockdown flag
+   on a profile is built in Phase 6.
+4. **Permissions.** Ask for `POST_NOTIFICATIONS` (API 33+) in context, at the first session start.
    If it is denied, the session still works and the setup screen says the end won't be announced.
-   Ask for exact alarms only if G6 shows aurora qualifies and the person turns on "exact end time"
-   in Settings.
-4. **Boot.** A `RECEIVE_BOOT_COMPLETED` receiver re-posts the notification and re-arms the alarm
-   for a running session, or completes it if it ended while the phone was off.
-5. **Enforcement copy.** The Running screen, the Today hero and the notification state which apps
+   Ask for exact alarms only if G6 shows aurora qualifies and the person turns on "exact end time".
+5. **Boot.** A `RECEIVE_BOOT_COMPLETED` receiver re-posts the notification and re-arms the alarm for a
+   running session, or completes it if it ended while the phone was off.
+6. **Enforcement copy.** The Running screen, the Today hero and the notification state which items
    are shielded, based on `ProtectionStatus`.
-6. **Completion.** The Complete phase reads from Room, so the completion moment appears exactly
-   once, even if aurora was closed when the session ended.
+7. **Completion.** The Complete phase reads from Room, so the completion moment appears exactly once,
+   even if aurora was closed when the session ended.
 
 ### Dependencies
 
 - Phase 3. Room runtime and the KSP plugin (new dependencies).
 
+### Android limitations
+
+- Without exact-alarm access, Android may deliver the end alert late in Doze (G6 measures how late).
+- Notifications need the person's permission on Android 13+.
+
 ### Acceptance criteria
 
-- A session left with aurora swiped away still shields protected apps and shows a live countdown
-  in the notification shade.
-- The end is announced on time with exact alarms, or within the delay G6 measured without them.
-  The completion moment is correct when aurora next opens either way.
+- A session left with aurora swiped away still shields its items and shows a live countdown in the
+  notification shade.
+- The end is announced on time with exact alarms, or within the delay G6 measured without them. The
+  completion moment is correct when aurora next opens either way.
 - Reboot during a session keeps the session and the countdown, or completes it correctly.
 - Denying notifications never breaks a session.
 - Each session is in Room with the correct outcome.
+- On Free, any number of sessions can run (one at a time), and a second profile can't be added.
 
 ### Testing
 
-- **Unit:** session state machine with an injectable clock: start, early end, completion,
-  completion while the device is off, a double start.
+- **Unit:** session state machine with an injectable clock: start, early end, completion, completion
+  while the device is off, a double start.
+- **Unit:** the profile limit under both plans.
 - **Room:** `MigrationTestHelper` for every schema version.
 - **Instrumented:** start a 1-minute debug session, kill the process, verify the notification and
   alarm (`adb shell dumpsys alarm`), then the completion.
@@ -473,198 +575,177 @@ enforcement work can start without them.
 
 ---
 
-## Phase 6: Schedules, time limits and strict mode
+## Phase 6: Schedules, daily limits and Lockdown
 
-**Goal.** Protection that holds without remembering to start a session. This retires the
-remaining "On the way" rows.
+**Goal.** Protection that holds without remembering to start a session, and a Lockdown that holds
+when it matters. This retires the remaining "On the way" rows.
 
 **Gates:** none of its own.
+**Free limits wired:** 1 recurring schedule, 3 daily app-limit rules, 120 Lockdown minutes per local day.
 
 ### Tasks
 
-1. **Schedules.** A schedule has a name, days of the week, a start and end time (it may cross
-   midnight), a set of apps and a mode (Shield or Intent). Store schedules in Room. `decide()`
-   evaluates them against local time at each event.
-2. **Time limits.** A daily minute budget per app, reset at local midnight. Today's usage comes
-   from `foregroundTime()` with Usage access. Cache it per package and update it from service
-   events, so each app switch does not query a whole day of events. When the budget runs out,
-   `decide()` returns Shield with "You've used your 30 minutes of YouTube today". Without Usage
-   access, the limits UI explains why limits are unavailable and offers the permission.
-3. **Strict mode.** A commitment `{ until, scope }` stored in DataStore. While it is active:
-   - "End session", "Open anyway" and the Intent "Open" action are hidden;
-   - the scope's apps, schedules and limits can't be edited or deleted in aurora;
-   - Settings in aurora shows exactly what strict mode cannot stop: uninstalling aurora, turning
-     off the accessibility service in Android Settings, safe mode and `adb`.
+1. **Recurring schedules.** A schedule has a name, days of the week, a start and end time (it may
+   cross midnight) and a Focus profile. Store schedules in Room. `decide()` evaluates them against
+   local time at each event. Free can create 1 (`canAdd(plan, Schedules, count)`).
+2. **Daily app-limit rules.** A daily minute budget for one app or a group, reset at local midnight.
+   Usage comes from `foregroundTime()` with Usage access. Cache it per package and update it from
+   service events, so each app switch doesn't query a whole day of events. A spent budget shields
+   with Friction until midnight (`BUSINESS_MODEL.md` Q3). Free can create 3 rules. Without Usage
+   access, the limits screen explains why limits are unavailable and offers the permission.
+3. **Lockdown.** A commitment `{ until, scope }` in DataStore. It starts from a profile with the
+   Lockdown flag, from a schedule, or from "Lock now". While it is active:
+   - `decide()` returns `Shield(wayThrough = None)` for items in scope;
+   - "End session" and every way through are hidden;
+   - the scope's items, profiles, schedules and limits can't be edited or deleted in aurora;
+   - Settings and the Lockdown screen say plainly what Lockdown can't stop: uninstalling aurora,
+     turning off the accessibility service, safe mode and `adb`.
 
    D5 decides whether to also shield Android's own settings screens. The default is no.
-4. **Protect tab redesign.** Sections "Apps", "Schedules" and "Limits", each a `RowGroup` with live
-   status. A "Websites" `ComingSoonRow` may stay until 1.1. Build the schedule editor from existing
-   components: `ChoicePills` for days and a Material 3 time picker themed through `toMaterial()`.
-5. **Today.** Show the current or next schedule ("Work until 17:00") in the status pill.
-6. **Optional notifications.** A quiet notice when a schedule starts. Off by default.
+4. **Lockdown ledger.** A DataStore record of the local date and minutes used, following the rules in
+   `BUSINESS_MODEL.md` 3.4: reserve at start, refund early ends outside aurora's control, reset at
+   local midnight, and for schedules run Lockdown for the minutes left and then continue as a basic
+   session. The length picker shows the minutes left today on Free.
+5. **Protect tab redesign.** Sections "Items", "Schedules", "Limits" and "Lockdown", each a
+   `RowGroup` with live status. A "Websites" `ComingSoonRow` may stay until 1.1. Build the schedule
+   editor from existing components: `ChoicePills` for days and a Material 3 time picker themed
+   through `toMaterial()`.
+6. **Today.** Show the current or next schedule ("Work until 17:00") and any active Lockdown in the
+   status pill.
+7. **Optional notifications.** A quiet notice when a schedule starts. Off by default.
+
+### Android limitations
+
+- Lockdown can't stop uninstalling, disabling the service, safe mode or `adb`, on either plan.
+- Daily limits and the Lockdown budget use the device clock. Changing the date or time can reset
+  them. This is accepted for 1.0 (`BUSINESS_MODEL.md` section 7).
+- Limits need Usage access.
 
 ### Acceptance criteria
 
-- A schedule from 22:00 to 07:00 shields at 23:59 and 00:01 on the right days, across DST changes
-  and time-zone changes.
+- A schedule from 22:00 to 07:00 shields at 23:59 and 00:01 on the right days, across DST and
+  time-zone changes.
 - A limit shields within one app switch after the budget runs out, and resets at local midnight.
-- In strict mode, no path inside aurora ends the commitment early, and the UI never implies that
-  uninstalling or disabling the service is blocked.
-- Overlapping rules resolve in one documented order: strict, then Shield, then Intent, then Allow.
+- During Lockdown, no path inside aurora opens an item in scope or ends Lockdown early, and the UI
+  never implies that uninstalling or disabling the service is blocked.
+- On Free: a Lockdown can't be longer than the minutes left today; the 121st minute of a day can't
+  be reserved; a Lockdown crossing midnight finishes as promised; a schedule longer than the budget
+  shows its "then Friction" notice and behaves that way.
+- On `Plus` (debug switch), all of these limits are absent, and protection behaves identically.
+- Overlapping rules resolve in the documented order (section 3.1).
 
 ### Testing
 
-- **Unit:** schedule evaluation with fixed `ZoneId` values: midnight crossing, DST
-  spring-forward and fall-back, a zone change during a schedule.
+- **Unit:** schedule evaluation with fixed `ZoneId` values: midnight crossing, DST spring-forward and
+  fall-back, a zone change during a schedule.
 - **Unit:** limit accounting against recorded `UsageSignal` fixtures, in the `LogicTest` style.
-- **Unit:** rule precedence in `decide()`.
-- **Compose UI:** schedule editor, limit editor, the strict-mode locked state.
+- **Unit:** Lockdown ledger: reserve, refund, midnight reset, crossing midnight, time-zone change,
+  partial schedule coverage.
+- **Unit:** rule precedence in `decide()`, and identical decisions under both plans.
+- **Compose UI:** schedule editor, limit editor, the Lockdown picker with minutes left, the locked state.
 - **Instrumented:** a schedule that starts one minute from now shields the test app.
 
 ---
 
-## Phase 7: Insights history
+## Phase 7: Insights: basic and advanced
 
-**Goal.** Insights shows a calm week, not only today: where time went, what Focus achieved, and
-how often the person chose not to open an app.
+**Goal.** Basic insights for everyone: today and the last 7 days. Advanced insights for plus:
+longer history, trends and patterns.
 
-**Gates:** G7 blocks the week view of screen time. The Focus and Intent summaries come from
-aurora's own Room data and can start without it.
+**Gates:** G7 blocks this phase's history work. The Focus and shield summaries come from aurora's
+own Room data and can start without it.
+**Free limit wired:** advanced insights are a plus `Feature`.
 
 ### Tasks
 
-1. **Week view.** Daily totals for the last 7 days from `UsageStatsManager`, computed with
-   `foregroundTime()` per day window. Use the retention G7 measured. If a day is not available,
-   say so instead of showing zero.
-2. **Focus summary.** Minutes focused per day and completed sessions, from Room.
-3. **Shield and Intent summary.** "You chose not to open Instagram 6 times this week", from Room.
-   Phrase it as a choice the person made, never as a count of failures.
-4. **Per-app detail.** Tap an app to see its week and its rules. "Add a limit" links to Phase 6.
+1. **Basic insights (Free).**
+   - Today, as now.
+   - The last 7 days of screen time, computed with `foregroundTime()` per day window from the
+     history G7 confirmed. If a day isn't available, say so instead of showing zero.
+   - Focus minutes per day and completed sessions, from Room.
+   - "You chose not to open Instagram 6 times this week", from Room. Phrase it as the person's
+     choice, never as a count of failures.
+2. **Daily totals (D14).** If D14 says yes, store one row per app per day (package, date, minutes) in
+   Room, for every person, so plus has history from the day it is bought. Update the Settings
+   Privacy dialog, `ARCHITECTURE.md` and onboarding, which currently say screen time is never stored.
+3. **Advanced insights (plus).** 30-day and 90-day views, a trend for each app, time-of-day patterns
+   and comparisons with the person's own past weeks. Shown when `has(plan, AdvancedInsights)`.
+   Before Phase 11, Free sees no mention of them.
+4. **Per-app detail.** Tap an app to see its week (and longer on plus) and its rules. "Add a limit"
+   links to Phase 6.
 5. **Charts.** Simple bars drawn with Compose `Canvas` in the existing `UsageBar` style. No chart
    library. The brand avoids dense charts.
-6. **Privacy.** Usage stays computed and is never stored. Only aurora's own Focus and Shield events
-   live in Room. Update the Privacy dialog in Settings to match.
-7. **Data controls.** "Delete history" in Settings clears the Room history tables.
+6. **Data controls.** "Delete history" in Settings clears every history table.
+
+### Android limitations
+
+- Android keeps limited usage history (G7). History before aurora started storing daily totals can't
+  be recovered.
+- aurora's totals can differ slightly from Digital Wellbeing. The existing footnote stays.
 
 ### Acceptance criteria
 
-- The week view matches the sum of per-day computations for the same windows.
+- The 7-day view matches the sum of per-day computations for the same windows.
 - Days without available data are labelled, not shown as zero.
+- Advanced views appear only under `Plus`, and the basic views are identical on both plans.
 - No copy compares the person to others or uses alarming language.
-- "Delete history" empties all history tables, and Insights updates immediately.
+- "Delete history" empties every history table, and Insights updates immediately.
 
 ### Testing
 
 - **Unit:** day-window splitting across midnight and DST, using `foregroundTime()` fixtures.
 - **Unit:** aggregation queries with an in-memory Room database.
-- **Screenshot:** an empty week, a partial week and a full week, in both themes and at 200% font.
+- **Screenshot:** an empty, partial and full week, and an advanced 30-day view, in both themes and at
+  200% font.
 
 ---
 
-## Phase 8: Light (gamification)
+## Phase 8: Light: goals, streaks and challenges
 
 **Goal.** Make intentional use feel rewarding in aurora's own language, light rising out of the
 dark, with no pressure and no loss.
 
 **Gates:** none.
+**Free limit wired:** challenges are a plus `Feature`. Goals and streaks are Free.
 
 ### Tasks
 
-1. **Points of light.** Each completed Focus session and each "Not now" in Intent adds a point of
-   light. Sessions ended early still add light for the minutes focused.
-2. **Your sky.** A section in Insights draws the week as a horizon. Points of light sit above it,
-   and the `HorizonGlow` intensity rises with the week's light. It is static under reduced motion.
-3. **First lights.** Quiet milestones, shown once in the completion moment: the first session, the
-   first hour focused, the first week with a session every day. They use warm Dawn colours.
-4. **Gentle weekly intention.** An optional goal, for example "Focus 3 times this week", shown as a
-   row of dots. Days without a session are simply empty. Nothing resets.
-5. **Opt-out.** A "Show light and milestones" toggle in Settings, on by default (D9).
-6. **Pure rules.** `light/` holds the rules as pure functions over Room events. Light is computed,
-   not stored, so a rule change never corrupts history.
+1. **Points of light.** Each completed Focus session and each "Not now" adds a point of light.
+   Sessions ended early still add light for the minutes focused.
+2. **Your sky.** A section in Insights draws the week as a horizon. Points of light sit above it, and
+   the `HorizonGlow` intensity rises with the week's light. It is static under reduced motion.
+3. **Goals (Free).** Personal targets such as "Focus 3 times this week" or "Under 2 hours on social
+   apps a day", with progress shown as a row of dots.
+4. **Gentle streaks (Free).** Consecutive days with a goal met, following the rules in
+   `BUSINESS_MODEL.md` 3.7 and brand guardrail 4.
+5. **First lights.** Quiet milestones, shown once in the completion moment: the first session, the
+   first hour focused, the first week with a goal met. They use warm Dawn colours.
+6. **Challenges (plus).** Guided multi-day programs such as "A week of calm mornings", built from
+   schedules, goals and Lockdown. Shown when `has(plan, Challenges)`. A challenge can use Lockdown
+   only within the person's plan.
+7. **Opt-out.** A "Show light and milestones" toggle in Settings, on by default (D9).
+8. **Pure rules.** `light/` holds the rules as pure functions over Room events. Light, goals and
+   streaks are computed, not stored, so a rule change never corrupts history.
 
 ### Acceptance criteria
 
 - No copy, colour or animation implies loss, failure or ranking. A brand review signs this off.
-- Missing a day never reduces any number shown.
-- Light totals equal a recomputation from raw events.
+- A missed day never erases a streak's best run or total days, and no notification mentions streaks.
+- Light totals and streaks equal a recomputation from raw events.
+- Challenges appear only under `Plus`.
 - Everything works without motion and reads well with TalkBack ("12 points of light this week").
 
 ### Testing
 
-- **Unit:** light rules and milestone triggers from event fixtures, including early-ended sessions.
-- **Screenshot:** empty, typical and full sky, in both themes and with reduced motion.
+- **Unit:** light, goal and streak rules from event fixtures, including early-ended sessions, rest
+  days, a missed day, time-zone changes.
+- **Unit:** a challenge's progress from fixtures.
+- **Screenshot:** empty, typical and full sky; a streak after a missed day; a challenge in progress;
+  in both themes and with reduced motion.
 
 ---
 
-## Phase 9: aurora plus (premium subscriptions)
-
-**Goal.** A fair subscription that funds aurora, sold with the same honesty as the rest of the
-product.
-
-**Gates:** G8 blocks this phase.
-
-### Tasks
-
-1. **Free and plus split (D2, settled).** Basic protection and intentional opening stay free.
-   Advanced features are reserved for aurora plus. Exact limits are decided after user testing in
-   Phase 11's closed test. The starting split for that test:
-
-   | Free | aurora plus |
-   | --- | --- |
-   | Shield for apps (basic protection) | Everything in free |
-   | Intent (pause before opening) | Schedules beyond a basic one |
-   | Focus sessions with Shield | Time limits |
-   | Today's Insights | Strict mode |
-   | Light | Insights history and per-app detail |
-   | | Website filtering and content blocking, when they ship in 1.1 |
-
-   Open questions for user testing: whether free has a cap on protected apps and what it is,
-   whether one schedule is free, and the trial length. Keep each limit as one named constant in
-   `billing/`, so changing it after testing is a one-line change.
-2. **Billing.** Add the Google Play Billing Library behind one small class in `billing/`. It
-   connects, queries products, launches the purchase flow, acknowledges purchases within the
-   required window, and exposes `entitlement: StateFlow<Entitlement>`.
-   Products: monthly and annual subscriptions, with an optional trial on annual (D10).
-3. **Entitlement without a backend.** Trust Play Billing's purchase state, cached in DataStore with
-   a "last confirmed" time. Recheck on start and on resume, and keep plus for a grace period while
-   offline. Record the trade-off: without server verification, a determined person can bypass the
-   check. That is acceptable for 1.0.
-4. **Lapse behaviour.** If the subscription ends, plus-only rules **pause** with a clear notice.
-   They are not deleted, and they come back on renewal. A running Focus session or strict-mode
-   commitment always finishes as promised.
-5. **Paywall.** One calm screen built from `AuroraScreen`, `RowGroup` and one Primary button. It
-   lists what plus adds, the real price from Play, the renewal terms, "Restore purchases" and a
-   link to manage the subscription in Play. It opens from upgrade points and from Settings. It
-   never opens during Focus or a Shield moment.
-6. **Settings.** An "aurora plus" row with status, renewal date and "Manage subscription".
-7. **Privacy claims.** Apply the G8 result: if Billing adds network permissions, rewrite every
-   privacy claim (README, the Settings Privacy dialog, onboarding, the Play listing and Data
-   safety) before release. Do not strip a permission Billing needs.
-
-### Dependencies
-
-- Play Console products and license testers. Phases 3–8 for the features to gate.
-
-### Acceptance criteria
-
-- Purchase, restore, cancel, grace period, account hold and expiry all leave the app in the
-  correct state, with no lost rules.
-- Every purchase is acknowledged in time.
-- Turning protection off, ending a non-strict session and deleting data are never paywalled.
-- Basic protection and Intent work fully without a subscription.
-- The paywall passes the brand review: no urgency tricks, and the real price is shown.
-
-### Testing
-
-- **Unit:** entitlement state machine (unknown, active, grace, lapsed, restored) with a fake billing
-  client, and the "pause, don't delete" logic.
-- **Play testing:** license-tester accounts, test cards and accelerated renewal periods on
-  internal testing.
-- **Manual:** airplane mode during and after a purchase, and a reinstall followed by restore.
-
----
-
-## Phase 10: Hardening
+## Phase 9: Hardening
 
 **Goal.** aurora feels premium on every device: accessible, fast, translated and stable on
 Android 17.
@@ -673,14 +754,16 @@ Android 17.
 
 ### Tasks
 
-1. **Accessibility audit.** TalkBack, Switch Access, 200% font scale and display size, and
-   colour contrast on every new screen against the `BRAND.md` thresholds.
+1. **Accessibility audit.** TalkBack, Switch Access, 200% font scale and display size, and colour
+   contrast on every new screen against the `BRAND.md` thresholds.
 2. **Localisation.** Move copy to `strings.xml` with plurals. Start with English, and add languages
-   after D11. Test pseudo-locales (`en-XA`, `ar-XB`) for length and right-to-left layout.
+   after D11. Test pseudo-locales (`en-XA`, `ar-XB`) for length and right-to-left layout. Format
+   rupee prices with the locale's currency formatting.
 3. **Performance.** Add a baseline profile and a Macrobenchmark module for cold start and Shield
    latency. If profiles show it matters, cache `AppCatalog.launchableApps()` with a package-change
    receiver, which resolves the `ponytail:` note in `AppCatalog.kt`.
-4. **Battery.** Measure a full day with Shield, schedules and limits on, using Battery Historian.
+4. **Battery.** Measure a full day with Shield, schedules, limits and Lockdown on, using Battery
+   Historian.
 5. **OEM resilience.** In-app guidance for OEMs that kill or disable accessibility services.
 6. **Android 17.** Test on API 37, review its behaviour changes, then raise `targetSdk` to 37.
 7. **Backup (D12).** Keep no cloud backup, or add an explicit, opt-in local export of rules and
@@ -702,129 +785,200 @@ Android 17.
 
 ---
 
-## Phase 11: Release 1.0
+## Phase 10: Closed beta
 
-**Goal.** Ship 1.0 on Google Play with every declaration approved and a staged rollout.
+**Goal.** Put the complete free product in real hands, prove reliability across devices, and get
+the Play policy declarations reviewed before billing is added.
 
-**Gates:** G9 sets the schedule. Every passed gate is re-checked against the current Android
-release and Play policy before submission.
+**Gates:** G9 sets the length and size of the test.
 
 ### Tasks
 
-1. **Signing.** Create the upload key, enrol in Play App Signing, and read the release signing
-   config from environment variables. Never commit keys. `.gitignore` already excludes `*.jks`
-   and `*.keystore`.
-2. **R8.** Check the keep rules for Room, Billing and the accessibility service. Run the release
-   build through the full test matrix.
-3. **Play Console declarations.**
-   - Accessibility API: the declaration form, the in-app prominent disclosure and a video of the
-     disclosure and the feature.
-   - Usage access: a justification in the listing and the disclosure.
-   - Exact alarms: only if G6 showed aurora qualifies and uses them.
-   - Data safety: based on the G8 result.
-   - A privacy policy URL. This needs a hosted page that follows `BRAND.md`.
-4. **Store listing.** Screenshots from the final screenshot-test set, in both themes. Copy in the
-   brand voice: lowercase "aurora", no overclaiming, a clear note on what strict mode can and cannot
-   do, and no mention of website or content blocking until 1.1 ships.
-5. **Testing tracks.** Internal testing, then closed testing (length and size from G9), then
-   production with a staged rollout: 5%, 20%, 50%, 100%.
-6. **User testing for D2.** Use the closed test to settle the free limits and the trial length.
-   Update the constants and this roadmap before production.
-7. **Crash visibility without an SDK.** Use Play Console vitals only, which keeps the no-analytics
-   promise.
-8. **Docs.** Update `README.md`, `ARCHITECTURE.md` (Room, services, billing) and this roadmap.
+1. **Signing.** Create the upload key, enrol in Play App Signing, and read the release signing config
+   from environment variables. Never commit keys. `.gitignore` already excludes `*.jks` and
+   `*.keystore`.
+2. **R8.** Check the keep rules for Room and the accessibility service. Run the release build through
+   the full test matrix.
+3. **Declarations.** Submit the Accessibility API declaration (form, in-app disclosure, video), the
+   Usage access justification, and a draft Data safety form, so Play reviews them on the closed track.
+4. **Privacy policy page.** A hosted page that follows `BRAND.md`. Play requires a URL.
+5. **Closed testing track.** Recruit testers as G9 requires. Give them a short, calm feedback channel
+   outside the app (aurora has no analytics). Use Play Console vitals for crashes and ANRs.
+6. **Business checks.** Watch where testers hit Free limits and what they say about them. Report this
+   for the D2 review. The limits themselves change only by a decision recorded in `BUSINESS_MODEL.md`.
+
+### Acceptance criteria
+
+- The closed track runs for the period G9 requires, with no open crash or ANR above the Phase 12
+  thresholds.
+- Play has reviewed the accessibility declaration with no unresolved issue.
+- Shield reliability holds on at least 10 different device models.
+
+### Testing
+
+- Full manual matrix on testers' devices, guided by a written test script.
+- Weekly regression of the nightly emulator suite on the beta build.
+
+---
+
+## Phase 11: aurora plus: billing and subscriptions
+
+**Goal.** Make aurora plus purchasable and switch the plan source from the constant `Free` to Play
+Billing, with the honesty the rest of the product has.
+
+**Gates:** G8 blocks the phase. G13 blocks product setup.
+
+### Tasks
+
+1. **Products.** Create two subscriptions in Play Console: monthly at ₹149 and yearly at ₹1,199 in
+   India. Set other markets and any trial from `BUSINESS_MODEL.md` (Q5, Q6) before launch.
+2. **Billing.** Add the Google Play Billing Library behind one small class in `billing/`. It
+   connects, queries products, launches the purchase flow, acknowledges purchases within the required
+   window, and feeds the plan source from Phase 2. Nothing else in the app talks to Billing.
+3. **Entitlement without a backend.** Trust Play Billing's purchase state, cached in DataStore with a
+   "last confirmed" time. Recheck on start and on resume, and keep plus for a grace period while
+   offline. Record the trade-off: a modified app can bypass the check (`BUSINESS_MODEL.md` section 7).
+4. **Downgrade.** Implement `BUSINESS_MODEL.md` section 5.4: running sessions and Lockdowns finish,
+   extras pause (the person chooses which stay active, oldest first by default), nothing is deleted,
+   and renewal restores everything.
+5. **Paywall.** One calm screen built from `AuroraScreen`, `RowGroup` and one Primary button. It lists
+   what plus adds (never cloud sync until it exists), the real price from Play, the renewal terms,
+   "Restore purchases" and a link to manage the subscription in Play. It opens from limit messages
+   (as a Quiet link) and from Settings. It never opens during Focus, a shield moment or Lockdown.
+6. **Limit messages.** Add the Quiet "aurora plus" link to every limit message built in Phases 3–8.
+7. **Settings.** An "aurora plus" row with status, renewal date and "Manage subscription".
+8. **Privacy claims.** Apply the G8 result. If Billing adds network permissions, rewrite every privacy
+   claim (README, the Settings Privacy dialog, onboarding, the store listing and Data safety).
+
+### Dependencies
+
+- Play Console products and license testers. Phases 2–10.
+
+### Android limitations
+
+- Entitlement is checked on the phone, with no server verification.
+- Play Billing needs the Play Store app. Devices without Play can only use Free.
+
+### Acceptance criteria
+
+- Purchase, restore, cancel, grace period, account hold and expiry all leave the app in the correct
+  plan, with no lost rules.
+- Every purchase is acknowledged in time.
+- Downgrade follows `BUSINESS_MODEL.md` 5.4 exactly, including during a running Lockdown.
+- Protection decisions are identical before and after a purchase.
+- Turning protection off, ending a non-Lockdown session and deleting data are never paywalled.
+- The paywall passes the brand review: no urgency tricks, the real price is shown, and nothing
+  unbuilt is advertised.
+
+### Testing
+
+- **Unit:** entitlement state machine (unknown, active, grace, lapsed, restored) with a fake billing
+  client, and the downgrade logic with more items, rules, schedules and profiles than Free allows.
+- **Play testing:** license-tester accounts, test cards and accelerated renewal periods on internal
+  testing.
+- **Manual:** airplane mode during and after a purchase, a reinstall followed by restore, and a
+  subscription lapsing during a Lockdown.
+
+---
+
+## Phase 12: Release 1.0
+
+**Goal.** Ship 1.0 on Google Play with every declaration approved and a staged rollout.
+
+**Gates:** every passed gate is re-checked against the current Android release and Play policy
+before submission.
+
+### Tasks
+
+1. **Second closed round.** Run the billing build on the closed track until purchase and downgrade
+   flows are proven.
+2. **Final declarations.** Accessibility API, Usage access, exact alarms (only if G6 showed aurora
+   qualifies), Data safety based on G8, subscription disclosures.
+3. **Store listing.** Screenshots from the final screenshot-test set, in both themes. Copy in the
+   brand voice: lowercase "aurora", no overclaiming, what Lockdown can and can't do, the Free and plus
+   comparison from `BUSINESS_MODEL.md`, and no mention of websites, content blocking or cloud sync.
+4. **Rollout.** Production with a staged rollout: 5%, 20%, 50%, 100%.
+5. **Docs.** Update `README.md`, `ARCHITECTURE.md` (Room, services, entitlements, billing),
+   `BUSINESS_MODEL.md` and this roadmap.
 
 ### Acceptance criteria
 
 - All Play declarations approved, and the listing live.
 - Crash-free users at or above 99.5% and ANR rate under 0.47% across the staged rollout.
-- The free limits are set from closed-test results and recorded in section 9.
-- README, ARCHITECTURE and in-app copy describe the shipped product exactly.
+- README, ARCHITECTURE, BUSINESS_MODEL and in-app copy describe the shipped product exactly.
 
 ---
 
-## Phase 12: Website filtering (1.1)
+## Phase 13: Website filtering and supported content blocking (1.1)
 
-**Goal.** Shield chosen websites in supported browsers, using accessibility and no VPN (D4).
+**Goal.** Shield chosen websites in supported browsers, and specific distracting surfaces inside
+supported apps, with no VPN and no network access (D4). It may ship as two releases.
 
-**Gates:** G10 blocks the whole phase. G11 blocks each browser on its own: a browser that fails
-G11 is not offered.
+**Gates:** G10 blocks websites. G11 blocks each browser on its own: a browser that fails isn't offered.
+G12 blocks each content surface on its own.
+**Free limit wired:** websites join the 5-item pool, so apps and websites share it.
 
-### Tasks
+### Tasks: websites
 
-1. **Service upgrade.** Set `canRetrieveWindowContent=true` and listen to
-   `TYPE_WINDOW_CONTENT_CHANGED` **only for the packages of supported browsers**, using a package
-   filter set at runtime. Update the disclosure text and the Play declaration.
-2. **Browser readers.** One small reader per browser that passed G11. It finds the address-bar node
-   and returns the host. Candidates: Chrome, Samsung Internet, Firefox, Edge, Brave and DuckDuckGo
-   (D6). Keep the view IDs in one table in code, so an update to a browser is a one-line fix.
-3. **Domain matching.** `host == domain || host.endsWith(".$domain")`, after lower-casing and
-   removing `www.`. No public-suffix list is needed for this rule.
-4. **Action.** On a match, show the Shield with the domain ("example.com is on your list"). Then
-   use `GLOBAL_ACTION_BACK`, or go home if the page can't be left.
+1. **Service upgrade.** Set `canRetrieveWindowContent=true` and listen to `TYPE_WINDOW_CONTENT_CHANGED`
+   **only for the packages of supported browsers**, using a package filter set at runtime. Update the
+   disclosure text and the Play declaration.
+2. **Browser readers.** One small reader per browser that passed G11. It finds the address-bar node and
+   returns the host. Candidates: Chrome, Samsung Internet, Firefox, Edge, Brave and DuckDuckGo (D6).
+   Keep the view IDs in one table in code, so an update to a browser is a one-line fix.
+3. **Domain matching.** `host == domain || host.endsWith(".$domain")`, after lower-casing and removing
+   `www.`. No public-suffix list is needed for this rule.
+4. **Action.** On a match, show the Shield with the domain ("example.com is on your list") and the
+   item's mode. Then use `GLOBAL_ACTION_BACK`, or go home if the page can't be left.
 5. **Protect UI.** A "Websites" section with add, remove and validation (strip the scheme and path,
-   reject IP addresses and empty hosts). Each website can be always on, on during Focus or on a
-   schedule, through the same rules as apps. It is an aurora plus feature (D2).
-6. **Honesty.** A "Works in" list shows the supported browsers installed on this phone. An installed
-   but unsupported browser is labelled "Not supported yet". In-app browsers, custom tabs and
-   WebViews are named as not covered.
-7. **VPN.** Deferred (D4). Revisit only with a separate decision, because a local VPN filter needs
-   the `INTERNET` permission, conflicts with other VPNs and with Private DNS, and changes aurora's
-   privacy promise.
+   reject IP addresses and empty hosts). Adding a website checks `canAdd(plan, ProtectedItems, count)`
+   with apps and websites counted together.
+6. **Honesty.** A "Works in" list shows the supported browsers installed on this phone. An installed but
+   unsupported browser is labelled "Not supported yet". In-app browsers, custom tabs and WebViews are
+   named as not covered.
+7. **VPN.** Deferred (D4). A local VPN filter needs the `INTERNET` permission, conflicts with other VPNs
+   and with Private DNS, and changes aurora's privacy promise.
+
+### Tasks: supported content blocking
+
+8. **Scope (D7).** Start with the candidates that pass G12, for example YouTube Shorts and Instagram
+   Reels. Each entry names the app, the surface, the tested version range and a node signature.
+9. **Rules file.** A versioned asset (`assets/content_rules.json`). aurora has no network access, so
+   rules update only with app updates.
+10. **Matcher.** A pure function from a node-tree snapshot to the matched surface. The service listens
+    to content changes only for packages with an enabled rule.
+11. **Action.** `GLOBAL_ACTION_BACK`, then a calm Shield moment ("Shorts are paused. The rest of YouTube
+    is yours."). After two quick back attempts, go home, so the person is never trapped in a loop.
+12. **Health check.** If the installed app version is newer than the tested range, the UI says "May not
+    work with this version of YouTube".
+13. **Plan.** Content surfaces are a plus feature (D2). Add `Feature.ContentBlocking` to `plan/Plan.kt`
+    in this phase, not before.
+
+### Android limitations
+
+- Only supported browsers and tested app versions are covered. Browser and app updates can break
+  detection until aurora ships updated readers or rules.
+- Reading screen content needs a broader accessibility capability and declaration than Phase 3.
 
 ### Acceptance criteria
 
-- A blocked domain is shielded in every supported browser, in normal and private tabs, whether it
-  is typed, opened from a link or restored from a tab.
-- Subdomains match. Similar names do not: blocking `x.com` does not block `box.com`.
-- URLs, page titles and other screen text are never stored or logged. Only the matched domain rule
-  and a timestamp are stored.
-- Battery cost stays under 1% per day, measured as in Phase 10.
+- A blocked domain is shielded in every supported browser, in normal and private tabs, whether it is
+  typed, opened from a link or restored from a tab.
+- Subdomains match. Similar names don't: blocking `x.com` doesn't block `box.com`.
+- On Free, 5 items in total across apps and websites.
+- Every offered content surface is blocked on its tested versions, and the rest of the app keeps working.
+- URLs, page titles and screen text are never stored or logged.
+- Battery cost stays under 1% per day, measured as in Phase 9.
 
 ### Testing
 
 - **Unit:** domain normalisation and matching, including IDNs, trailing dots, ports, `www.` and uppercase.
-- **Unit:** reader fixtures. Save `uiautomator dump` XML from each supported browser version,
-  parse it into a node model and assert the extracted host. Keep fixtures in `app/src/test/resources/`.
+- **Unit:** readers and matchers against `uiautomator dump` fixtures in `app/src/test/resources/`,
+  positive and negative.
+- **Unit:** the shared item pool under both plans.
 - **Instrumented:** Chrome on the emulator opens a blocked domain, and the Shield appears.
-- **Release check:** re-capture fixtures for each browser's current stable version before every release.
-
----
-
-## Phase 13: Supported content blocking (1.1)
-
-**Goal.** Shield specific distracting surfaces inside apps the person still needs, such as
-short-video feeds, without blocking the whole app. Only surfaces aurora has tested are offered.
-
-**Gates:** G12 blocks each surface on its own.
-
-### Tasks
-
-1. **Scope (D7).** Start with the candidates that pass G12, for example YouTube Shorts and
-   Instagram Reels. Each entry names the app, the surface, the tested app version range and a node
-   signature (view ID, content description or class pattern).
-2. **Rules file.** Ship the rules as a versioned asset (`assets/content_rules.json`). aurora has no
-   network access, so rules update only with app updates.
-3. **Matcher.** A pure function from a node-tree snapshot to the matched surface. The service
-   listens to content changes only for packages with an enabled rule.
-4. **Action.** `GLOBAL_ACTION_BACK`, then a small, calm Shield moment ("Shorts are paused. The rest
-   of YouTube is yours."). Never trap the person in a loop. After two quick back attempts, go home.
-5. **Health check.** If the installed app version is newer than the tested range, the Protect UI
-   says "May not work with this version of YouTube" instead of claiming coverage.
-6. **Protect UI.** A "Content" section that lists only supported surfaces for installed apps.
-   It is an aurora plus feature (D2).
-
-### Acceptance criteria
-
-- Every offered surface is blocked on its tested versions, and the rest of the app keeps working.
-- No surface is offered for an app or version without a passing fixture.
-- The service ignores content events from apps with no enabled rule (checked by logging in debug builds).
-
-### Testing
-
-- **Unit:** matcher against `uiautomator dump` fixtures, both positive (the surface) and negative
-  (the home feed, search, the player, messages).
-- **Manual:** on a real device with test accounts for each supported app, before each release.
+- **Release check:** re-capture fixtures for each browser's and app's current stable version before
+  every release.
 
 ---
 
@@ -832,30 +986,36 @@ short-video feeds, without blocking the whole app. Only surfaces aurora has test
 
 | Layer | Tool | What it covers | When it runs |
 | --- | --- | --- | --- |
-| Pure logic | JUnit 4 (existing) | `decide()`, schedules, limits, grants, light rules, entitlement; domain and content matchers in 1.1 | Every push |
+| Pure logic | JUnit 4 (existing) | `decide()`, modes, grants, schedules, limits, Lockdown ledger, entitlements, light rules; matchers in 1.1 | Every push |
+| Plan parity | JUnit 4 | Every `decide()` case gives the same result under `Free` and `Plus` | Every push |
+| Limits | JUnit 4 and Compose UI | Each allowance below, at and above its limit, on both plans | Every push |
 | Persistence | Room in-memory and `MigrationTestHelper` | Queries, migrations | Every push |
-| UI | Compose UI tests | Onboarding, Focus, Intent, editors, paywall | Every push or nightly |
+| UI | Compose UI tests | Onboarding, Focus, modes, Intent, editors, limit messages, paywall | Every push or nightly |
 | Visual | Screenshot tests (D8) | Every screen, both themes, 200% font, reduced motion | Every push |
 | System | UiAutomator on emulators | Service and Shield, alarms, boot; browsers in 1.1 | Nightly, API 26 / 30 / 34 / 36 / 37 |
 | Fixtures (1.1) | `uiautomator dump` XML | Browser readers, content surfaces | Every push, re-captured before each release |
 | Performance | Macrobenchmark | Cold start, Shield latency | Weekly and before release |
-| Gates | Spikes on `spike/<gate-id>` branches | Platform and policy assumptions (section 5) | Before the dependent phase, and again before release |
+| Billing | Fake billing client, Play license testers | Entitlement states, downgrade | Every push (fake), each release (Play) |
+| Gates | Spikes on `spike/<gate-id>` branches | Platform and policy assumptions | Before the dependent phase, and again before release |
 | Manual | Device matrix | OEM behaviour, real apps, billing | Before each milestone build |
 
 Rules:
 
 - Every rule that can go wrong silently goes through a pure function with a unit test, as
   `foregroundTime()` does today.
-- Inject the clock and the time zone into all time logic. No test sleeps for real minutes.
+- Inject the clock and the time zone into all time logic, including the Lockdown ledger. No test
+  sleeps for real minutes.
+- Test plus behaviour through the debug plan switch until Phase 11.
 - Fixtures never contain personal data. Capture them with test accounts.
 
 ## 8. Out of scope
 
-- The aurora launcher, device-owner and device-admin features (`ARCHITECTURE.md` keeps them for the
-  launcher product).
-- VPN-based filtering (deferred by D4).
+- Cloud sync. It is a future aurora plus feature that needs its own decision on accounts, a backend,
+  encryption and the `INTERNET` permission (`BUSINESS_MODEL.md` section 6). It isn't advertised
+  until it exists.
+- The aurora launcher, device-owner and device-admin features.
+- VPN-based filtering (D4).
 - iOS, desktop and web apps beyond the privacy-policy page.
-- Accounts, sync and any server.
 - Parental control or monitoring of another person. aurora is for people managing their own attention.
 
 ## 9. Decisions
@@ -864,24 +1024,25 @@ Rules:
 
 | ID | Decision | Date |
 | --- | --- | --- |
-| D2 | Basic protection (Shield for apps) and intentional opening (Intent) stay free. Advanced features are reserved for aurora plus. Exact limits are finalised after user testing (Phase 11). | 2026-10-28 |
-| D4 | Website filtering starts with accessibility-based reading of supported browsers, subject to feasibility (G11) and Play policy validation (G10). VPN integration is deferred. | 2026-10-28 |
-| D13 | aurora 1.0 launches without website filtering and partial-app content blocking. 1.0 prioritises reliable app protection, intentional use, Focus and Insights. Website and content blocking move to 1.1. | 2026-10-28 |
+| D2 | The business model in `BUSINESS_MODEL.md`: aurora Free with 5 protected items, 120 Lockdown minutes a day, unlimited basic Focus, Flexible, Friction and Cooldown modes, 3 Intent apps, 3 limit rules, 1 schedule, 1 profile, and basic insights, goals and streaks. aurora plus removes those limits and adds advanced insights and challenges. Both plans get the same protection strength. | 2026-10-28 |
+| D4 | Website filtering starts with accessibility-based reading of supported browsers, subject to feasibility (G11) and Play policy (G10). VPN integration is deferred. | 2026-10-28 |
+| D10 | India prices: ₹149 a month, ₹1,199 a year. Trial and other markets are open (`BUSINESS_MODEL.md` Q5, Q6). | 2026-10-28 |
+| D13 | 1.0 launches without website filtering and partial-app content blocking. 1.0 prioritises reliable app protection, intentional use, Focus and Insights. | 2026-10-28 |
+| D3 | Superseded by D2: protected items are always on in their chosen mode, and "Only during focus" covers the session-only case. | 2026-10-28 |
 
 ### Open
 
 Each open decision has a recommended default. A phase can start with the default. The decision is
-confirmed before that phase's acceptance.
+confirmed before that phase's acceptance. Business questions Q1–Q9 are in `BUSINESS_MODEL.md` section 8.
 
 | ID | Decision | Recommended default | Needed by |
 | --- | --- | --- | --- |
 | D1 | Keep the "Protect" tab and call the moment "the shield", or rename the tab "Shield"? | Keep "Protect" (matches `BRAND.md` and the icon). Use "shield" in copy. | Phase 3 |
-| D3 | Can apps be shielded "always", or only during sessions and schedules? | Allow "always" per app | Phase 3 |
-| D5 | Should strict mode shield Android's own settings for aurora (accessibility, app info)? | No. It reads as hostile and raises policy risk. Say honestly what strict mode can't stop. | Phase 6 |
-| D6 | Candidate browsers for G11 | Chrome, Samsung Internet, Firefox, Edge, Brave, DuckDuckGo | Phase 12 |
+| D5 | Should Lockdown shield Android's own settings for aurora (accessibility, app info)? | No. It reads as hostile and raises policy risk. Say honestly what Lockdown can't stop. | Phase 6 |
+| D6 | Candidate browsers for G11 | Chrome, Samsung Internet, Firefox, Edge, Brave, DuckDuckGo | Phase 13 |
 | D7 | Candidate content surfaces for G12 | YouTube Shorts, Instagram Reels | Phase 13 |
 | D8 | Screenshot test tool | Google's Compose Preview Screenshot Testing plugin, or Roborazzi if the plugin isn't stable enough | Phase 2 |
 | D9 | Light on by default? | On, with an opt-out | Phase 8 |
-| D10 | Prices and trial | Monthly and annual, with a trial on annual. Prices set in Play after the closed test. | Phase 9 |
-| D11 | First languages after English | Decide from the beta audience | Phase 10 |
-| D12 | Backup and export | Opt-in local JSON export. Still no cloud backup. | Phase 10 |
+| D11 | First languages after English | Decide from the beta audience | Phase 9 |
+| D12 | Backup and export | Opt-in local JSON export. Still no cloud backup. | Phase 9 |
+| D14 | Store daily per-app usage totals on the phone, so advanced insights can show more than Android keeps? | Yes, for everyone, local only, deletable. It changes the "never stored" privacy copy. | Phase 7 |
