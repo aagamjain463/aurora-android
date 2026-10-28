@@ -41,6 +41,8 @@ data class UserPreferences(
     val reduceMotion: Boolean = false,
     val defaultFocusMinutes: Int = 25,
     val session: FocusSession? = null,
+    /** Where onboarding was left, so it continues there. */
+    val onboardingStep: Int = 0,
 )
 
 /** Everything aurora remembers lives here, on the device. */
@@ -55,6 +57,7 @@ class PreferencesRepository(context: Context) {
     suspend fun setThemeMode(mode: ThemeMode) = edit { it[Theme] = mode.name }
     suspend fun setReduceMotion(value: Boolean) = edit { it[ReduceMotion] = value }
     suspend fun setDefaultFocusMinutes(minutes: Int) = edit { it[FocusMinutes] = minutes }
+    suspend fun setOnboardingStep(step: Int) = edit { it[OnboardingStep] = step }
 
     suspend fun startSession(minutes: Int, intention: String, now: Long = System.currentTimeMillis()) = edit {
         it[SessionStart] = now
@@ -80,6 +83,7 @@ class PreferencesRepository(context: Context) {
         val SessionStart = longPreferencesKey("session_start")
         val SessionDuration = longPreferencesKey("session_duration")
         val SessionIntention = stringPreferencesKey("session_intention")
+        val OnboardingStep = intPreferencesKey("onboarding_step")
 
         fun Preferences.toUserPreferences(): UserPreferences {
             val start = this[SessionStart]
@@ -89,6 +93,7 @@ class PreferencesRepository(context: Context) {
                 themeMode = ThemeMode.entries.find { it.name == this[Theme] } ?: ThemeMode.System,
                 reduceMotion = this[ReduceMotion] ?: false,
                 defaultFocusMinutes = this[FocusMinutes] ?: 25,
+                onboardingStep = this[OnboardingStep] ?: 0,
                 session = if (start != null && duration != null) {
                     FocusSession(start, duration, this[SessionIntention].orEmpty())
                 } else null,

@@ -69,5 +69,20 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/shield_service" />
         </service>
+
+        <!-- Optional and separate from Shield: websites in supported browsers, and Shorts/Reels. Only the
+             person turns it on, after aurora's own disclosure (res/xml/content_service.xml). -->
+        <service
+            android:name=".protect.ContentService"
+            android:exported="true"
+            android:label="@string/content_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/content_service" />
+        </service>
     </application>
 </manifest>

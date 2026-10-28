@@ -36,7 +36,17 @@ import app.aurora.ui.focus.FocusScreen
 import app.aurora.ui.home.HomeScreen
 import app.aurora.ui.insights.InsightsScreen
 import app.aurora.ui.onboarding.OnboardingScreen
+import android.net.Uri
+import app.aurora.ui.plus.PlusScreen
+import app.aurora.ui.protect.AppPickerScreen
+import app.aurora.ui.protect.GroupsScreen
+import app.aurora.ui.protect.ItemScreen
+import app.aurora.ui.protect.LimitsScreen
+import app.aurora.ui.protect.LockdownScreen
+import app.aurora.ui.protect.ProtectRoutes
 import app.aurora.ui.protect.ProtectScreen
+import app.aurora.ui.protect.SchedulesScreen
+import app.aurora.ui.protect.WebScreen
 import app.aurora.ui.settings.SettingsScreen
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.Motion
@@ -118,17 +128,31 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onOpenProtect = { nav.selectTab(Routes.Protect) },
                     onOpenInsights = { nav.selectTab(Routes.Insights) },
                     onOpenSettings = { nav.navigate(Routes.Settings) },
+                    onOpenLockdown = { nav.navigate(ProtectRoutes.Lockdown) },
                 )
             }
-            composable(Routes.Protect) { ProtectScreen() }
-            composable(Routes.Insights) { InsightsScreen() }
+            val back: () -> Unit = { nav.popBackStack() }
+            val plus: () -> Unit = { nav.navigate(ProtectRoutes.Plus) }
+            val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
+            composable(Routes.Protect) { ProtectScreen(onOpen = { nav.navigate(it) }, onOpenItem = openItem) }
+            composable(ProtectRoutes.Apps) { AppPickerScreen(back, plus) }
+            composable("${ProtectRoutes.Item}/{key}") { entry -> ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, plus) }
+            composable(ProtectRoutes.Schedules) { SchedulesScreen(back, plus) }
+            composable(ProtectRoutes.Limits) { LimitsScreen(back, openItem) { nav.navigate(ProtectRoutes.Apps) } }
+            composable(ProtectRoutes.Groups) { GroupsScreen(back) }
+            composable(ProtectRoutes.Lockdown) { LockdownScreen(back, plus) }
+            composable(ProtectRoutes.Web) { WebScreen(back, openItem, plus) }
+            composable(ProtectRoutes.Plus) { PlusScreen(back) }
+            composable(Routes.Insights) { InsightsScreen(onPlus = plus) }
             composable(Routes.Settings) {
                 SettingsScreen(
-                    onBack = { nav.popBackStack() },
+                    onBack = back,
                     onReplayIntro = {
                         scope.launch { app.preferences.setOnboarded(false) }
                         nav.navigate(Routes.Onboarding) { popUpTo(Routes.Today) { inclusive = true } }
                     },
+                    onPlus = plus,
+                    onOpenProtect = { nav.selectTab(Routes.Protect) },
                 )
             }
             composable(
@@ -137,7 +161,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 popExitTransition = { focusExit(reduced) },
             ) {
                 // Closing waits for the session write, so a second tap can arrive after Focus has already gone.
-                FocusScreen(onClose = { if (nav.currentDestination?.route == Routes.Focus) nav.popBackStack() })
+                FocusScreen(onClose = { if (nav.currentDestination?.route == Routes.Focus) nav.popBackStack() }, onPlus = plus)
             }
         }
 

@@ -1,6 +1,7 @@
 package app.aurora
 
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
@@ -13,6 +14,8 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -40,7 +43,8 @@ class NavigationTest {
         val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
         runBlocking {
             app.preferences.setOnboarded(onboarded)
-            app.preferences.clearSession()
+            app.preferences.setOnboardingStep(0)
+            app.runtime.update { it.copy(focus = null) }
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
@@ -61,9 +65,15 @@ class NavigationTest {
     fun onboardingCompletesOnToday() {
         launch(onboarded = false)
         compose.onNodeWithText("Begin").performClick()
-        compose.onNodeWithText("Continue").performClick()
-        compose.onNodeWithText("Start using aurora").performClick()
-        compose.onNodeWithText("Start focus", substring = true).assertIsDisplayed()
+        // The problem, how aurora helps, motivation, distractions, how firm, permissions: nothing is required.
+        repeat(6) {
+            awaitText("Continue")
+            compose.onNodeWithText("Continue").performClick()
+        }
+        awaitText("Go to Today")
+        compose.onNodeWithText("Go to Today").performClick()
+        awaitText("Start focus", substring = true)
+        compose.onNodeWithText("Start focus", substring = true).performScrollTo().assertIsDisplayed()
         tab("Today").assertIsSelected()
     }
 
@@ -79,19 +89,23 @@ class NavigationTest {
         tab("Insights").assertIsSelected()
 
         tab("Today").performClick()
-        compose.onNodeWithText("Start focus", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Start focus", substring = true).performScrollTo().assertIsDisplayed()
     }
 
     @Test
     fun focusStartsAndEndsEarly() {
         launch(onboarded = true)
-        compose.onNodeWithText("Start focus", substring = true).performClick()
+        awaitText("Start focus", substring = true)
+        // The floating tab bar can cover a button scrolled to the bottom edge of this small test screen.
+        compose.onNodeWithText("Start focus", substring = true).performSemanticsAction(SemanticsActions.OnClick)
+        awaitText("Begin focus")
         compose.onNodeWithText("Begin focus").performClick()
         awaitText("End session")
         compose.onNodeWithText("End session").performClick()
         compose.onNodeWithText("End this session?").assertIsDisplayed()
         compose.onNode(hasText("End session") and hasAnyAncestor(isDialog())).performClick()
-        awaitText("No session running")
-        compose.onNodeWithText("No session running").assertIsDisplayed()
+        // Ending early closes Focus and Today offers a new session.
+        awaitText("Start focus", substring = true)
+        compose.onNodeWithText("Start focus", substring = true).performScrollTo().assertIsDisplayed()
     }
 }

@@ -40,14 +40,29 @@ class ScreenTimeRepository(private val context: Context) {
     }
 
     /** Foreground time per package since local midnight, excluding the home screen. */
-    suspend fun today(now: Long = System.currentTimeMillis()): Map<String, Long> = withContext(Dispatchers.IO) {
-        if (!hasAccess()) return@withContext emptyMap()
-        val from = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(from, now)
+    suspend fun today(now: Long = System.currentTimeMillis()): Map<String, Long> =
+        between(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(), now) ?: emptyMap()
+
+    /**
+     * Foreground time per package on [date] (local), up to now for today. Null when Android has no
+     * records for that day (they're kept for a limited time) or usage access is off: unavailable, not zero.
+     */
+    suspend fun day(date: LocalDate, now: Long = System.currentTimeMillis()): Map<String, Long>? {
+        val zone = ZoneId.systemDefault()
+        val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = minOf(date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), now)
+        return if (from >= to) null else between(from, to)
+    }
+
+    private suspend fun between(from: Long, to: Long): Map<String, Long>? = withContext(Dispatchers.IO) {
+        if (!hasAccess()) return@withContext null
+        val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(from, to)
         val event = UsageEvents.Event()
         val signals = ArrayList<UsageSignal>()
+        var any = false
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
+            any = true
             val kind = when (event.eventType) {
                 RESUMED -> UsageSignal.Kind.Start
                 PAUSED -> UsageSignal.Kind.Stop
@@ -56,7 +71,9 @@ class ScreenTimeRepository(private val context: Context) {
             } ?: continue
             signals += UsageSignal(kind, event.packageName, event.timeStamp)
         }
-        foregroundTime(signals, from, now) - setOfNotNull(homePackage())
+        // No events at all: Android has nothing for this window. Today counts as zero (a quiet morning).
+        if (!any && to - from > 86_000_000L) return@withContext null
+        foregroundTime(signals, from, to) - setOfNotNull(homePackage())
     }
 
     private fun homePackage(): String? {

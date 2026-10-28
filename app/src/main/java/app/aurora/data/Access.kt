@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
+import app.aurora.protect.ContentService
 import app.aurora.protect.ShieldService
 
 /**
@@ -16,6 +17,7 @@ enum class Access(val title: String, val why: String) {
     Usage("Usage access", "Powers Insights. Read on this phone only."),
     Accessibility("Accessibility", "Lets aurora notice when a protected app opens."),
     Notifications("Notifications", "Tells you when a focus session ends."),
+    Content("Web & content Shield", "Lets aurora see the address in supported browsers, and when Shorts or Reels is open."),
 }
 
 /** [Revoked] is access that was granted earlier in this visit and has since been turned off. */
@@ -64,23 +66,27 @@ fun isListedInEnabledServices(setting: String?, component: String, shortComponen
 class AccessRepository(private val context: Context, private val screenTime: ScreenTimeRepository) {
 
     private val shieldService = ComponentName(context, ShieldService::class.java)
+    private val contentService = ComponentName(context, ContentService::class.java)
 
     fun isGranted(access: Access): Boolean = when (access) {
         Access.Usage -> screenTime.hasAccess()
-        Access.Accessibility -> isListedInEnabledServices(
-            Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
-            shieldService.flattenToString(),
-            shieldService.flattenToShortString(),
-        )
+        Access.Accessibility -> enabled(shieldService)
+        Access.Content -> enabled(contentService)
         Access.Notifications -> NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
+
+    private fun enabled(service: ComponentName) = isListedInEnabledServices(
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
+        service.flattenToString(),
+        service.flattenToShortString(),
+    )
 }
 
 /** Opens the Settings screen for [access], or Android's main Settings where the device lacks that screen. */
 fun openAccessSettings(context: Context, access: Access) {
     val intent = when (access) {
         Access.Usage -> return openUsageAccessSettings(context)
-        Access.Accessibility -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        Access.Accessibility, Access.Content -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
         Access.Notifications -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     }

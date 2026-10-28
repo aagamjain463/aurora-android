@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.hasScrollAction
@@ -16,7 +17,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.aurora.AuroraApplication
 import app.aurora.plan.ProtectedItem
-import app.aurora.ui.protect.ProtectScreen
+import app.aurora.ui.protect.AppPickerScreen
 import app.aurora.ui.theme.AuroraTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -54,12 +55,12 @@ class ProtectLimitTest {
 
     @Test
     fun theSixthAppOnFreeExplainsTheLimitAndAddsNothing() {
-        compose.setContent { AuroraTheme(darkTheme = false, reduceMotion = true) { ProtectScreen() } }
+        compose.setContent { AuroraTheme(darkTheme = false, reduceMotion = true) { AppPickerScreen(onBack = {}, onPlus = {}) } }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("com.example.app1").fetchSemanticsNodes().isNotEmpty() }
         val list = compose.onNode(hasScrollAction())
-        list.performScrollToNode(hasText("your apps · 5 of 5 protected"))
         list.performScrollToNode(hasText("com.example.app6"))
         compose.onNodeWithText("com.example.app6").performClick()
-        compose.onNodeWithText("You're protecting 5 items, the most aurora Free allows. Remove one to add another.").assertIsDisplayed()
+        compose.onNodeWithText("You're protecting 5 items, the most aurora Free allows.", substring = true).assertIsDisplayed()
         assertEquals(5, runBlocking { app.protection.list.first().items.size })
     }
 }

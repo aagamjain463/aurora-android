@@ -1,5 +1,7 @@
 package app.aurora
 
+import androidx.datastore.preferences.core.edit
+import app.aurora.data.dataStore
 import app.aurora.plan.Allowance
 import app.aurora.plan.ProtectedItem
 import app.aurora.plan.lockdownMinutesLeft
@@ -115,3 +117,14 @@ suspend fun AuroraApplication.settleLockdown() {
 
 /** Whether one more of [allowance] can be enabled when [current] are enabled now. */
 fun AuroraApplication.canEnable(allowance: Allowance, current: Int) = app.aurora.plan.canAdd(plan, allowance, current)
+
+/**
+ * Settings › Delete all data: every preference, protected item, rule, session and history entry on this
+ * phone. Purchases live with Google Play and come back on the next check.
+ */
+suspend fun AuroraApplication.deleteAllData() {
+    dataStore.edit { it.clear() }
+    rules.reset()
+    runtime.reset()
+    history.reset()
+}

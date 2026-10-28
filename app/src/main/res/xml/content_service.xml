@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The optional Web & content Shield. Separate from Shield so it is never on unless the person turns it on.
+     Only the listed browsers and apps send events. It reads view IDs and the browser's address field;
+     it never stores, logs or sends what it sees. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/content_service_description"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="300"
+    android:packageNames="com.android.chrome,com.chrome.beta,com.sec.android.app.sbrowser,org.mozilla.firefox,com.microsoft.emmx,com.brave.browser,com.opera.browser,com.duckduckgo.mobile.android,com.google.android.youtube,com.instagram.android"
+    tools:ignore="UnusedAttribute" />
