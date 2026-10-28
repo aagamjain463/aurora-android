@@ -36,3 +36,4 @@ google-services.json
 
 # graphify knowledge graph (regenerate with `graphify update .`)
 graphify-out/
+g1-results/

@@ -10,7 +10,8 @@ and what is still unproven. It is the written result of the gate G1 spike in
 - **Build:** debug (debuggable, not minified).
 - **Status:** G1 is **not passed**. The mechanism works on the emulator, but the pass criteria in
   section 5.3 need three physical devices, API levels other than 36, and a latency measurement on a
-  release-like build. See [Phase 3 prerequisites](#9-phase-3-prerequisites).
+  release-like build. See [Phase 3 prerequisites](#9-phase-3-prerequisites). The device harness for
+  those runs is in [section 10](#10-g1-device-harness-phase-2d).
 
 ---
 
@@ -45,7 +46,7 @@ release manifest has no spike entries and no accessibility service. Phase 3 rebu
 | `app/src/debug/res/xml/spike_shield_service.xml` | Service config: `typeWindowStateChanged` only, `canRetrieveWindowContent=false`, `isAccessibilityTool=false`. |
 | `app/src/debug/res/values/spike.xml` | Service description and the dark Shield window theme. |
 | `app/src/debug/java/app/aurora/spike/Spike.kt` | Pure logic: `spikeDecide()`, the system exemption list, `spikeStatus()`, and parsing of the enabled-services setting. |
-| `app/src/debug/java/app/aurora/spike/SpikeShieldService.kt` | Detection adapter. It also shows the overlay variant and measures `UsageStatsManager` latency. |
+| `app/src/debug/java/app/aurora/spike/SpikeShieldService.kt` | Detection adapter. It also shows the overlay variant. Its `UsageStatsManager` latency probe was removed for the G1 harness (section 10). |
 | `app/src/debug/java/app/aurora/spike/SpikeShieldActivity.kt` | The Shield activity and the shared Shield UI, with the pause and reflect steps. |
 | `app/src/debug/java/app/aurora/spike/SpikeControlActivity.kt` | Status panel, the prominent disclosure before Accessibility settings, and the activity/overlay switch. |
 | `app/src/testDebug/java/app/aurora/spike/SpikeTest.kt` | 5 unit tests for the pure logic. |
@@ -354,3 +355,128 @@ G1 passes only when these are done:
 9. **Decision:** keep the spike in `src/debug/` until Phase 3, or move it to a `spike/g1` branch as
    `ROADMAP.md` 5.1 rule 1 says. The spike was put in the debug source set because commits needed
    approval.
+
+---
+
+## 10. G1 device harness (Phase 2D)
+
+The harness turns section 9 items 1–4 and 8 into a repeatable run. It lives only on the
+`spike/g1-harness` branch, next to the spike. It is never merged into `main`.
+
+**Status (2026-10-28):** the harness builds, and its preflight ran on the emulator. **No physical
+device has been tested.** No latency numbers exist yet. G1 is still **not passed**.
+
+### 10.1 What it measures
+
+All on-device times use one clock, `CLOCK_MONOTONIC` (`SystemClock.uptimeMillis()` and
+`System.nanoTime()`). Restart and reboot times use `CLOCK_BOOTTIME` (`elapsedRealtime()` and
+`/proc/uptime`).
+
+| Interval | From | To |
+| --- | --- | --- |
+| **Detection** | `AccessibilityEvent.eventTime`: the protected app's window came to the front | The service's `onAccessibilityEvent` starts |
+| **Presentation** | The service's `onAccessibilityEvent` starts | The end of the Shield's first frame that started after the event reached the service (`FrameMetrics` `INTENDED_VSYNC_TIMESTAMP` + `TOTAL_DURATION`). The frame is then in the compositor |
+| **Exposure** (the G1 number) | `eventTime` | The same end of the Shield's first frame. Exposure = detection + presentation |
+
+Not included:
+
+- The time before the app's window event. That is the app's own launch time, so it's the same with
+  or without aurora.
+- The last display refresh after the frame reaches the compositor. That adds up to one refresh
+  interval (about 8–17 ms). `g1.sh device` records the refresh rate.
+
+**Trials.** Each *fresh* open of a protected app is one trial. "Fresh" means a different app was in
+front before it. Every trial ends with exactly one row: `ok`, or `timeout` if no Shield frame came
+within 2 s. The host script also counts every open it causes. An open with no trial row is a `miss`.
+All opens are in the denominator, so misses and timeouts count against the 300 ms target. They never
+drop out of it. After each open the script also records whether the Shield has window focus
+(`shield_in_front`). That catches an app that launched over the Shield.
+
+**Pass rule used by `report`:** `within-300ms` is the number of `ok` opens with exposure ≤ 300 ms,
+divided by **all** opens. G1 needs P90 under 300 ms over at least 50 opens on a mid-range phone. That
+is the same as `within-300ms` ≥ 90%.
+
+**Build.** Latency is measured on the `g1` build type. It uses release settings (R8, not debuggable)
+plus the debug-only spike, and it's signed with the debug key. A debuggable build runs slower and
+would understate the result. The release build still contains no spike code.
+
+**Privacy.** The device writes only package names and clock values to
+`Android/data/app.aurora/files/g1.csv`. It never writes window content. The spike's config still has
+`canRetrieveWindowContent=false`. There is no network access, and the harness adds no telemetry.
+The harness no longer runs the UsageStatsManager probe (section 3.2), because it polled every 25 ms
+during the frames being timed.
+
+### 10.2 Files
+
+| File | Purpose |
+| --- | --- |
+| `app/src/debug/java/app/aurora/spike/G1.kt` | Trial and service-event rows, 2 s timeout, writes off the main thread |
+| `SpikeShieldService.kt` | Stamps the time an event arrives, opens a trial for each fresh open, logs connect, unbind and destroy |
+| `SpikeShieldActivity.kt` | Closes the trial with the first qualifying `FrameMetrics` frame |
+| `app/build.gradle.kts` | `g1` build type: release settings plus the debug source set |
+| `tools/g1/g1.sh` | Host script. Needs only `adb`. Results go to `g1-results/<serial>/` (git-ignored) |
+
+### 10.3 Running it on a phone
+
+Use a test phone, not a personal one. The harness launches apps, force-stops them and can reboot
+the phone.
+
+1. On the phone, turn on Developer options and USB debugging. Connect it, then accept the RSA prompt.
+2. Build and install: `git switch spike/g1-harness && ./gradlew assembleG1 && adb install -r app/build/outputs/apk/g1/app-g1.apk`.
+   If the debug build is already installed with another key, uninstall it first. On Android 13+ an
+   adb install isn't "restricted". To check G4, also install the APK once from a file manager.
+3. Open **aurora** and finish onboarding. On the Protect tab, choose one app that has a launcher icon
+   and that you're happy to open many times (for example Clock or Calculator).
+4. Open **aurora spike** and read the disclosure. Then turn on **aurora spike shield** yourself in
+   Settings › Accessibility. Read Android's own dialog before you accept. The harness never turns it on.
+5. Run, from the repository root:
+
+   ```sh
+   tools/g1/g1.sh device
+   tools/g1/g1.sh launches com.google.android.deskclock 50 warm
+   tools/g1/g1.sh launches com.google.android.deskclock 20 cold
+   tools/g1/g1.sh rapid com.google.android.deskclock com.android.settings 20
+   tools/g1/g1.sh manual launcher-tap 10
+   tools/g1/g1.sh manual recents 5
+   tools/g1/g1.sh manual notification 5     # an app notification that opens the protected app
+   tools/g1/g1.sh manual lock-unlock 5      # Shield up, lock, unlock: it must still be in front
+   tools/g1/g1.sh manual split-screen 3
+   tools/g1/g1.sh manual pip 3              # only for apps that support picture-in-picture
+   tools/g1/g1.sh manual talkback 3         # turn TalkBack on first, then check that "Close app" can be reached
+   tools/g1/g1.sh kill
+   tools/g1/g1.sh revoke
+   G1_ALLOW_REBOOT=1 tools/g1/g1.sh reboot  # only if rebooting this phone is fine
+   tools/g1/g1.sh forcestop                 # last: Android may turn the service off
+   tools/g1/g1.sh note "Samsung: Shield hidden after ..."
+   tools/g1/g1.sh report
+   ```
+
+   Use the protected app's real package name. Scripted opens use `am start` from the shell. They skip
+   the launcher's animation, so `launcher-tap` covers real taps.
+6. Keep `g1-results/<serial>/` (three CSV files and `device.txt`). Paste the `report` output into
+   section 10.5. A multi-phone report needs `device.txt` from each phone.
+
+**Each phone needs:** its manufacturer, model, Android version and API level (from `device.txt`).
+Also record median, P90, P95, max, sample size, timeouts, misses, `shield-not-in-front`, kill restart
+time, revoke result, reboot delay after unlock, force-stop result and notes.
+
+### 10.4 Known limits of the method
+
+- The protected app sends 2–3 window events per open. Only the first event of a fresh open is timed.
+  Later events still show the Shield again, and `shield_in_front` checks the end result.
+- `FrameMetrics` can drop reports when the system is under load. A dropped report becomes a `timeout`
+  even if the Shield showed. `shield_in_front=1` on a timeout row points to this.
+- `manual` and `revoke` timings depend on when you press Enter. Use them for pass or fail, not latency.
+- `kill` uses `run-as … kill -9` on a debuggable build. On the `g1` build it uses `am crash` (API 30+),
+  which is a crash restart (about 11 s on the emulator), not a low-memory kill.
+- `reboot` reports the delay after you press Enter on unlock. It's accurate to about a second.
+- In split-screen, only the focused window counts as "in front".
+
+### 10.5 Results
+
+| Phone | Android (API) | Opens | Within 300 ms | Median | P90 | P95 | Max | Timeouts | Misses | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| *none tested yet* | | | | | | | | | | |
+
+G1 stays **not passed** until this table has a Pixel, a Samsung and a Xiaomi or OnePlus phone, and
+section 9 items 2 and 5–8 are done.

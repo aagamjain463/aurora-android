@@ -1,13 +1,12 @@
 package app.aurora.spike
 
 import android.accessibilityservice.AccessibilityService
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
+import android.os.SystemClock
 import android.provider.Settings
 import android.telecom.TelecomManager
 import android.util.Log
@@ -26,10 +25,8 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import app.aurora.AuroraApplication
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
@@ -55,9 +52,11 @@ class SpikeShieldService : AccessibilityService() {
             s.launch { (application as AuroraApplication).preferences.preferences.collect { protected = it.protectedApps } }
         }
         Log.i(SpikeTag, "service connected exempt=$exempt")
+        G1.service(this, "connected")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        val received = SystemClock.uptimeMillis()
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
         val decision = spikeDecide(pkg, protected, exempt, grants, System.currentTimeMillis())
@@ -66,27 +65,28 @@ class SpikeShieldService : AccessibilityService() {
         val fresh = pkg != lastForeground
         if (!transient) lastForeground = pkg
         when {
-            decision is SpikeDecision.Shield -> shield(pkg, event.eventTime, fresh)
+            decision is SpikeDecision.Shield -> shield(pkg, event.eventTime, received, fresh)
             // Anything real in front (launcher, another app) dismisses an overlay Shield. The overlay's own
             // window, the keyboard and the notification shade don't.
             !transient -> removeOverlay()
         }
     }
 
-    private fun shield(pkg: String, eventUptime: Long, fresh: Boolean) {
-        if (fresh) probeUsageStatsLatency(pkg)
+    private fun shield(pkg: String, eventUptime: Long, received: Long, fresh: Boolean) {
         if (mode(this) == Mode.Overlay) {
             showOverlay(pkg, eventUptime)
         } else {
             // No debounce: the protected app may start its own activity over the Shield (it keeps a
             // background-launch grace period), so every window event of a protected app re-asserts it.
-            // singleTask turns repeats into onNewIntent.
+            // singleTask turns repeats into onNewIntent. Only a fresh open is a G1 trial.
             startActivity(
                 Intent(this, SpikeShieldActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
                     .putExtra(SpikeShieldActivity.ExtraPackage, pkg)
                     .putExtra(SpikeShieldActivity.ExtraEventUptime, eventUptime)
-                    .putExtra(SpikeShieldActivity.ExtraFresh, fresh),
+                    .putExtra(SpikeShieldActivity.ExtraReceivedUptime, received)
+                    .putExtra(SpikeShieldActivity.ExtraFresh, fresh)
+                    .putExtra(SpikeShieldActivity.ExtraTrial, if (fresh) G1.start(this, pkg, eventUptime, received) else 0L),
             )
             Log.i(SpikeTag, "startActivity for $pkg")
         }
@@ -143,39 +143,21 @@ class SpikeShieldService : AccessibilityService() {
         Log.i(SpikeTag, "overlay removed")
     }
 
-    /** Measures how long after the window event UsageStatsManager reports the same app as resumed. */
-    private fun probeUsageStatsLatency(pkg: String) {
-        val app = application as AuroraApplication
-        if (!app.screenTime.hasAccess()) return
-        val usage = getSystemService(UsageStatsManager::class.java)
-        val started = System.currentTimeMillis()
-        scope?.launch(Dispatchers.IO) {
-            while (System.currentTimeMillis() - started < 5_000) {
-                val events = usage.queryEvents(started - 2_000, System.currentTimeMillis())
-                val e = UsageEvents.Event()
-                while (events.hasNextEvent()) {
-                    events.getNextEvent(e)
-                    if (e.packageName == pkg && e.eventType == 1 /* ACTIVITY_RESUMED */) {
-                        Log.i(SpikeTag, "usage-latency pkg=$pkg visibleAfterMs=${System.currentTimeMillis() - started}")
-                        return@launch
-                    }
-                }
-                delay(25)
-            }
-            Log.i(SpikeTag, "usage-latency pkg=$pkg notVisibleWithinMs=5000")
-        }
-    }
+    // The UsageStatsManager latency probe (section 3.2 of ENFORCEMENT_FEASIBILITY.md) was removed for G1:
+    // it polled every 25 ms during the very frames the harness times.
 
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: Intent?): Boolean {
         Log.i(SpikeTag, "service unbind")
+        G1.service(this, "unbind")
         connected = false
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         Log.i(SpikeTag, "service destroyed")
+        G1.service(this, "destroyed")
         connected = false
         removeOverlay()
         scope?.cancel()

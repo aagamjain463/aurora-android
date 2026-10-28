@@ -3,8 +3,11 @@ package app.aurora.spike
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.FrameMetrics
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.addCallback
@@ -57,11 +60,24 @@ import app.aurora.ui.theme.Space
 /** G1 spike: the Shield as a full-screen activity in its own task, started by [SpikeShieldService]. */
 class SpikeShieldActivity : ComponentActivity() {
     private var target by mutableStateOf<Pair<String, Long>?>(null)
+    /** Open G1 trial, and the uptime its event reached the service. Main thread only. */
+    private var trial = 0L
+    private var trialReceived = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // The Shield is always the dark field, so system bar icons are always light.
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
+        // G1: the trial ends with the first frame that started after the event reached the service. Its end
+        // (intended vsync + total duration) is when the frame was handed to the compositor; the display
+        // shows it at the next refresh, which the harness doesn't see.
+        window.addOnFrameMetricsAvailableListener({ _, metrics, _ ->
+            val vsync = metrics.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
+            if (trial != 0L && vsync >= trialReceived * 1_000_000) {
+                G1.shown(this, trial, vsync + metrics.getMetric(FrameMetrics.TOTAL_DURATION))
+                trial = 0L
+            }
+        }, Handler(Looper.getMainLooper()))
         read(intent)
         // Back never reveals the protected app: it closes it.
         onBackPressedDispatcher.addCallback(this) { closeApp() }
@@ -84,6 +100,10 @@ class SpikeShieldActivity : ComponentActivity() {
 
     private fun read(intent: Intent) {
         val pkg = intent.getStringExtra(ExtraPackage) ?: return finish()
+        intent.getLongExtra(ExtraTrial, 0L).takeIf { it != 0L }?.let {
+            trial = it
+            trialReceived = intent.getLongExtra(ExtraReceivedUptime, 0L)
+        }
         // A repeat event from the same opening keeps the person's place in the flow.
         if (!intent.getBooleanExtra(ExtraFresh, true) && target?.first == pkg) return
         target = pkg to intent.getLongExtra(ExtraEventUptime, SystemClock.uptimeMillis())
@@ -98,6 +118,8 @@ class SpikeShieldActivity : ComponentActivity() {
         const val ExtraPackage = "pkg"
         const val ExtraEventUptime = "event_uptime"
         const val ExtraFresh = "fresh"
+        const val ExtraReceivedUptime = "received_uptime"
+        const val ExtraTrial = "g1_trial"
     }
 }
 

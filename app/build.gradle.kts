@@ -21,6 +21,19 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
+        // G1 latency build: release settings (minified, not debuggable) plus the debug-only spike.
+        // Spike branches only, signed with the debug key, never shipped.
+        create("g1") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
+    }
+
+    sourceSets.getByName("g1") {
+        java.srcDir("src/debug/java")
+        res.srcDir("src/debug/res")
+        manifest.srcFile("src/debug/AndroidManifest.xml")
     }
 
     compileOptions {
