@@ -20,8 +20,11 @@ set -euo pipefail
 APP=app.aurora
 SERVICE=app.aurora.spike.SpikeShieldService
 CSV=/sdcard/Android/data/$APP/files/g1.csv
-SETTLE=${G1_SETTLE:-2.5}   # longer than the 2 s on-device timeout, so every trial has written its row
+SETTLE=${G1_SETTLE:-3.5}   # the 2 s on-device timeout starts after the window event, which can trail am start by
+                           # ~0.5 s on a slow device; 2.5 s once lost a timeout row (section 10.6)
 GAP=${G1_GAP:-1.5}         # rest on the home screen between opens
+RAPID=${G1_RAPID:-0.4}    # rapid: seconds between switches. Below the time a window takes to appear, opens
+                           # are superseded before they show and count as misses (section 10.6)
 
 die() { echo "g1: $*" >&2; exit 1; }
 dev() { adb shell "$@" | tr -d '\r'; }
@@ -71,10 +74,11 @@ wait_connected() { # before timeout-s; prints the elapsedRealtime (s) of the fir
   echo none
 }
 
-pct() { # sorted numbers on stdin
-  awk 'function q(p,  k) { k = int(p * NR); if (k < p * NR) k++; return v[k < 1 ? 1 : k] }
+pct() { # sorted numbers on stdin; 999999 stands for a timeout or miss and prints as ">2000"
+  awk 'function f(x) { return x >= 999999 ? ">2000" : sprintf("%.1f", x) }
+       function q(p,  k) { k = int(p * NR); if (k < p * NR) k++; return f(v[k < 1 ? 1 : k]) }
        { v[NR] = $1 }
-       END { if (NR) printf "n=%d median=%.1f p90=%.1f p95=%.1f max=%.1f", NR, q(.5), q(.9), q(.95), v[NR]; else printf "n=0" }'
+       END { if (NR) printf "n=%d median=%s p90=%s p95=%s max=%s", NR, q(.5), q(.9), q(.95), f(v[NR]); else printf "n=0" }'
 }
 
 report() {
@@ -85,10 +89,15 @@ report() {
       END { if (!n) exit
         printf "%s: opens=%d ok=%d timeout=%d missed=%d shield-not-in-front=%d within-300ms=%d (%.1f%% of all opens)\n",
           s, n, c["ok"], c["timeout"], c["missed"], hidden, fast, 100 * fast / n }' "$RESULTS"
-    for col in 6:exposure 4:detect 5:present; do
+    # Exposure is over all opens: a timeout or miss is slower than any measured value, so dropping it
+    # would flatter the percentiles. Detect and present exist only for ok opens.
+    printf '  %-8s ' exposure
+    awk -F, -v s="$s" 'NR > 1 && (s == "ALL" || $1 == s) && $3 != "extra" { print ($3 == "ok") ? $6 : 999999 }' "$RESULTS" | sort -n | pct
+    echo
+    for col in 4:detect 5:present; do
       printf '  %-8s ' "${col#*:}"
       awk -F, -v s="$s" -v c="${col%%:*}" 'NR > 1 && (s == "ALL" || $1 == s) && $3 == "ok" { print $c }' "$RESULTS" | sort -n | pct
-      echo
+      echo " (ok opens only)"
     done
   done
   echo "extra Shields (same open shielded twice): $(awk -F, '$3 == "extra"' "$RESULTS" | wc -l | tr -d ' ')"
@@ -130,12 +139,13 @@ rapid)
   a=$(launch_component "$pkg"); b=$(launch_component "$other")
   before=$(rows)
   for _ in $(seq 1 "$n"); do
-    dev "am start -n $a" > /dev/null; sleep 0.4
-    dev "am start -n $b" > /dev/null; sleep 0.4
+    dev "am start -n $a" > /dev/null; sleep "$RAPID"
+    dev "am start -n $b" > /dev/null; sleep "$RAPID"
   done
   dev "am start -n $a" > /dev/null; sleep "$SETTLE"
-  record rapid 1 "$before" "$(shield_in_front)" "$pkg" "$((n + 1))"
-  echo "  (shield_in_front is checked once, after the last open)"
+  record "rapid-${RAPID}s" 1 "$before" "$(shield_in_front)" "$pkg" "$((n + 1))"
+  echo "  (shield_in_front is checked once, after the last open. A miss here can be an open that was
+  superseded before its window showed, or one that followed another Clock event without a fresh open)"
   dev "input keyevent KEYCODE_HOME"
   ;;
 manual)

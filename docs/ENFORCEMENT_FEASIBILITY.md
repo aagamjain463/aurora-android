@@ -363,8 +363,9 @@ G1 passes only when these are done:
 The harness turns section 9 items 1–4 and 8 into a repeatable run. It lives only on the
 `spike/g1-harness` branch, next to the spike. It is never merged into `main`.
 
-**Status (2026-10-28):** the harness builds, and its preflight ran on the emulator. **No physical
-device has been tested.** No latency numbers exist yet. G1 is still **not passed**.
+**Status (2026-10-28):** the harness builds and ran end to end on one emulator (section 10.6).
+**No physical device has been tested.** Emulator numbers check the method, not G1. G1 is still
+**not passed**.
 
 ### 10.1 What it measures
 
@@ -468,7 +469,11 @@ time, revoke result, reboot delay after unlock, force-stop result and notes.
   even if the Shield showed. `shield_in_front=1` on a timeout row points to this.
 - `manual` and `revoke` timings depend on when you press Enter. Use them for pass or fail, not latency.
 - `kill` uses `run-as … kill -9` on a debuggable build. On the `g1` build it uses `am crash` (API 30+),
-  which is a crash restart (about 11 s on the emulator), not a low-memory kill.
+  which is a crash restart, not a low-memory kill (1.5 s on the emulator, section 10.6).
+- In `rapid`, result rows take indices in the order trial rows were written. Misses always get the
+  last indices, so an index doesn't say which open was missed.
+- A `timeout` can be a Shield frame later than 2 s or a dropped `FrameMetrics` report. The harness
+  can't tell them apart. `ActivityTaskManager: Displayed` in logcat can.
 - `reboot` reports the delay after you press Enter on unlock. It's accurate to about a second.
 - In split-screen, only the focused window counts as "in front".
 
@@ -480,3 +485,64 @@ time, revoke result, reboot delay after unlock, force-stop result and notes.
 
 G1 stays **not passed** until this table has a Pixel, a Samsung and a Xiaomi or OnePlus phone, and
 section 9 items 2 and 5–8 are done.
+
+### 10.6 Emulator run (method check, not G1 evidence)
+
+Run on 2026-10-28 on one emulator: `sdk_gphone64_arm64` (Google), Android 16 (API 36), userdebug
+build `BE2A.250530.026.F3`, security patch 2025-07-05, 60 Hz. The installed build was aurora 0.1.0, `g1`
+build type (not debuggable). The protected app was Clock (`com.google.android.deskclock`). The
+unprotected app for `rapid` was Settings. Emulator timing doesn't represent any phone, so these rows
+don't go into section 10.5.
+
+`report` output (exposure counts every open; a timeout or miss prints as `>2000`):
+
+| Scenario | Opens | ok | Timeouts | Misses | Within 300 ms | Exposure median | P90 | P95 | Max | Detect median (ok) | Present median (ok) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `launch-warm` | 50 | 46 | 4 | 0 | 0 | 1349.6 | 1759.4 | >2000 | >2000 | 60.0 | 1247.4 |
+| `launch-cold` | 20 | 20 | 0 | 0 | 0 | 1002.7 | 1458.9 | 1513.9 | 1564.9 | 5.0 | 994.7 |
+| `rapid`, 0.4 s between switches | 21 | 6 | 7 | 8 | 0 | >2000 | >2000 | >2000 | >2000 | 26.0 | 1247.7 |
+| `rapid`, 2.0 s between switches | 21 | 20 | 1 | 0 | 0 | 1395.4 | 1615.8 | 1682.7 | >2000 | 27.0 | 1300.8 |
+| warm, after `am crash` restart | 5 | 3 | 2 | 0 | 0 | 1878.6 | >2000 | >2000 | >2000 | 101.0 | 1429.7 |
+| warm, after re-enabling the service | 5 | 5 | 0 | 0 | 0 | 744.5 | 1318.6 | 1318.6 | 1318.6 | 8.0 | 736.5 |
+| **All** | **122** | **100** | **14** | **8** | **0 (0.0%)** | **1368.0** | **>2000** | **>2000** | **>2000** | **30.0** | **1245.6** |
+
+All times are in ms. `shield-not-in-front` was 0 in every scenario. No open was shielded twice.
+
+What the run shows:
+
+- **Detection is fast. Presentation is the cost.** Median detection was 30 ms (P95 192 ms). Median
+  presentation, from the event to the Shield's first frame, was 1246 ms. On this emulator, starting
+  the Shield activity uses almost all of the exposure. A phone must show whether that holds there.
+  If it does, the 300 ms target needs a faster Shield path, and the overlay decision in section 3.4
+  must be looked at again.
+- **Every timeout had the Shield in front** (`shield_in_front=1`, 14 of 14). The Shield showed, but
+  no qualifying frame was reported within 2 s. For one timeout, logcat showed the Shield displayed
+  at +2862 ms.
+- **Fast switching loses opens.** At 0.4 s between switches, 8 of 21 opens had no trial row, and 7
+  timed out. At 2.0 s, 20 of 21 were `ok`. At 0.4 s, Clock's window is often replaced before it
+  shows, or the next Clock event isn't a fresh open. The Shield was in front after the last open.
+- **Crash restart:** `am crash` on aurora, then `onServiceConnected` 1.5 s later (CLOCK_BOOTTIME).
+- **Turning the service off** (by hand in Settings): `svc,unbind` and then `svc,destroyed` 12 ms
+  apart. `enabled_accessibility_services` was empty, `accessibility_enabled=0`, and dumpsys showed no
+  bound services. aurora's process stayed alive. Three Clock opens (warm, cold, warm) left Clock in
+  front and wrote no trial rows. With the service off, nothing shields, and nothing in aurora can
+  stop the user from turning it off. Phase 3 must detect this and tell the user (section 8).
+- **Turning it back on** (by hand, with Android's Allow dialog): the service appeared in
+  `enabled_accessibility_services` at uptime 24379.32 s, and `svc,connected` was written at
+  24379.908 s. That's **0.59 s** from Android saving the setting to `onServiceConnected`. A loop on the
+  device polled both about every 0.05 s, so the time doesn't depend on a key press. aurora kept the
+  same process (pid 14888). The next 5 opens were all `ok`.
+
+Fixes the run caused in `g1.sh`:
+
+- `G1_SETTLE` went from 2.5 s to 3.5 s. The 2 s timeout starts at the window event, which can come
+  about 0.5 s after `am start`. At 2.5 s one timeout row was written after the host had already
+  counted a miss. That row was corrected to `timeout` by hand, with a `note`.
+- `rapid` takes its interval from `G1_RAPID` (default 0.4 s) and labels the scenario with it.
+- `report` computes exposure percentiles over all opens. A timeout or miss counts as slower than any
+  measured value, so dropping it can't make the percentiles look better. Detect and present are over
+  `ok` opens only, and the report says so. Percentiles use the nearest-rank method.
+
+Not run on the emulator: the `manual` scenarios (launcher tap, recents, notification, lock and
+unlock, split-screen, PiP, TalkBack), `reboot`, `forcestop`, and anything specific to a manufacturer.
+The `revoke` subcommand itself wasn't used. Its steps were done by hand, as above.
