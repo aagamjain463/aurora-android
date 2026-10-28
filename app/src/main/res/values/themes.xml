@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.Aurora" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/aurora_window</item>
+    </style>
+</resources>

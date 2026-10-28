@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The aurora mark: a horizon arc with a single rising point of light. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M34.75,67.5 A19.25,19.25 0 0 1 73.25,67.5"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:endX="73.25"
+                android:endY="0"
+                android:startX="34.75"
+                android:startY="0"
+                android:type="linear">
+                <item android:color="#FFF0B48A" android:offset="0" />
+                <item android:color="#FF7BE3B6" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFF6F1E7"
+        android:pathData="M54,37.6m-5.2,0a5.2,5.2 0,1 1,10.4 0a5.2,5.2 0,1 1,-10.4 0" />
+</vector>

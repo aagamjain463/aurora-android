@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Polar night with a faint horizon glow rising from below. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/aurora_icon_background"
+        android:pathData="M0,0h108v108h-108z" />
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="100"
+                android:gradientRadius="70"
+                android:type="radial">
+                <item android:color="#4D3FC495" android:offset="0" />
+                <item android:color="#1A3FC495" android:offset="0.5" />
+                <item android:color="#003FC495" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
