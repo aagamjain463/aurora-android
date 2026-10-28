@@ -379,7 +379,8 @@ policy gate stay open. The build differs from the tasks below as follows (`SHIEL
 - One baseline behaviour: a protected app is always shielded, with Close app as the only action. Modes
   (task 1 and task 6) and the Focus-session Friction wait move to Phases 4 and 5.
 - Over the limit (task 7): the oldest 5 stay active and the rest are paused and shown, rather than
-  all migrated apps staying active. The legacy set migrates in package-name order.
+  all migrated apps staying active. A freed slot stays free until the person resumes the paused app
+  they choose. The legacy set migrates in package-name order.
 - Tasks 2–5, 7–9 are built. Task 10 (sideload instructions) waits for G4. `Blocked` (task 4) and
   `Paused` aren't detected yet.
 

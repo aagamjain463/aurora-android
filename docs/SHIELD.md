@@ -3,10 +3,11 @@
 This is the production Shield on `feat/phase-3-shield`. The G1 experiment is documented separately in
 `ENFORCEMENT_FEASIBILITY.md` and lives only on `spike/g1-harness`. No spike code is on this branch.
 
-> **Status (2026-10-29).** Implemented and unit-tested. End-to-end interception has **not** been
-> checked on any device with this code. **G1 is open:** on the one emulator measured, no Shield
-> appeared within 300 ms. **Google Play accessibility policy approval is open.** Nothing here
-> claims that the Shield meets the latency target or can't be bypassed.
+> **Status (2026-10-29).** Implemented, unit-tested, and checked end to end on one emulator
+> (section 11). **No physical device has run this code.** **G1 is open:** on the emulator, 77% of
+> opens were shielded within 300 ms (P90 387 ms), and emulator numbers aren't device evidence.
+> **Google Play accessibility policy approval is open.** Nothing here claims that the Shield meets
+> the latency target or can't be bypassed.
 
 ## 1. Architecture
 
@@ -95,12 +96,19 @@ Shield never covers.
   `plan/Plan.kt` is the only check. Websites stored by a future version count toward the same five.
 - At the limit, Protect says: "You're protecting 5 items, the most aurora Free allows. Remove one to
   add another." It doesn't mention plus (BUSINESS_MODEL.md section 4).
+- **The limit counts active items.** Paused items are saved but not enforced, so they don't take a
+  slot. `canAdd(plan, ProtectedItems, active)` is the only check, for adding and for resuming.
 - **More items than the allowance** (a downgrade, or a Phase 1 list longer than 5): the oldest 5 stay
-  active (`keepActive()`). The rest are **paused**. They're kept, labelled "Paused · over the Free
-  limit" on Protect and counted on Today, and new additions are refused. Removing an active item
-  makes the next paused one active. Nothing is ever deleted. This differs from ROADMAP Phase 3 task
-  7, which keeps every migrated app active. The 5-item limit then holds everywhere, and the
-  difference is shown to the person.
+  active (`keepActive()`). The rest are **paused**. They're kept in place, labelled "Paused · tap to
+  choose" on Protect and counted on Today, and new additions are refused.
+- **Nothing becomes active on its own.** When an item is removed, every item that is paused at that
+  moment is saved as held (`paused:` in front of its line). The freed slot stays free until the
+  person taps a paused app and chooses **Resume** (or **Remove from list**). Resuming one app keeps
+  all the others held. Order is never changed.
+- On aurora plus every item is active, held or not, so renewing restores everything. The held marks
+  are kept, so a later downgrade pauses the same items again. Nothing is ever deleted.
+- This differs from ROADMAP Phase 3 task 7, which keeps every migrated app active. The 5-item limit
+  then holds everywhere, and the difference is shown to the person.
 
 ## 5. Service lifecycle
 
@@ -135,12 +143,21 @@ FLAG_ACTIVITY_NO_ANIMATION`. Another mechanism replaces only the presenter. The 
 accessibility overlay as the primary Shield, because the app underneath stays resumed and Recents
 removes the overlay (ROADMAP 3.5). Nothing here adds an overlay or a new permission.
 
-- **Repeated events:** one opening sends 2–3 window events. Repeats of the same package within
-  400 ms, with nothing else in front in between, are counted and dropped. An event after the Shield's
-  own window means the app came back over it, and the Shield is shown again at once.
+- **Repeated events:** every protected window event asks for the Shield again. A repeat is cheap
+  (`singleTask`, so it arrives as `onNewIntent`). Events within 400 ms of the last request, with
+  nothing else in front in between, count as repeats in diagnostics and aren't timed. An earlier
+  version dropped them, and on the emulator Clock stayed in front when opens came 0.3 s apart.
+- **Silent returns:** an app brought back while the Shield is starting, or over it, can send no window
+  event at all, because its window never stopped being the focused one. So 1 s after each request, and
+  whenever the Shield is covered (`onStop` while still wanted), the interceptor checks again. If no
+  window came to the front since, not even the Shield's own, and the protected app was the last in
+  front, it asks again, at most 3 times. Diagnostics count these as "re-shown after a silent return".
 - **Rapid switching and stale Shields:** when a real app or the launcher comes to the front, the
-  presenter is told to `dismiss()`. Each `present()` sets a token. An activity started for an older
-  token finishes in `onCreate` instead of appearing over the app the person switched to.
+  presenter is told to `dismiss()`, which starts a new generation. Every intent carries the generation
+  it was sent in. An activity from an older generation finishes in `onCreate` instead of appearing
+  over the app the person switched to. A newer request for the same Shield doesn't cancel one in
+  flight. An earlier version used a token per request, and on the emulator rapid opens finished their
+  own Shield.
 - **No loops:** aurora is exempt, so the Shield's own window never triggers a Shield.
 - **Background start:** an app whose accessibility service is bound may start activities from the
   background. This was seen on API 36 (emulator) only. Other API levels and OEMs are unverified. A
@@ -160,12 +177,14 @@ timings, and the last 20 lifecycle changes. It's in memory only: no package name
 
 Times are `SystemClock.uptimeMillis()` (CLOCK_MONOTONIC):
 
+- **detect:** from `AccessibilityEvent.eventTime` to the event reaching the service.
 - **decide:** from the event reaching the service to the decision.
 - **present:** from the decision to the end of the Shield's first frame that started after the
   decision (`FrameMetrics` `INTENDED_VSYNC_TIMESTAMP + TOTAL_DURATION`).
 - **exposure:** from `AccessibilityEvent.eventTime` to that frame. This is the G1 number. It doesn't
   include the final display refresh.
 
+Debug builds also log each timing to logcat under `AuroraShield` (numbers only, never a package name).
 These are diagnostics, not evidence. Physical-device numbers still come from the G1 harness.
 
 ## 8. Privacy and policy
@@ -184,8 +203,8 @@ These are diagnostics, not evidence. Physical-device numbers still come from the
 | Suite | Covers |
 | --- | --- |
 | `protect/PolicyTest` | Truth table, exemptions, grants, unknown state, Free = Plus |
-| `protect/ProtectedItemsTest` | Encoding, skipped entries, 5-item pool with websites, pause, persistence, 6th item, Plus, downgrade, 20 concurrent adds, legacy migration (also over 5), corrupted file |
-| `protect/InterceptorTest` | Repeat bursts, app over Shield, rapid switching, overlays, rule changes, refused starts, trace window |
+| `protect/ProtectedItemsTest` | Encoding, held marks, skipped entries, 5-item pool with websites, pause, persistence, 6th item, Plus, downgrade, a freed slot stays free until the person resumes an item, 20 concurrent adds, legacy migration (also over 5), corrupted file |
+| `protect/InterceptorTest` | Repeats re-asserted and timed once, app over Shield, silent returns (bounded), rapid switching, overlays, rule changes, refused starts, trace window |
 | `protect/ShieldActivityTest` (Robolectric) | Renders, Close app and Back go home, rotation, stale token never shows, `hide()`, manifest flags |
 | `protect/ProtectLimitTest` (Robolectric) | The limit message at 5 items, and nothing is added |
 | `ScreenshotTest` | Shield in light, dark, 200% text and reduced motion, plus every screen |
@@ -209,9 +228,51 @@ Run `./gradlew testDebugUnitTest lintDebug lintRelease assembleDebug assembleRel
 - `Blocked` isn't detected.
 - Exemptions are read when the service connects. A launcher or keyboard changed while it runs is
   picked up at the next connect.
-- The 400 ms repeat window is a fixed guess, so it needs tuning on phones.
+- The 400 ms repeat window and the 1 s / 3-retry silent-return check are fixed guesses, so they need tuning on phones.
+- Very rapid switching (0.05 s) can leave one hidden Shield instance behind the new app. It's never
+  visible and it finishes at the next window event.
 - A Shield showing when aurora's process is recreated finishes instead of reappearing, until the
   next window event.
 - Uninstall pruning can't tell an uninstalled app from one hidden by package visibility.
 - Connected (device) tests weren't run for this phase. `connectedAndroidTest` uninstalls `app.aurora`,
-  which would delete the G1 install and its raw measurements on the test emulator.
+  which would delete the test emulator's data.
+
+## 11. Emulator validation (2026-10-29)
+
+Run on one emulator only: `sdk_gphone64_arm64`, Android 16 (API 36), 60 Hz, SwiftShader. The
+build was a **debug** build (debuggable, so slower than release). It was installed over the G1 build
+with `adb install -r` (same signer, same versionCode), so no data was lost. The person turned on
+**aurora Shield** by hand. aurora never enables it.
+
+| Check | Result |
+| --- | --- |
+| Service enabled and bound, `capabilities=0` (no window content) | Pass |
+| Today "1 app protected · Shield is on", Protect "Active", Settings "Allowed" | Pass |
+| Phase 1 selection (Clock) carried over from `protected_apps`, migrated on the first change | Pass |
+| Clock opens a Shield titled "Clock is protected", with its icon. Calendar shows its own | Pass |
+| Close app goes to the launcher, and the Shield activity is gone | Pass |
+| Back goes to the launcher | Pass |
+| No Shield for aurora, Settings, Accessibility settings, dialer, emergency dialer, app info | Pass |
+| Settings and Phone rows can't be protected ("aurora never shields this app") | Pass |
+| Unticking Clock stops the Shield at once; ticking it brings it back | Pass |
+| 6th app on Free: calm limit message, nothing stored, order kept | Pass |
+| 6 opens 0.1 / 0.3 / 1.0 s apart, 3 runs: Shield in front, one instance | 9 of 9 after the fixes. Before: Clock in front at 0.3 s, then 5 of 9 with only the repeat fix |
+| Clock then Calendar 0.05–2.5 s later: Calendar in front, no Shield over it | 4 of 4 |
+| App update (`adb install -r`) | Android kept the service enabled and bound it again |
+| Turned off by hand | Unbound and destroyed within 0.1 s of the setting change (diagnostics resolution) |
+| Turned on again by hand | Connected within 0.1 s of the setting being saved, in the same process |
+| Status on Today and Protect while turned off | **Not observed in this run.** Covered by `AccessTest` and resume re-checks |
+
+**Latency** (30 warm Clock opens from the launcher via `am start`, all shielded):
+
+| Interval | Median | P90 | P95 | Max |
+| --- | --- | --- | --- | --- |
+| detect (event to service) | 2 ms | 21 ms | 31 ms | 71 ms |
+| decide | 0 ms | 0 ms | 1 ms | 1 ms |
+| present (decision to first frame) | 231 ms | 383 ms | 479 ms | 691 ms |
+| exposure (event to first frame) | 249 ms | 387 ms | 485 ms | 694 ms |
+
+23 of 30 (77%) were within 300 ms. There were no refused presentations and no lifecycle anomalies.
+The spike's emulator median was 1368 ms. The setups differ (spike Shield UI, emulator load, `g1` vs
+debug build), so the comparison means little. **This is emulator evidence only. G1 still needs
+phones.**
