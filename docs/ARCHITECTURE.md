@@ -11,7 +11,7 @@ repositories, and one ViewModel per screen. Add structure when a real need appea
 | UI | Jetpack Compose + Material 3 | M3 supplies accessible primitives (switch, dialog, text selection). aurora supplies the look. |
 | Presentation | MVVM: `ViewModel` + `StateFlow` | Survives configuration changes. Screens are functions of state. |
 | Navigation | Navigation Compose 2.x, string routes | Six destinations don't need type-safe routes or a serialization plugin. |
-| Persistence | DataStore Preferences | Small key/value data, async and transactional. No database needed yet. |
+| Persistence | DataStore Preferences + kotlinx.serialization JSON values | Small data, async and transactional, held in memory for the Shield (`data/Store.kt`). No database needed yet. |
 | DI | Manual (`AuroraApplication`) | Four singletons. A framework would cost more than it saves. |
 | Min / target / compile SDK | 26 / 36 / 37 | API 26 adds adaptive icons and variable fonts and covers almost every active device. Current AndroidX releases require compile SDK 37. Target stays at 36 until aurora is tested on Android 17. |
 
@@ -88,6 +88,11 @@ cloud backup, because behavioural data shouldn't leave the phone silently. On An
 phone-to-phone transfer that the person starts can still carry it. Revisit this with an explicit,
 opt-in export.
 
+## Complete product
+
+The rule engine, Focus, Lockdown, schedules, limits, Intent, websites, progress and billing added on
+`feat/aurora-complete` are described in **`PRODUCT.md`**, including the rule precedence.
+
 ## Shield (Phase 3)
 
 `protect/` holds the production Shield: `decide()` (pure), the protected-item store, an `Interceptor`
@@ -149,7 +154,9 @@ VPN DNS filter. Both raise policy and privacy questions to settle before impleme
   - The ledger is wall-clock based. Setting the clock forward to a new date gives a fresh budget;
     this is accepted (`BUSINESS_MODEL.md` section 7). Setting it back never refunds minutes.
   - The functions only read a ledger. Phase 6 stores it in DataStore, so a restart changes nothing.
-- The plan source is `AuroraApplication.plan`, which is always `Free` until Phase 11. Phase 3 wires the
+- The plan source is `AuroraApplication.plan`, which comes only from Google Play Billing with a 7-day
+  offline cache (`plan/Billing.kt`, `plan/Entitlement.kt`, docs/PRODUCT.md section 7). Superseded text follows.
+  Previously: always `Free` until Phase 11. Phase 3 wires the
   first limit (5 protected items, `SHIELD.md` section 4). There's still no debug switch to Plus: Plus
   behaviour is covered by unit tests, so no build carries a way to unlock it. There is no purchase UI.
 

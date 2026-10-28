@@ -14,38 +14,23 @@ account, no analytics and no `INTERNET` permission.
 - Architecture and decisions: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Roadmap to 1.0 and beyond: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - Plans and limits (aurora Free and aurora plus): [`docs/BUSINESS_MODEL.md`](docs/BUSINESS_MODEL.md)
+- The complete product, verification and launch dependencies: [`docs/PRODUCT.md`](docs/PRODUCT.md)
 
-## Status: Phase 1 (foundation)
+## Status: complete product build (`feat/aurora-complete`)
 
-### Works today
+Onboarding, Today with Aurora Light, Protect (Shield with Flexible, Friction, Cooldown, Block and
+rules-only modes, Intent, timed access, schedules, daily limits, groups, Lockdown), enforced Focus
+with profiles, Insights with goals and XP, optional website and Shorts/Reels protection, aurora Free
+and plus with Google Play Billing, and Settings with data controls.
 
-- **Onboarding.** Three steps covering why, how and privacy. Usage access is explained and optional.
-- **Today.** Shows the current session state, a primary focus action, and a summary of
-  protected apps and screen time.
-- **Focus sessions.** Choose a length (15–90 min) and an optional intention. A live countdown runs
-  on the horizon arc, with end-early confirmation and a completion moment. Sessions are stored as
-  timestamps, so they survive app restarts.
-- **Protect.** Lists the real launchable apps on the device, with search. Your selection is saved on the device.
-- **Insights.** Shows real screen time since midnight and your most-used apps, computed on the device from
-  Android usage events. This requires Usage access.
-- **Settings.** Theme (system, light or dark), default focus length, reduce motion, permission
-  status, privacy, replay introduction, licenses and version.
-- Light and dark themes, edge-to-edge layout, reduced-motion support, and screen-reader labels and roles.
-
-### Not yet built (shown honestly in the app)
-
-- **App blocking.** Nothing is blocked yet. The Protect screen, Today and Focus all say this.
-- **Pause before opening, time limits, schedules and strict mode.** These appear in the app as
-  "soon" rows and can't be tapped.
-- **Website filtering, the launcher, and the iOS and desktop apps.**
-- **A notification when a session ends while aurora is closed.** The completion screen appears
-  the next time you open the app.
+What is verified, what isn't, rule precedence, and what still needs phones, Play Console and policy
+review: [`docs/PRODUCT.md`](docs/PRODUCT.md). Emulator screenshots: `docs/screenshots/emulator-2026-10-29/`.
 
 ## Requirements
 
 - JDK 17 or newer. The project was built with Temurin 21.
 - Android SDK with **platform 37** (compile) and build-tools 36.x. Target SDK is 36 and min SDK is 26.
-- Use the Gradle wrapper that comes with the repository (Gradle 9.8.2). Android Gradle Plugin is 9.4.1 and Kotlin is 2.4.21.
+- Use the Gradle wrapper that comes with the repository (Gradle 9.8.2). Android Gradle Plugin is 9.5.0 and Kotlin is 2.4.21.
 
 To use Android Studio, open the folder; it fetches everything it needs. To use the command line only,
 follow these steps:
