@@ -10,6 +10,8 @@ package app.aurora.protect
 data class ShieldRequest(
     val packageName: String,
     val reason: ShieldReason,
+    /** When the restriction ends (wall clock), if known. */
+    val until: Long? = null,
     /** When the protected app's window came to the front (AccessibilityEvent.eventTime). */
     val eventUptime: Long,
     /** When the event reached the service. */
@@ -45,8 +47,16 @@ class Interceptor(
     private val uptime: () -> Long,
     /** Runs [block] on this thread after [delayMs]. */
     private val schedule: (delayMs: Long, block: () -> Unit) -> Unit,
+    /** A protected app is in front and allowed for now; the service re-measures its daily use. */
+    private val onAllowed: (String) -> Unit = {},
 ) {
     @Volatile var state: PolicyState? = null
+
+    /** The decision snapshot, built fresh for every event. The service builds it from in-memory state. */
+    var snapshot: () -> PolicyState? = { state }
+
+    /** Invalidates a pending [watch] when anything newer happens. */
+    private var watchToken = 0L
 
     private var shownFor: String? = null
     private var shownAt = 0L
@@ -58,7 +68,8 @@ class Interceptor(
     private var windows = 0L
 
     fun onWindow(packageName: String?, eventUptime: Long, receivedUptime: Long) {
-        val decision = decide(packageName, wallClock(), state)
+        val current = snapshot()
+        val decision = decide(packageName, wallClock(), current)
         trace.decided(decision)
         if (packageName != null && packageName !in overlays) {
             windows++
@@ -75,6 +86,42 @@ class Interceptor(
                 shownFor = null
             }
         }
+        if (packageName != null && packageName !in overlays && packageName != ownPackage) watchToken++
+        if (decision is Decision.TemporarilyAllowed || decision == Decision.Allow && current != null && packageName in current.protectedPackages) {
+            watch(packageName!!)
+            onAllowed(packageName)
+        }
+    }
+
+    /**
+     * A protected app is open with no Shield: a grant, a RulesOnly item, or budget left. Its decision can
+     * change while it stays in front (the grant ends, a schedule starts, the budget runs out), and no
+     * window event would say so. So aurora checks again at the next change, and at least every
+     * [MaxWatchMs] because the uptime clock pauses in deep sleep and the wall clock can move.
+     */
+    private fun watch(pkg: String) {
+        val current = snapshot() ?: return
+        val wall = wallClock()
+        val next = nextChange(pkg, wall, current) ?: return
+        val token = ++watchToken
+        schedule((next - wall).coerceIn(MinWatchMs, MaxWatchMs)) {
+            if (token == watchToken && lastApp == pkg) {
+                onAllowed(pkg)
+                recheck()
+            }
+        }
+    }
+
+    /** Decides again for the app in front, e.g. after its daily use was re-measured. */
+    fun recheck() {
+        val pkg = lastApp ?: return
+        if (pkg == shownFor) return
+        val current = snapshot() ?: return
+        when (val decision = decide(pkg, wallClock(), current)) {
+            is Decision.Shield -> uptime().let { shield(decision, it, it) }
+            is Decision.TemporarilyAllowed, Decision.Allow -> if (pkg in current.protectedPackages) watch(pkg)
+            else -> Unit
+        }
     }
 
     private fun shield(decision: Decision.Shield, eventUptime: Long, receivedUptime: Long) {
@@ -86,7 +133,10 @@ class Interceptor(
         // count as repeats and aren't timed.
         val repeat = pkg == shownFor && !interrupted && now - shownAt < RepeatWindowMs
         if (repeat) trace.repeat()
-        val ok = presenter.present(ShieldRequest(pkg, decision.reason, eventUptime, receivedUptime, decidedUptime = now, fresh = !repeat))
+        watchToken++
+        val ok = presenter.present(
+            ShieldRequest(pkg, decision.reason, decision.until, eventUptime, receivedUptime, decidedUptime = now, fresh = !repeat),
+        )
         trace.presented(ok)
         shownFor = pkg
         shownAt = now
@@ -110,10 +160,10 @@ class Interceptor(
         val mark = windows
         schedule(ConfirmMs) {
             if (attempt >= ConfirmRetries || windows != mark || shownFor != pkg || lastApp != pkg) return@schedule
-            val decision = decide(pkg, wallClock(), state) as? Decision.Shield ?: return@schedule
+            val decision = decide(pkg, wallClock(), snapshot()) as? Decision.Shield ?: return@schedule
             val now = uptime()
             trace.recovered()
-            trace.presented(presenter.present(ShieldRequest(pkg, decision.reason, now, now, now, fresh = false)))
+            trace.presented(presenter.present(ShieldRequest(pkg, decision.reason, decision.until, now, now, now, fresh = false)))
             confirm(pkg, attempt + 1)
         }
     }
@@ -126,5 +176,8 @@ class Interceptor(
         // cheap extra request. Tune on phones from the "re-shown" count in diagnostics.
         const val ConfirmMs = 1_000L
         const val ConfirmRetries = 3
+
+        const val MinWatchMs = 250L
+        const val MaxWatchMs = 60_000L
     }
 }

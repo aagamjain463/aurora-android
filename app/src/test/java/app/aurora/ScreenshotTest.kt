@@ -10,6 +10,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
+import app.aurora.protect.IntentNote
+import app.aurora.protect.Mode
+import app.aurora.protect.ShieldInfo
+import app.aurora.protect.ShieldReason
 import app.aurora.protect.ShieldScreen
 import app.aurora.ui.focus.FocusScreen
 import app.aurora.ui.home.HomeScreen
@@ -96,7 +100,22 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun focus() = capture("focus") { FocusScreen(onClose = {}) }
 
-    @Test fun shield() = capture("shield") { ShieldScreen(label = "Photos", icon = null, onClose = {}) }
+    @Test fun shield() = capture("shield") { ShieldScreen("Photos", null, ShieldInfo(ShieldReason.Blocked), now = 0, onClose = {}) }
+
+    @Test fun shieldIntent() = capture("shield_intent") {
+        ShieldScreen(
+            "Photos", null,
+            ShieldInfo(
+                ShieldReason.Choice, mode = Mode.Friction, pauseMs = 10_000, pauseStart = 0,
+                intent = IntentNote("I want to spend more time building my future.", "Work on my project"),
+            ),
+            now = 4_000, onClose = {},
+        )
+    }
+
+    @Test fun shieldLockdown() = capture("shield_lockdown") {
+        ShieldScreen("Photos", null, ShieldInfo(ShieldReason.Lockdown, until = 0), now = 0, onClose = {})
+    }
 
     companion object {
         @JvmStatic

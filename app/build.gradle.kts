@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.roborazzi)
 }
 
@@ -15,6 +16,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The Play subscription that is aurora plus. Override with -Paurora.plusProductId=... once Play Console has it.
+        val plusProduct = providers.gradleProperty("aurora.plusProductId").getOrElse("aurora_plus")
+        buildConfigField("String", "PLUS_PRODUCT_ID", "\"$plusProduct\"")
     }
 
     buildTypes {
@@ -62,6 +66,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.billing)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

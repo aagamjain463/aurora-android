@@ -17,17 +17,30 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import app.aurora.AuroraApplication
 import app.aurora.BuildConfig
+import app.aurora.grant
+import app.aurora.pauseStart
+import app.aurora.record
 import app.aurora.data.ThemeMode
 import app.aurora.data.UserPreferences
 import app.aurora.ui.theme.AuroraTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.io.IOException
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicLong
 
@@ -54,8 +67,9 @@ class ActivityShieldPresenter(private val context: Context, onHidden: () -> Unit
  * (singleTask, onNewIntent). The window background is the Shield's own colour, so Android's starting
  * window already hides the app before Compose draws.
  *
- * The only way on is "Close app", which goes home. Back does the same. Phase 3 has no way through;
- * the person changes what's protected in aurora itself (docs/SHIELD.md).
+ * "Close app" (or "Go back") goes home, and so does Back. Only a Choice Shield offers a way through,
+ * after the pause the item asks for: the person picks how long, aurora stores the grant, then opens the
+ * app (docs/SHIELD.md).
  */
 class ShieldActivity : ComponentActivity() {
     private var request by mutableStateOf<ShieldRequest?>(null)
@@ -96,13 +110,64 @@ class ShieldActivity : ComponentActivity() {
                 onDispose { }
             }
             AuroraTheme(darkTheme = dark, reduceMotion = reduceMotion) {
-                val pkg = request?.packageName ?: return@AuroraTheme
-                val catalog = (LocalContext.current.applicationContext as AuroraApplication).catalog
+                val req = request ?: return@AuroraTheme
+                val pkg = req.packageName
+                val aurora = LocalContext.current.applicationContext as AuroraApplication
+                val website = pkg.startsWith(WebPrefix)
                 // Label and icon load off the main thread. The layout is there from the first frame.
-                val app by produceState<Pair<String, ImageBitmap?>?>(null, pkg) {
-                    value = catalog.app(pkg).let { (it?.label ?: pkg) to it?.icon }
+                val target by produceState<Pair<String, ImageBitmap?>?>(null, pkg) {
+                    value = if (website) pkg.removePrefix(WebPrefix) to null else aurora.catalog.app(pkg).let { (it?.label ?: pkg) to it?.icon }
                 }
-                ShieldScreen(label = app?.first, icon = app?.second, onClose = ::closeApp)
+                val rules by aurora.rules.state.collectAsStateWithLifecycle()
+                val r = rules?.value
+                val rule = r?.rule(pkg)
+                val note = rule?.intent?.takeIf { r.activeIntents(aurora.plan).contains(pkg) }
+                val pauseMs = 1000L * maxOf(if (rule?.mode == Mode.Friction) rule.waitSeconds else 0, note?.reflectionSeconds ?: 0)
+                var pauseStart by remember(req) { mutableStateOf<Long?>(null) }
+                var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(req, pauseMs) {
+                    if (req.reason == ShieldReason.Choice && pauseMs > 0) {
+                        // A pause already running for this app continues: leaving and coming back neither skips nor restarts it.
+                        pauseStart = try { aurora.pauseStart(pkg) } catch (_: IOException) { System.currentTimeMillis() }
+                        while (System.currentTimeMillis() < pauseStart!! + pauseMs) {
+                            now = System.currentTimeMillis()
+                            delay(200)
+                        }
+                    }
+                    now = System.currentTimeMillis()
+                }
+                val haptics = LocalHapticFeedback.current
+                ShieldScreen(
+                    label = target?.first,
+                    icon = target?.second,
+                    info = ShieldInfo(
+                        reason = req.reason,
+                        until = req.until,
+                        mode = rule?.mode ?: Mode.Block,
+                        intent = note,
+                        pauseMs = pauseMs,
+                        pauseStart = pauseStart,
+                        cooldownMinutes = rule?.cooldownMinutes ?: 0,
+                        limitMinutes = r?.limits?.find { it.key == pkg }?.minutes,
+                        website = website,
+                    ),
+                    now = now,
+                    onClose = {
+                        if (req.reason == ShieldReason.Choice) aurora.scope.launch { runCatching { aurora.record { it.copy(wentBack = it.wentBack + 1) } } }
+                        closeApp()
+                    },
+                    onContinue = { minutes ->
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        lifecycleScope.launch {
+                            try {
+                                aurora.grant(pkg, minutes)
+                                openTarget(pkg)
+                            } catch (_: IOException) {
+                                // Not stored, so not granted: the Shield stays, and the person can try again.
+                            }
+                        }
+                    },
+                )
             }
         }
     }
@@ -132,8 +197,27 @@ class ShieldActivity : ComponentActivity() {
             return false
         }
         request = next
-        if (!timed && next.fresh) untimed = next
+        if (!timed && next.fresh) {
+            untimed = next
+            // One intervention per opening: repeats and re-shows aren't counted.
+            val app = application as AuroraApplication
+            app.scope.launch { runCatching { app.record { it.copy(shields = it.shields + 1) } } }
+        }
         return true
+    }
+
+    /** After a grant: back to the site (the browser is underneath), or open the app. */
+    private fun openTarget(key: String) {
+        if (!key.startsWith(WebPrefix)) {
+            packageManager.getLaunchIntentForPackage(key)?.let {
+                try {
+                    startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (_: ActivityNotFoundException) {
+                    // The app is gone; there's nothing to open.
+                }
+            }
+        }
+        finish()
     }
 
     private fun closeApp() {
@@ -148,6 +232,7 @@ class ShieldActivity : ComponentActivity() {
     companion object {
         private const val ExtraPackage = "package"
         private const val ExtraReason = "reason"
+        private const val ExtraUntil = "until"
         private const val ExtraEvent = "event_uptime"
         private const val ExtraReceived = "received_uptime"
         private const val ExtraDecided = "decided_uptime"
@@ -195,6 +280,7 @@ class ShieldActivity : ComponentActivity() {
             return Intent(context, ShieldActivity::class.java)
                 .putExtra(ExtraPackage, request.packageName)
                 .putExtra(ExtraReason, request.reason.name)
+                .putExtra(ExtraUntil, request.until ?: -1L)
                 .putExtra(ExtraEvent, request.eventUptime)
                 .putExtra(ExtraReceived, request.receivedUptime)
                 .putExtra(ExtraDecided, request.decidedUptime)
@@ -209,7 +295,8 @@ class ShieldActivity : ComponentActivity() {
             val reason = ShieldReason.entries.find { it.name == getStringExtra(ExtraReason) } ?: return null
             val now = SystemClock.uptimeMillis()
             return ShieldRequest(
-                pkg, reason, getLongExtra(ExtraEvent, now), getLongExtra(ExtraReceived, now), getLongExtra(ExtraDecided, now),
+                pkg, reason, getLongExtra(ExtraUntil, -1L).takeIf { it >= 0 },
+                getLongExtra(ExtraEvent, now), getLongExtra(ExtraReceived, now), getLongExtra(ExtraDecided, now),
                 fresh = getBooleanExtra(ExtraFresh, true),
             )
         }

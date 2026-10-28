@@ -26,7 +26,7 @@ class ShieldActivityTest {
     @get:Rule val compose = createEmptyComposeRule()
 
     private val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
-    private val request = ShieldRequest("com.example.social", ShieldReason.Protected, eventUptime = 1, receivedUptime = 2, decidedUptime = 3)
+    private val request = ShieldRequest("com.example.social", ShieldReason.Blocked, eventUptime = 1, receivedUptime = 2, decidedUptime = 3)
 
     private fun launch() = ActivityScenario.launch<ShieldActivity>(ShieldActivity.intentFor(app, request))
 

@@ -160,7 +160,7 @@ class InterceptorTest {
     @Test
     fun traceKeepsTheLastTimingsOnly() {
         repeat(ShieldTrace.Keep + 5) { i ->
-            trace.shown(ShieldRequest("com.social", ShieldReason.Protected, eventUptime = 0, receivedUptime = 10, decidedUptime = 11), frameEndUptime = 100L + i)
+            trace.shown(ShieldRequest("com.social", ShieldReason.Blocked, eventUptime = 0, receivedUptime = 10, decidedUptime = 11), frameEndUptime = 100L + i)
         }
         val snap = trace.snapshot()
         assertEquals(ShieldTrace.Keep, snap.timings.size)

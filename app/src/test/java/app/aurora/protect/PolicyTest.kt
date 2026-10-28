@@ -13,7 +13,7 @@ class PolicyTest {
 
     @Test
     fun protectedAppsAreShieldedAndOthersAllowed() {
-        assertEquals(Decision.Shield("com.social", ShieldReason.Protected), decide("com.social", 0, state))
+        assertEquals(Decision.Shield("com.social", ShieldReason.Blocked), decide("com.social", 0, state))
         assertEquals(Decision.Allow, decide("com.mail", 0, state))
         assertEquals(Decision.Allow, decide("com.social", 0, state.copy(protectedPackages = emptySet())))
     }
@@ -31,7 +31,7 @@ class PolicyTest {
     fun grantsAllowUntilTheyEnd() {
         val granted = state.copy(grants = mapOf("com.social" to 1_000L))
         assertEquals(Decision.TemporarilyAllowed(1_000L), decide("com.social", 999, granted))
-        assertEquals(Decision.Shield("com.social", ShieldReason.Protected), decide("com.social", 1_000, granted))
+        assertEquals(Decision.Shield("com.social", ShieldReason.Blocked), decide("com.social", 1_000, granted))
         // A grant for an app that isn't protected changes nothing.
         assertEquals(Decision.Allow, decide("com.mail", 0, state.copy(grants = mapOf("com.mail" to 5_000L))))
     }

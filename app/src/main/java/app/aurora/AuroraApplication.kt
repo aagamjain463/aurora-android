@@ -1,6 +1,8 @@
 package app.aurora
 
 import android.app.Application
+import android.os.SystemClock
+import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,26 +18,79 @@ import app.aurora.data.Access
 import app.aurora.data.AccessRepository
 import app.aurora.data.AccessState
 import app.aurora.data.AppCatalog
+import app.aurora.data.JsonValue
 import app.aurora.data.PreferencesRepository
 import app.aurora.data.ScreenTimeRepository
 import app.aurora.data.accessState
 import app.aurora.data.dataStore
+import app.aurora.plan.BillingRepository
+import app.aurora.plan.EntitlementCache
 import app.aurora.plan.Plan
+import app.aurora.progress.History
+import app.aurora.protect.DeviceTime
+import app.aurora.protect.PolicyState
+import app.aurora.protect.ProtectedList
 import app.aurora.protect.ProtectionRepository
+import app.aurora.protect.Rules
+import app.aurora.protect.Runtime
+import app.aurora.protect.policyState
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import java.time.ZoneId
 
 /** Long-lived dependencies. A handful of objects don't need a DI framework. */
 class AuroraApplication : Application() {
+    /** Lives as long as the process. Holds the in-memory copies the Shield reads on every event. */
+    val scope = MainScope()
+
     val preferences by lazy { PreferencesRepository(this) }
     val protection by lazy { ProtectionRepository(dataStore) }
 
-    /**
-     * The one source of the current plan (BUSINESS_MODEL.md 5.2). Always Free until Play Billing feeds
-     * it in Phase 11. There is no way to switch it, in any build.
-     */
-    val plan: Plan = Plan.Free
+    /** The protected list, kept in memory for the Shield. Null until the first read. */
+    val protectedList: StateFlow<ProtectedList?> by lazy { protection.list.stateIn(scope, SharingStarted.Eagerly, null) }
+
+    /** What the person configured. Strict: if it can't be read, nothing overwrites it and Shield says so. */
+    val rules by lazy { JsonValue(dataStore, "rules", Rules.serializer(), Rules(), scope, strict = true) }
+
+    /** Grants, pauses, cooldowns, Focus and Lockdown. */
+    val runtime by lazy { JsonValue(dataStore, "runtime", Runtime.serializer(), Runtime(), scope, strict = false) }
+
+    /** Daily counts, Focus history. Local only. */
+    val history by lazy { JsonValue(dataStore, "history", History.serializer(), History(), scope, strict = false) }
+
+    val billing by lazy {
+        BillingRepository(this, scope, JsonValue(dataStore, "entitlement", EntitlementCache.serializer(), EntitlementCache(), scope, strict = false))
+    }
+
+    /** The one source of the current plan: what Google Play last confirmed (plan/Entitlement.kt). */
+    val plan: Plan get() = billing.plan.value
+
     val catalog by lazy { AppCatalog(this) }
     val screenTime by lazy { ScreenTimeRepository(this) }
     val access by lazy { AccessRepository(this, screenTime) }
+
+    private val boot by lazy { Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1) }
+
+    fun now() = DeviceTime(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot)
+
+    override fun onCreate() {
+        super.onCreate()
+        // Start reading now, so the Shield has its configuration before the first event.
+        protectedList
+        rules
+        runtime
+        billing.connect()
+    }
+
+    /** The decision snapshot, from memory only. Null while anything is still loading or unreadable. */
+    fun policySnapshot(exempt: Set<String>, usedToday: Map<String, Long>): PolicyState? {
+        val list = protectedList.value ?: return null
+        val rules = rules.value ?: return null
+        val runtime = runtime.value ?: return null
+        return policyState(list, rules, runtime, plan, exempt, usedToday, now(), ZoneId.systemDefault())
+    }
 }
 
 @Composable

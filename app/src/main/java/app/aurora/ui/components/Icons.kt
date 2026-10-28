@@ -70,6 +70,71 @@ object AuroraIcons {
         moveTo(9f, 4.5f); verticalLineTo(8f)
         moveTo(15f, 4.5f); verticalLineTo(8f)
     }
+    val Globe = icon("globe") {
+        circle(12f, 12f, 8f)
+        moveTo(4f, 12f); horizontalLineTo(20f)
+        moveTo(12f, 4f); curveTo(9.5f, 6.5f, 9.5f, 17.5f, 12f, 20f)
+        moveTo(12f, 4f); curveTo(14.5f, 6.5f, 14.5f, 17.5f, 12f, 20f)
+    }
+    val Plus = icon("plus") {
+        moveTo(12f, 5.5f); verticalLineTo(18.5f)
+        moveTo(5.5f, 12f); horizontalLineTo(18.5f)
+    }
+    val Trash = icon("trash") {
+        moveTo(5f, 7f); horizontalLineTo(19f)
+        moveTo(9.5f, 7f); verticalLineTo(5f); horizontalLineTo(14.5f); verticalLineTo(7f)
+        moveTo(6.75f, 7f); lineTo(7.5f, 19.5f); horizontalLineTo(16.5f); lineTo(17.25f, 7f)
+    }
+    /** Daily limits: an hourglass. */
+    val Hourglass = icon("hourglass") {
+        moveTo(7f, 4f); horizontalLineTo(17f)
+        moveTo(7f, 20f); horizontalLineTo(17f)
+        moveTo(8f, 4f); curveTo(8f, 9f, 12f, 10f, 12f, 12f); curveTo(12f, 14f, 8f, 15f, 8f, 20f)
+        moveTo(16f, 4f); curveTo(16f, 9f, 12f, 10f, 12f, 12f); curveTo(12f, 14f, 16f, 15f, 16f, 20f)
+    }
+    /** Goals: a point inside two rings. */
+    val Target = icon("target") {
+        circle(12f, 12f, 8f)
+        circle(12f, 12f, 4f)
+        circle(12f, 12f, 0.6f)
+    }
+    /** Groups: stacked layers. */
+    val Layers = icon("layers") {
+        moveTo(12f, 4.5f); lineTo(20f, 8.75f); lineTo(12f, 13f); lineTo(4f, 8.75f); close()
+        moveTo(4f, 12.75f); lineTo(12f, 17f); lineTo(20f, 12.75f)
+        moveTo(4f, 16.25f); lineTo(12f, 20.5f); lineTo(20f, 16.25f)
+    }
+    /** Intent: a speech mark, the person's own words. */
+    val Quote = icon("quote") {
+        moveTo(5f, 6f); horizontalLineTo(19f); verticalLineTo(16f); horizontalLineTo(11f); lineTo(7f, 19.5f); verticalLineTo(16f); horizontalLineTo(5f); close()
+    }
+    /** Level and XP: a small four-point star of light. */
+    val Spark = icon("spark") {
+        moveTo(12f, 4f); curveTo(12.6f, 9.4f, 14.6f, 11.4f, 20f, 12f)
+        curveTo(14.6f, 12.6f, 12.6f, 14.6f, 12f, 20f)
+        curveTo(11.4f, 14.6f, 9.4f, 12.6f, 4f, 12f)
+        curveTo(9.4f, 11.4f, 11.4f, 9.4f, 12f, 4f); close()
+    }
+    val Bell = icon("bell") {
+        moveTo(6f, 16.5f); verticalLineTo(11f)
+        arcTo(6f, 6f, 0f, false, true, 18f, 11f); verticalLineTo(16.5f)
+        moveTo(4.5f, 16.5f); horizontalLineTo(19.5f)
+        moveTo(10f, 19.5f); horizontalLineTo(14f)
+    }
+    val Help = icon("help") {
+        circle(12f, 12f, 8f)
+        moveTo(9.75f, 9.75f); arcTo(2.25f, 2.25f, 0f, true, true, 12f, 12f); verticalLineTo(13.25f)
+        moveTo(12f, 16.25f); verticalLineTo(16.3f)
+    }
+    val Data = icon("data") {
+        moveTo(5f, 6.5f); arcTo(7f, 2.5f, 0f, true, false, 19f, 6.5f); arcTo(7f, 2.5f, 0f, true, false, 5f, 6.5f)
+        moveTo(5f, 6.5f); verticalLineTo(17.5f); arcTo(7f, 2.5f, 0f, false, false, 19f, 17.5f); verticalLineTo(6.5f)
+        moveTo(5f, 12f); arcTo(7f, 2.5f, 0f, false, false, 19f, 12f)
+    }
+    val Edit = icon("edit") {
+        moveTo(5f, 19f); lineTo(5.75f, 15.5f); lineTo(15.5f, 5.75f); lineTo(18.25f, 8.5f); lineTo(8.5f, 18.25f); close()
+        moveTo(13.5f, 7.75f); lineTo(16.25f, 10.5f)
+    }
 }
 
 private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) {
