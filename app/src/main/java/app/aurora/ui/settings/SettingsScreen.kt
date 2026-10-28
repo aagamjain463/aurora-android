@@ -25,8 +25,10 @@ import app.aurora.auroraViewModel
 import app.aurora.data.FocusLengths
 import app.aurora.data.ThemeMode
 import app.aurora.data.UserPreferences
-import app.aurora.data.openUsageAccessSettings
-import app.aurora.rememberUsageAccess
+import app.aurora.data.Access
+import app.aurora.data.AccessState
+import app.aurora.data.openAccessSettings
+import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraMark
@@ -68,7 +70,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit) {
     val prefsOrNull by vm.prefs.collectAsStateWithLifecycle()
     val prefs = prefsOrNull ?: UserPreferences()
     val context = LocalContext.current
-    val usageAccess = rememberUsageAccess()
+    val usageAccess = rememberAccess(Access.Usage)
     val systemReduced = remember { systemAnimationsOff(context) }
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     val colors = Aurora.colors
@@ -120,15 +122,17 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit) {
         item(key = "permissions") {
             SectionLabel("Permissions")
             RowGroup {
+                val usageGranted = usageAccess == AccessState.Granted
                 AuroraRow(
-                    title = "Usage access",
-                    subtitle = "Powers Insights. Read on this phone only.",
+                    title = Access.Usage.title,
+                    subtitle = if (usageAccess == AccessState.Revoked) "Turned off in Android Settings. Insights needs it to show your day."
+                    else Access.Usage.why,
                     icon = AuroraIcons.Insights,
-                    onClick = { openUsageAccessSettings(context) },
+                    onClick = { openAccessSettings(context, Access.Usage) },
                     trailing = {
                         Text(
-                            if (usageAccess) "Allowed" else "Off",
-                            color = if (usageAccess) colors.accent else colors.textSecondary,
+                            if (usageGranted) "Allowed" else "Off",
+                            color = if (usageGranted) colors.accent else colors.textSecondary,
                             style = AuroraType.Secondary,
                         )
                         Chevron()
