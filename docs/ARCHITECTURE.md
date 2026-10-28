@@ -69,10 +69,10 @@ needs no foreground service or notification permission. The trade-off is that no
 when a session ends while aurora is closed. aurora shows the completion the next time it opens.
 Phase 5 adds an exact alarm and notification.
 
-**The protected-app list is real but not enforced.** Apps come from `PackageManager` through a
+**One protected list, enforced by Shield.** Apps come from `PackageManager` through a
 `<queries>` launcher intent, not `QUERY_ALL_PACKAGES` (a Play-restricted permission). Choices
-persist as package names in `UserPreferences.protectedApps`. Every surface that shows the list
-says that blocking is not active yet.
+persist in order in DataStore (`protect/ProtectedItems.kt`), and Protect, Today, Insights and the
+Shield service all read the same `ProtectionRepository.list`. Details are in `SHIELD.md`.
 
 **Screen time is computed, never stored.** `ScreenTimeRepository.today()` replays
 `UsageEvents` since local midnight through `foregroundTime()`, a pure, unit-tested function. The
@@ -88,27 +88,15 @@ cloud backup, because behavioural data shouldn't leave the phone silently. On An
 phone-to-phone transfer that the person starts can still carry it. Revisit this with an explicit,
 opt-in export.
 
-## Where blocking plugs in (Phase 2+)
+## Shield (Phase 3)
 
-The blocking engine reads two inputs that already exist:
+`protect/` holds the production Shield: `decide()` (pure), the protected-item store, an `Interceptor`
+between the accessibility service and a replaceable `ShieldPresenter`, and the Shield activity. Its
+architecture, decision flow, storage, lifecycle, presentation, instrumentation, tests and limitations
+are in **`SHIELD.md`**. **The UI claims "protected" only when `ProtectionStatus` is `Active`.**
 
-- `UserPreferences.protectedApps`: what to protect.
-- `UserPreferences.session`: whether a focus window is active and when it ends.
-
-The likely shape is a `protect/` package with the following parts:
-
-1. **Detection.** An `AccessibilityService` that watches foreground window changes. Use it only
-   with a clear in-app disclosure and a Play Console declaration. Alternatively, poll
-   `UsageStatsManager`, which needs no accessibility access but reacts more slowly.
-2. **Intervention.** A full-screen aurora activity ("pause before opening") launched over the
-   protected app.
-3. **Status.** A `ProtectionStatus` flow (`Off` / `Active` / `NeedsPermission`) that replaces the
-   "Preview" notice and the "No session running" pill. **The UI must claim "protected" only
-   when this flow says `Active`.**
-4. **Strict mode.** A commitment timestamp that hides "end session" and resists in-app bypasses.
-   It cannot defeat uninstall, safe mode or `adb`, and the UI must not imply that it can. Device
-   admin and device-owner capabilities are a separate decision, and the launcher product is the
-   natural place for them.
+Strict mode and Lockdown (Phase 6) can't defeat uninstall, safe mode or `adb`, and the UI must not
+imply that they can. Device admin and device owner aren't used.
 
 Website filtering needs separate research: per-browser accessibility URL reading, or a local
 VPN DNS filter. Both raise policy and privacy questions to settle before implementation.
@@ -120,7 +108,7 @@ VPN DNS filter. Both raise policy and privacy questions to settle before impleme
 | Access | Read with | Opens | Used by |
 | --- | --- | --- | --- |
 | `Usage` | AppOps `GET_USAGE_STATS` (`ScreenTimeRepository.hasAccess()`) | Usage access settings, deep-linked to aurora | Insights, Today, Settings, onboarding |
-| `Accessibility` | `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` for `app.aurora.protect.ShieldService` | Accessibility settings | Nothing yet. The service arrives in Phase 3, so this always reads `Missing` |
+| `Accessibility` | `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` for `app.aurora.protect.ShieldService` | Accessibility settings, after the in-app disclosure | Protect, Today, Settings (`rememberProtectionStatus`) |
 | `Notifications` | `NotificationManagerCompat.areNotificationsEnabled()` | aurora's notification settings | Nothing yet (Phase 5) |
 
 - `AccessState` is `Granted`, `Missing` or `Revoked`. `Revoked` means it was granted earlier in
@@ -132,7 +120,8 @@ VPN DNS filter. Both raise policy and privacy questions to settle before impleme
 - `ProtectionStatus` separates permission from working protection: `Off`, `Blocked` (Android or the
   device maker won't let the service run), `NeedsPermission`, `NotRunning` (switch on, service not
   connected) and `Active`. The accessibility switch alone is never protection. Only `Active` may be
-  described as protected. Phase 3 supplies the `connected` and `blocked` inputs from the service.
+  described as protected. Phase 3 supplies `connected` from the service (`ShieldService.connected`)
+  and adds `ConfigError` (the protected list can't be read). `blocked` isn't detected yet.
 
 ## Entitlements (Phase 2)
 
@@ -160,9 +149,9 @@ VPN DNS filter. Both raise policy and privacy questions to settle before impleme
   - The ledger is wall-clock based. Setting the clock forward to a new date gives a fresh budget;
     this is accepted (`BUSINESS_MODEL.md` section 7). Setting it back never refunds minutes.
   - The functions only read a ledger. Phase 6 stores it in DataStore, so a restart changes nothing.
-- No feature reads the plan yet, and there is no plan source. Every person is on Free until Phase 11.
-  The debug-only switch to Plus (`ROADMAP.md` Phase 2, task 5) is deferred to the first phase that
-  wires a limit, because until then it would switch nothing. There is no purchase UI.
+- The plan source is `AuroraApplication.plan`, which is always `Free` until Phase 11. Phase 3 wires the
+  first limit (5 protected items, `SHIELD.md` section 4). There's still no debug switch to Plus: Plus
+  behaviour is covered by unit tests, so no build carries a way to unlock it. There is no purchase UI.
 
 ## Debug experiments and production code
 
@@ -170,10 +159,11 @@ Spikes live only in `app/src/debug/` and `app/src/testDebug/`, on `spike/<gate-i
 never merged into `main`. The G1 enforcement spike is on `spike/g1`. Release builds never compile
 `src/debug/`, and CI fails if a release APK contains the word "spike".
 
-**G1 has not passed.** Interception works on one API 36 emulator only. Physical devices, OEMs,
-other API levels, latency, split-screen, picture-in-picture, TalkBack and Play policy are untested
-(`ENFORCEMENT_FEASIBILITY.md`). Phase 3 can't start until it passes. Nothing in Phase 2 depends on
-G1: the access layer and `ProtectionStatus` are ready for whichever mechanism G1 selects.
+**G1 has not passed.** On the one API 36 emulator measured (`spike/g1-harness`), 0% of opens were
+shielded within 300 ms. Physical devices, OEMs, other API levels, split-screen, picture-in-picture,
+TalkBack and Play policy are untested (`ENFORCEMENT_FEASIBILITY.md`). The product owner approved
+building Phase 3 anyway, with the presentation mechanism behind `ShieldPresenter` so G1's outcome can
+replace it. Phase 3 doesn't make G1 pass.
 
 ## Testing
 
@@ -182,8 +172,9 @@ G1: the access layer and `ProtectionStatus` are ready for whichever mechanism G1
 | Logic | `src/test/.../LogicTest.kt` | JVM | Usage aggregation, session maths, formatting |
 | Entitlements | `src/test/.../plan/PlanTest.kt` | JVM | Every allowance on both plans, item counting, downgrade, Lockdown budget (fixed instants and zones, no wall clock) |
 | Access | `src/test/.../AccessTest.kt` | JVM | Granted, missing, revoked, and every `ProtectionStatus` |
+| Shield | `src/test/.../protect/` | JVM, Robolectric | `decide()`, storage and limits, event handling, the Shield activity, the limit message (`SHIELD.md` section 9) |
 | UI smoke | `src/sharedTest/.../NavigationTest.kt` | JVM (Robolectric) and device | Onboarding completes, tabs switch, Focus starts and ends early |
-| Screenshots | `src/test/.../ScreenshotTest.kt` | JVM (Robolectric, Roborazzi) | Six screens × light, dark, 200% font and reduced motion |
+| Screenshots | `src/test/.../ScreenshotTest.kt` | JVM (Robolectric, Roborazzi) | Six screens and the Shield × light, dark, 200% font and reduced motion |
 
 - `src/sharedTest/` is a source directory of both `test` and `androidTest`. The same UI tests run
   under Robolectric in every CI run and on a device with `connectedDebugAndroidTest`.

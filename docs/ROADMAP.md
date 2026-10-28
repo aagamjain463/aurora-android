@@ -373,6 +373,16 @@ truth about whether protection is on.
 fallback in section 5.3 and do not start these tasks.
 **Free limit wired:** 5 protected items.
 
+**Status (2026-10-29, `feat/phase-3-shield`, not merged).** The product owner approved building Phase 3
+before G1 passes, with the Shield mechanism behind a replaceable `ShieldPresenter`. G1 and the Play
+policy gate stay open. The build differs from the tasks below as follows (`SHIELD.md`):
+- One baseline behaviour: a protected app is always shielded, with Close app as the only action. Modes
+  (task 1 and task 6) and the Focus-session Friction wait move to Phases 4 and 5.
+- Over the limit (task 7): the oldest 5 stay active and the rest are paused and shown, rather than
+  all migrated apps staying active. The legacy set migrates in package-name order.
+- Tasks 2–5, 7–9 are built. Task 10 (sideload instructions) waits for G4. `Blocked` (task 4) and
+  `Paused` aren't detected yet.
+
 ### Tasks
 
 1. **`protect/Policy.kt`.** Add `Target`, `PolicyState`, `Decision` and `decide()` (section 3.1).
