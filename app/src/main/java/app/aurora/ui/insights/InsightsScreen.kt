@@ -71,7 +71,7 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
                 return@launch
             }
             val usage = app.screenTime.today()
-            val onList = app.preferences.preferences.first().protectedApps
+            val onList = app.protection.list.first().apps.toSet()
             // Apps aurora can't see (system components, uninstalled apps) are folded into one honest row.
             var other = 0L
             val named = usage.mapNotNull { (pkg, ms) ->

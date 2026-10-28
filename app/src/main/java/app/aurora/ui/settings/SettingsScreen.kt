@@ -27,6 +27,13 @@ import app.aurora.data.ThemeMode
 import app.aurora.data.UserPreferences
 import app.aurora.data.Access
 import app.aurora.data.AccessState
+import app.aurora.data.ProtectionStatus
+import app.aurora.protect.ProtectedList
+import app.aurora.protect.ShieldService
+import app.aurora.ui.protect.ShieldDiagnostics
+import app.aurora.ui.protect.ShieldDisclosure
+import app.aurora.ui.protect.rememberProtectionStatus
+import app.aurora.ui.protect.summary
 import app.aurora.data.openAccessSettings
 import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraDialog
@@ -53,6 +60,10 @@ class SettingsViewModel(private val app: AuroraApplication) : ViewModel() {
     val prefs: StateFlow<UserPreferences?> =
         app.preferences.preferences.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val list: StateFlow<ProtectedList?> = app.protection.list.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val plan = app.plan
+
     fun setTheme(mode: ThemeMode) = launch { app.preferences.setThemeMode(mode) }
     fun setReduceMotion(value: Boolean) = launch { app.preferences.setReduceMotion(value) }
     fun setDefaultMinutes(minutes: Int) = launch { app.preferences.setDefaultFocusMinutes(minutes) }
@@ -62,7 +73,7 @@ class SettingsViewModel(private val app: AuroraApplication) : ViewModel() {
     }
 }
 
-private enum class Sheet { Length, Privacy, Licenses }
+private enum class Sheet { Length, Privacy, Licenses, Disclosure, Diagnostics }
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit) {
@@ -71,6 +82,9 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit) {
     val prefs = prefsOrNull ?: UserPreferences()
     val context = LocalContext.current
     val usageAccess = rememberAccess(Access.Usage)
+    val shieldAccess = rememberAccess(Access.Accessibility)
+    val list by vm.list.collectAsStateWithLifecycle()
+    val protection = rememberProtectionStatus(list)
     val systemReduced = remember { systemAnimationsOff(context) }
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     val colors = Aurora.colors
@@ -139,10 +153,33 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit) {
                     },
                 )
                 RowDivider(56.dp)
+                val shieldOn = shieldAccess == AccessState.Granted
                 AuroraRow(
-                    title = "App blocking",
-                    subtitle = "Nothing requested yet. aurora will explain exactly why before it asks.",
+                    title = "Shield",
+                    subtitle = when {
+                        protection == null -> Access.Accessibility.why
+                        protection == ProtectionStatus.Off && !shieldOn -> Access.Accessibility.why
+                        else -> protection.summary()
+                    },
                     icon = AuroraIcons.Lock,
+                    // Before sending anyone to Accessibility settings, aurora says what it would read.
+                    onClick = { if (shieldOn) openAccessSettings(context, Access.Accessibility) else sheet = Sheet.Disclosure },
+                    trailing = {
+                        Text(
+                            if (shieldOn) "Allowed" else "Off",
+                            color = if (shieldOn) colors.accent else colors.textSecondary,
+                            style = AuroraType.Secondary,
+                        )
+                        Chevron()
+                    },
+                )
+                RowDivider(56.dp)
+                AuroraRow(
+                    title = "Shield diagnostics",
+                    subtitle = "What aurora can see about Shield on this phone.",
+                    icon = AuroraIcons.Insights,
+                    onClick = { sheet = Sheet.Diagnostics },
+                    trailing = { Chevron() },
                 )
             }
         }
@@ -186,7 +223,8 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit) {
             title = "Your data stays yours",
             body = "Your chosen apps, focus sessions and preferences are stored only on this phone. " +
                 "There's no account, no analytics and no ads, and aurora doesn't request internet access.\n\n" +
-                "Screen time is read from Android when you open Insights. It isn't copied, stored or shared.",
+                "Screen time is read from Android when you open Insights. It isn't copied, stored or shared.\n\n" +
+                "Shield reads only the name of the app in front, to know when to pause you. It isn't stored or shared.",
             confirmLabel = "Got it",
             onConfirm = { sheet = null },
             onDismiss = { sheet = null },
@@ -197,6 +235,20 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit) {
                 "Jetpack Compose, AndroidX and Kotlin. Apache License 2.0.",
             confirmLabel = "Close",
             onConfirm = { sheet = null },
+            onDismiss = { sheet = null },
+        )
+        Sheet.Disclosure -> ShieldDisclosure(
+            onContinue = {
+                sheet = null
+                openAccessSettings(context, Access.Accessibility)
+            },
+            onDismiss = { sheet = null },
+        )
+        Sheet.Diagnostics -> ShieldDiagnostics(
+            status = protection,
+            list = list,
+            active = list?.active(vm.plan)?.size ?: 0,
+            trace = remember { ShieldService.trace.snapshot() },
             onDismiss = { sheet = null },
         )
         null -> Unit

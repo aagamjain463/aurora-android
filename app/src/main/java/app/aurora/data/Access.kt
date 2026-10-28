@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
+import app.aurora.protect.ShieldService
 
 /**
  * Special access aurora can use. Only the person grants it, in Android Settings: aurora explains
@@ -34,11 +35,20 @@ fun accessState(granted: Boolean, previous: AccessState?): AccessState = when {
  * - [Blocked]: Android or the device maker won't let the service run (Advanced Protection mode,
  *   restricted settings, an OEM policy). Sending the person to a switch they can't use helps no one.
  * - [NeedsPermission]: the accessibility switch is off.
- * - [NotRunning]: the switch is on, but the service isn't connected (force-stopped, crashed, killed).
+ * - [NotRunning]: the switch is on, but the service isn't connected (force-stopped, crashed, killed,
+ *   or not yet bound after a reboot).
+ * - [ConfigError]: aurora can't read which items are protected, so it shields nothing (protect/Policy.kt).
  */
-enum class ProtectionStatus { Off, Blocked, NeedsPermission, NotRunning, Active }
+enum class ProtectionStatus { Off, Blocked, NeedsPermission, NotRunning, ConfigError, Active }
 
-fun protectionStatus(hasItems: Boolean, blocked: Boolean, accessibility: AccessState, connected: Boolean): ProtectionStatus = when {
+fun protectionStatus(
+    hasItems: Boolean,
+    blocked: Boolean,
+    accessibility: AccessState,
+    connected: Boolean,
+    readable: Boolean = true,
+): ProtectionStatus = when {
+    !readable -> ProtectionStatus.ConfigError
     !hasItems -> ProtectionStatus.Off
     blocked -> ProtectionStatus.Blocked
     accessibility != AccessState.Granted -> ProtectionStatus.NeedsPermission
@@ -53,8 +63,7 @@ fun isListedInEnabledServices(setting: String?, component: String, shortComponen
 /** The one place that reads aurora's access. Screens re-check it on resume, through `rememberAccess()`. */
 class AccessRepository(private val context: Context, private val screenTime: ScreenTimeRepository) {
 
-    // Phase 3 adds this service (docs/ROADMAP.md 3.3). Until then it can't be listed, so access reads as Missing.
-    private val shieldService = ComponentName(context, "app.aurora.protect.ShieldService")
+    private val shieldService = ComponentName(context, ShieldService::class.java)
 
     fun isGranted(access: Access): Boolean = when (access) {
         Access.Usage -> screenTime.hasAccess()

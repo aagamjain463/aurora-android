@@ -39,6 +39,10 @@ import app.aurora.auroraViewModel
 import app.aurora.data.Access
 import app.aurora.data.FocusSession
 import app.aurora.data.InstalledApp
+import app.aurora.data.ProtectionStatus
+import app.aurora.protect.ProtectedList
+import app.aurora.ui.protect.rememberProtectionStatus
+import app.aurora.ui.protect.summary
 import app.aurora.data.clockTicks
 import app.aurora.data.formatClock
 import app.aurora.data.formatDuration
@@ -77,6 +81,8 @@ data class HomeState(
     val defaultMinutes: Int,
     val protectedApps: List<InstalledApp>,
     val protectedCount: Int,
+    val list: ProtectedList,
+    val pausedCount: Int,
     /** Null when Usage access isn't granted. */
     val screenTimeToday: Long?,
 )
@@ -96,14 +102,16 @@ class HomeViewModel(private val app: AuroraApplication) : ViewModel() {
     }
 
     val state: StateFlow<HomeState?> =
-        combine(app.preferences.preferences, installed, screenTime, clockTicks()) { prefs, apps, time, now ->
-            val chosen = apps?.filter { it.packageName in prefs.protectedApps }
+        combine(app.preferences.preferences, app.protection.list, installed, screenTime, clockTicks()) { prefs, list, apps, time, now ->
+            val packages = list.apps
             HomeState(
                 now = now,
                 session = prefs.session,
                 defaultMinutes = prefs.defaultFocusMinutes,
-                protectedApps = chosen.orEmpty(),
-                protectedCount = chosen?.size ?: prefs.protectedApps.size,
+                protectedApps = apps?.filter { it.packageName in packages }.orEmpty(),
+                protectedCount = list.items.size,
+                list = list,
+                pausedCount = list.paused(app.plan).size,
                 screenTimeToday = time,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -137,6 +145,7 @@ fun HomeScreen(
         session.isComplete(s.now) -> Phase.Complete
         else -> Phase.Running
     }
+    val protection = rememberProtectionStatus(s.list)
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + TabBarHeight + Space.XXL
 
     Column(
@@ -199,7 +208,7 @@ fun HomeScreen(
 
         SectionLabel("Protected apps")
         RowGroup {
-            if (s.protectedCount == 0) {
+            if (s.protectedCount == 0 && protection != ProtectionStatus.ConfigError) {
                 AuroraRow(
                     title = "Choose apps to protect",
                     subtitle = "Pick the apps that tend to pull you away.",
@@ -208,9 +217,11 @@ fun HomeScreen(
                     trailing = { Chevron() },
                 )
             } else {
+                // "Protected" only when Shield is really running. Otherwise the apps are only chosen.
+                val word = if (protection == ProtectionStatus.Active) "protected" else "chosen"
                 AuroraRow(
-                    title = if (s.protectedCount == 1) "1 app chosen" else "${s.protectedCount} apps chosen",
-                    subtitle = "Saved · blocking arrives in an update",
+                    title = if (s.protectedCount == 1) "1 app $word" else "${s.protectedCount} apps $word",
+                    subtitle = protection?.summary().orEmpty() + if (s.pausedCount > 0) " · ${s.pausedCount} paused" else "",
                     leading = { IconStack(s.protectedApps) },
                     onClick = onOpenProtect,
                     trailing = { Chevron() },

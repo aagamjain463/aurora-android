@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
+import app.aurora.protect.ShieldScreen
 import app.aurora.ui.focus.FocusScreen
 import app.aurora.ui.home.HomeScreen
 import app.aurora.ui.insights.InsightsScreen
@@ -32,7 +33,7 @@ import java.time.ZoneOffset
 import java.util.TimeZone
 
 /**
- * Every Phase 1 screen in light, dark, 200% font scale and reduced motion, rendered on the JVM.
+ * Every screen, and the Shield, in light, dark, 200% font scale and reduced motion, rendered on the JVM.
  *
  * - `./gradlew recordRoborazziDebug` writes the baselines in `src/test/screenshots/`.
  * - `./gradlew verifyRoborazziDebug` fails on any difference from them.
@@ -94,6 +95,8 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun settings() = capture("settings") { SettingsScreen(onBack = {}, onReplayIntro = {}) }
 
     @Test fun focus() = capture("focus") { FocusScreen(onClose = {}) }
+
+    @Test fun shield() = capture("shield") { ShieldScreen(label = "Photos", icon = null, onClose = {}) }
 
     companion object {
         @JvmStatic

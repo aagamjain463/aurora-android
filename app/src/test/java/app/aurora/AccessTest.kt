@@ -45,6 +45,9 @@ class AccessTest {
         assertEquals(ProtectionStatus.NeedsPermission, status(access = Revoked, connected = true))
         // Nothing to protect wins over everything.
         assertEquals(ProtectionStatus.Off, status(hasItems = false, blocked = true, access = Missing, connected = false))
+        // Unreadable storage: aurora doesn't know what's protected, so it never claims protection.
+        assertEquals(ProtectionStatus.ConfigError, protectionStatus(hasItems = false, blocked = false, Granted, connected = true, readable = false))
+        assertEquals(ProtectionStatus.ConfigError, protectionStatus(hasItems = true, blocked = true, Missing, connected = false, readable = false))
     }
 
     @Test

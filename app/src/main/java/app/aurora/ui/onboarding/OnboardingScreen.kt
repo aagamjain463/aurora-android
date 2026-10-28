@@ -185,7 +185,7 @@ private fun HowPage() {
         Spacer(Modifier.height(Space.XL))
         Column(verticalArrangement = Arrangement.spacedBy(Space.L)) {
             Point(AuroraIcons.Focus, "Focus sessions", "Set aside time for what you came to do. Available today.")
-            Point(AuroraIcons.Protect, "Protected apps", "Choose the apps that pull you in. Gentle blocking arrives in an upcoming update.")
+            Point(AuroraIcons.Protect, "Protected apps", "Choose the apps that pull you in. Once you allow it, Shield pauses you when one opens.")
             Point(AuroraIcons.Insights, "Honest insight", "See where your time goes, only if you choose to allow it.")
         }
     }

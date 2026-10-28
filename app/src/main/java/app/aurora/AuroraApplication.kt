@@ -19,10 +19,20 @@ import app.aurora.data.AppCatalog
 import app.aurora.data.PreferencesRepository
 import app.aurora.data.ScreenTimeRepository
 import app.aurora.data.accessState
+import app.aurora.data.dataStore
+import app.aurora.plan.Plan
+import app.aurora.protect.ProtectionRepository
 
-/** Long-lived dependencies. Four objects don't need a DI framework. */
+/** Long-lived dependencies. A handful of objects don't need a DI framework. */
 class AuroraApplication : Application() {
     val preferences by lazy { PreferencesRepository(this) }
+    val protection by lazy { ProtectionRepository(dataStore) }
+
+    /**
+     * The one source of the current plan (BUSINESS_MODEL.md 5.2). Always Free until Play Billing feeds
+     * it in Phase 11. There is no way to switch it, in any build.
+     */
+    val plan: Plan = Plan.Free
     val catalog by lazy { AppCatalog(this) }
     val screenTime by lazy { ScreenTimeRepository(this) }
     val access by lazy { AccessRepository(this, screenTime) }

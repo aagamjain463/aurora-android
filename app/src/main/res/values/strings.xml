@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">aurora</string>
+    <string name="shield_service_label">aurora Shield</string>
+    <string name="shield_service_description">Shield pauses you before an app you chose to protect. aurora reads only the name of the app in front. It doesn\'t read your screen or what you type, and nothing leaves your phone. Turn it off here at any time.</string>
 </resources>

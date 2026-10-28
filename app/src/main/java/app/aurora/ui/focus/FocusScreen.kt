@@ -233,7 +233,7 @@ private fun Setup(minutes: Int, onMinutes: (Int) -> Unit, intention: String, onI
     )
     Spacer(Modifier.height(Space.M))
     Text(
-        "Your apps stay available during a session. Blocking distractions arrives in an upcoming update.",
+        "Apps you protect stay shielded, as they are outside a session. Focus doesn't shield anything extra yet.",
         color = colors.textTertiary,
         style = AuroraType.Caption,
         textAlign = TextAlign.Center,

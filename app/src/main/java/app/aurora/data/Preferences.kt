@@ -9,7 +9,6 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -18,7 +17,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
-private val Context.dataStore by preferencesDataStore(name = "aurora")
+/** aurora's one DataStore file. Protected items live here too (protect/ProtectedItems.kt). */
+internal val Context.dataStore by preferencesDataStore(name = "aurora")
 
 enum class ThemeMode { System, Light, Dark }
 
@@ -40,8 +40,6 @@ data class UserPreferences(
     val themeMode: ThemeMode = ThemeMode.System,
     val reduceMotion: Boolean = false,
     val defaultFocusMinutes: Int = 25,
-    /** Apps the person has chosen to protect. Saved now; enforced once blocking ships. */
-    val protectedApps: Set<String> = emptySet(),
     val session: FocusSession? = null,
 )
 
@@ -57,11 +55,6 @@ class PreferencesRepository(context: Context) {
     suspend fun setThemeMode(mode: ThemeMode) = edit { it[Theme] = mode.name }
     suspend fun setReduceMotion(value: Boolean) = edit { it[ReduceMotion] = value }
     suspend fun setDefaultFocusMinutes(minutes: Int) = edit { it[FocusMinutes] = minutes }
-
-    suspend fun toggleProtected(packageName: String) = edit {
-        val current = it[Protected].orEmpty()
-        it[Protected] = if (packageName in current) current - packageName else current + packageName
-    }
 
     suspend fun startSession(minutes: Int, intention: String, now: Long = System.currentTimeMillis()) = edit {
         it[SessionStart] = now
@@ -84,7 +77,6 @@ class PreferencesRepository(context: Context) {
         val Theme = stringPreferencesKey("theme")
         val ReduceMotion = booleanPreferencesKey("reduce_motion")
         val FocusMinutes = intPreferencesKey("focus_minutes")
-        val Protected = stringSetPreferencesKey("protected_apps")
         val SessionStart = longPreferencesKey("session_start")
         val SessionDuration = longPreferencesKey("session_duration")
         val SessionIntention = stringPreferencesKey("session_intention")
@@ -97,7 +89,6 @@ class PreferencesRepository(context: Context) {
                 themeMode = ThemeMode.entries.find { it.name == this[Theme] } ?: ThemeMode.System,
                 reduceMotion = this[ReduceMotion] ?: false,
                 defaultFocusMinutes = this[FocusMinutes] ?: 25,
-                protectedApps = this[Protected].orEmpty(),
                 session = if (start != null && duration != null) {
                     FocusSession(start, duration, this[SessionIntention].orEmpty())
                 } else null,
