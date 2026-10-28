@@ -31,7 +31,7 @@ android {
     }
 
     sourceSets.getByName("g1") {
-        java.srcDir("src/debug/java")
+        kotlin.directories += "src/debug/java" // built-in Kotlin ignores java.srcDir for .kt files
         res.srcDir("src/debug/res")
         manifest.srcFile("src/debug/AndroidManifest.xml")
     }
