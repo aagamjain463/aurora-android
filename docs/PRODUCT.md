@@ -20,7 +20,7 @@ Status language used below:
 | Today with Aurora Light | Implemented, verified on emulator (light and dark) | screenshots | Light is drawn from XP history only; a first day is intentionally dark |
 | Shield, four modes + RulesOnly | Implemented, Friction verified on emulator | `RulesTest`, `PolicyTest`, `InterceptorTest` | Flexible/Cooldown/Block not hand-tested; same code path as Friction |
 | Friction pause that can't be skipped | Implemented, verified on emulator | `RulesTest.aPauseContinues…` | Pause start persists 5 min; leaving and returning continues it |
-| Timed access (5/15/30 min) | Implemented, verified on emulator (grant opens the app, reopening stays allowed) | `RulesTest` | Expiry re-check: see section 9 |
+| Timed access (5/15/30 min) | Implemented, verified on emulator (grant opens the app, stays open, Shield returns at expiry) | `RulesTest`, `InterceptorTest` | Re-check timing on phones in deep sleep unmeasured |
 | Intent (reason, alternative, reflection) | Implemented, rendered in screenshots | `RulesTest.intentAppsAreLimitedOnFree`, screenshots | Not hand-tested on the emulator |
 | Cooldown | Implemented | `RulesTest.cooldownFollowsTheGrant…` | Not hand-tested |
 | Lockdown with daily Free budget | Implemented, verified on emulator (overrode an active grant) | `RulesTest`, `PlanTest` (budget) | No in-app early exit; Android can still turn Shield off (by design) |
@@ -181,7 +181,7 @@ Accessibility screen by hand-driven taps. Screenshots: `docs/screenshots/emulato
 | Dark theme Today | Pass |
 | Onboarding 8 steps, motivation and app choices saved | Pass |
 | Plus screen with Play unavailable: honest message, no prices invented | Pass |
-| Grant expiring while the app stays open | See the final report for this run |
+| 5-minute grant at 03:01:16 with Clock left open; Shield back in front by 03:06:42 without any new window event | Pass |
 
 Notes from the run:
 
