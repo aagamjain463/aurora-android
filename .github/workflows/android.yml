@@ -1,0 +1,60 @@
+name: Android
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Unit tests, lint and builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Gradle cache is keyed on the build scripts and the wrapper, so it never leaks across versions.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      # The runner image ships the Android SDK and accepted licences. AGP downloads the missing platform (37).
+      - name: Point Gradle at the Android SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      # Unit tests include the Robolectric UI tests and renders every screenshot screen (without comparing pixels).
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Lint
+        run: ./gradlew lintDebug --stacktrace
+
+      - name: Build debug and release
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+
+      # The Phase 2A spike lives in the debug source set only. Fail if any of it reaches a release build.
+      - name: Release excludes debug-only code
+        run: |
+          apk=app/build/outputs/apk/release/app-release-unsigned.apk
+          if unzip -p "$apk" 'classes*.dex' | grep -a -i -q spike; then
+            echo "::error::Release APK contains debug-only spike code"
+            exit 1
+          fi
+
+      - name: Upload reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 7

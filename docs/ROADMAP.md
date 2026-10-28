@@ -12,7 +12,7 @@ Read it with:
 
 `BRAND.md` wins over this plan. `BUSINESS_MODEL.md` wins on what each plan includes.
 
-- **Status:** approved plan. Implementation has not started.
+- **Status:** approved plan. Phase 2 is in progress (see its status note).
 - **Settled decisions:** D2 (business model), D4 (website filtering approach), D10 (India prices)
   and D13 (1.0 scope). See [section 9](#9-decisions).
 - **Rule:** every unverified Android or Play assumption is a **blocking gate** for the phase that
@@ -302,6 +302,15 @@ ask for permissions, a Play Console app for policy gates, and the central entitl
 every later phase uses.
 
 **Gates:** none. **Free limits wired:** none. This phase builds the core only.
+
+**Status (2026-10-28, branch `feat/phase-2b-foundation`, not yet merged or run on GitHub Actions):**
+
+- Done locally: task 1 without the nightly emulator job, tasks 2, 3, 4 (usage access, accessibility
+  and notifications; exact alarms wait for Phase 5), task 5's `plan/` core plus the Lockdown budget,
+  and task 8.
+- Deferred: task 5's plan source and debug Plus switch, until a phase wires the first limit.
+- Not done: task 6 (Play Console) needs the account owner.
+- Acceptance still open: "CI is green on `main`" and the Play Console criterion.
 
 ### Tasks
 

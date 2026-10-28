@@ -59,10 +59,27 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # or set ANDROID_H
 
 ```sh
 ./gradlew assembleDebug        # APK in app/build/outputs/apk/debug/
-./gradlew testDebugUnitTest    # unit tests (usage aggregation, session maths, formatting)
-./gradlew lintDebug            # Android lint
 ./gradlew installDebug         # install on a running emulator or connected device
 adb shell am start -n app.aurora/.MainActivity
+```
+
+### Checks
+
+CI (`.github/workflows/android.yml`) runs these on every push and pull request. Run the same
+locally before pushing:
+
+```sh
+./gradlew testDebugUnitTest    # unit tests, Robolectric UI tests, and a render of every screen
+./gradlew lintDebug            # Android lint; new warnings are errors (baseline: app/lint-baseline.xml)
+./gradlew assembleDebug assembleRelease
+```
+
+These need a device or the local baselines, so CI doesn't run them:
+
+```sh
+./gradlew connectedDebugAndroidTest   # the same UI tests on a running emulator (overwrites aurora's app data)
+./gradlew verifyRoborazziDebug        # compare every screen with app/src/test/screenshots/ (macOS baselines)
+./gradlew recordRoborazziDebug        # re-record the baselines after an intended UI change
 ```
 
 To try Insights without going through Settings, grant Usage access to a debug build:
@@ -75,11 +92,15 @@ adb shell appops set app.aurora GET_USAGE_STATS allow
 
 ```
 app/src/main/java/app/aurora/
-  data/            preferences (DataStore), installed apps, screen time, formatting
+  data/            preferences (DataStore), installed apps, screen time, special access, formatting
+  plan/            aurora Free and aurora plus limits, and the Lockdown budget (pure Kotlin)
   ui/theme/        colours, type, spacing, radius, motion tokens
   ui/components/   the aurora design system
   ui/<screen>/     onboarding, home, protect, focus, insights, settings
-docs/              BRAND.md, ARCHITECTURE.md, screenshots, font licence
+app/src/test/       unit tests, screenshot tests and their baselines (screenshots/)
+app/src/sharedTest/ UI tests that run under Robolectric and on a device
+docs/              BRAND.md, ARCHITECTURE.md, ROADMAP.md, BUSINESS_MODEL.md, ENFORCEMENT_FEASIBILITY.md,
+                   screenshots, font licence
 ```
 
 The Manrope typeface is bundled under the SIL Open Font License (`docs/fonts-OFL.txt`).
