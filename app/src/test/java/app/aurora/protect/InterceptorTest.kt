@@ -6,10 +6,12 @@ import org.junit.Test
 class InterceptorTest {
     private class Recorder : ShieldPresenter {
         val shown = mutableListOf<String>()
+        val fresh = mutableListOf<Boolean>()
         var dismissed = 0
         var refuse = false
         override fun present(request: ShieldRequest): Boolean {
             shown += request.packageName
+            fresh += request.fresh
             return !refuse
         }
         override fun dismiss() {
@@ -20,7 +22,8 @@ class InterceptorTest {
     private var now = 1_000L
     private val presenter = Recorder()
     private val trace = ShieldTrace()
-    private val interceptor = Interceptor(presenter, trace, "app.aurora", setOf("com.android.systemui", "ime"), { 0L }, { now }).apply {
+    private val scheduled = mutableListOf<() -> Unit>()
+    private val interceptor = Interceptor(presenter, trace, "app.aurora", setOf("com.android.systemui", "ime"), { 0L }, { now }, { _, block -> scheduled += block }).apply {
         state = PolicyState(setOf("com.social"), exempt = setOf("app.aurora", "com.launcher", "com.android.systemui"))
     }
 
@@ -29,12 +32,17 @@ class InterceptorTest {
         interceptor.onWindow(pkg, eventUptime = now, receivedUptime = now)
     }
 
+    /**
+     * Every protected event re-asserts the Shield: dropping repeats left Clock in front on the emulator.
+     * A burst from one opening is timed once.
+     */
     @Test
-    fun burstOfEventsFromOneOpeningIsOneShield() {
+    fun everyProtectedEventReassertsButABurstIsTimedOnce() {
         window("com.social")
         window("com.social", after = 20)
         window("com.social", after = 20)
-        assertEquals(listOf("com.social"), presenter.shown)
+        assertEquals(listOf("com.social", "com.social", "com.social"), presenter.shown)
+        assertEquals(listOf(true, false, false), presenter.fresh)
         assertEquals(2, trace.snapshot().repeats)
     }
 
@@ -44,6 +52,7 @@ class InterceptorTest {
         window("app.aurora") // the Shield's own window
         window("com.social", after = 10) // the app started an activity over it
         assertEquals(listOf("com.social", "com.social"), presenter.shown)
+        assertEquals(listOf(true, true), presenter.fresh)
     }
 
     @Test
@@ -92,6 +101,54 @@ class InterceptorTest {
         assertEquals(1, trace.snapshot().unavailable)
     }
 
+    private fun runChecks() {
+        while (scheduled.isNotEmpty()) scheduled.removeAt(0)()
+    }
+
+    @Test
+    fun aShieldThatShowsNeedsNoSecondRequest() {
+        window("com.social")
+        window("app.aurora") // the Shield's own window
+        runChecks()
+        assertEquals(1, presenter.shown.size)
+        assertEquals(0, trace.snapshot().recovered)
+    }
+
+    @Test
+    fun aSilentReturnIsShieldedAgainAFewTimesAtMost() {
+        // Clock-style: the app was brought back while the Shield was starting, and sent no window event.
+        window("com.social")
+        runChecks()
+        assertEquals(1 + Interceptor.ConfirmRetries, presenter.shown.size)
+        assertEquals(listOf(true, false, false, false), presenter.fresh)
+        assertEquals(Interceptor.ConfirmRetries, trace.snapshot().recovered)
+    }
+
+    @Test
+    fun aCoveredShieldIsCheckedAgain() {
+        window("com.social")
+        window("app.aurora")
+        runChecks()
+        interceptor.shieldHidden() // covered, and the app sent nothing
+        scheduled.removeAt(0)()
+        assertEquals(2, presenter.shown.size)
+    }
+
+    @Test
+    fun anotherWindowEndsTheChecks() {
+        window("com.social")
+        interceptor.shieldHidden()
+        window("com.launcher") // the person went home
+        runChecks()
+        assertEquals(1, presenter.shown.size)
+        assertEquals(0, trace.snapshot().recovered)
+        // Unprotected meanwhile: nothing to re-show either.
+        window("com.social", after = 500)
+        interceptor.state = interceptor.state!!.copy(protectedPackages = emptySet())
+        runChecks()
+        assertEquals(2, presenter.shown.size)
+    }
+
     @Test
     fun refusedPresentationsAreCounted() {
         presenter.refuse = true
@@ -107,7 +164,7 @@ class InterceptorTest {
         }
         val snap = trace.snapshot()
         assertEquals(ShieldTrace.Keep, snap.timings.size)
-        assertEquals(ShieldTrace.Timing(decideMs = 1, presentMs = 113, exposureMs = 124), snap.timings.last())
+        assertEquals(ShieldTrace.Timing(detectMs = 10, decideMs = 1, presentMs = 113, exposureMs = 124), snap.timings.last())
         assertEquals(114L to 124L, snap.exposure)
     }
 }

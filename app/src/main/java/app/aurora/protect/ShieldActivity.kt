@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.FrameMetrics
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -23,14 +24,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import app.aurora.AuroraApplication
+import app.aurora.BuildConfig
 import app.aurora.data.ThemeMode
 import app.aurora.data.UserPreferences
 import app.aurora.ui.theme.AuroraTheme
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicLong
 
-/** The Phase 3 [ShieldPresenter]: [ShieldActivity], started from the service in its own task. */
-class ActivityShieldPresenter(private val context: Context) : ShieldPresenter {
+/**
+ * The Phase 3 [ShieldPresenter]: [ShieldActivity], started from the service in its own task.
+ * [onHidden] runs when the Shield leaves the screen without the person closing it.
+ */
+class ActivityShieldPresenter(private val context: Context, onHidden: () -> Unit) : ShieldPresenter {
+    init {
+        ShieldActivity.onHidden = onHidden
+    }
+
     /** The person's theme and motion settings, kept current by the service so the Shield never waits on storage. */
     @Volatile var preferences: UserPreferences? = null
 
@@ -66,8 +75,10 @@ class ShieldActivity : ComponentActivity() {
             val pending = untimed ?: return@addOnFrameMetricsAvailableListener
             val vsync = metrics.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
             if (vsync >= pending.decidedUptime * 1_000_000) {
-                ShieldService.trace.shown(pending, (vsync + metrics.getMetric(FrameMetrics.TOTAL_DURATION)) / 1_000_000)
+                val timing = ShieldService.trace.shown(pending, (vsync + metrics.getMetric(FrameMetrics.TOTAL_DURATION)) / 1_000_000)
                 untimed = null
+                // Debug builds only, and timings only: never the package name.
+                if (BuildConfig.DEBUG) Log.d("AuroraShield", "timing $timing")
             }
         }, Handler(Looper.getMainLooper()))
 
@@ -102,6 +113,12 @@ class ShieldActivity : ComponentActivity() {
         read(intent, timed = false)
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Something covered the Shield. Closing, hide() and rotation don't count.
+        if (!isFinishing && !isChangingConfigurations && isWanted(intent)) onHidden?.invoke()
+    }
+
     override fun onDestroy() {
         if (current?.get() === this) current = null
         super.onDestroy()
@@ -110,12 +127,12 @@ class ShieldActivity : ComponentActivity() {
     /** False, and finishing, when this intent is no longer the Shield aurora wants on screen. */
     private fun read(intent: Intent, timed: Boolean): Boolean {
         val next = intent.toRequest()
-        if (next == null || intent.getLongExtra(ExtraToken, 0L) != wanted) {
+        if (next == null || !isWanted(intent)) {
             finish()
             return false
         }
         request = next
-        if (!timed) untimed = next
+        if (!timed && next.fresh) untimed = next
         return true
     }
 
@@ -134,18 +151,24 @@ class ShieldActivity : ComponentActivity() {
         private const val ExtraEvent = "event_uptime"
         private const val ExtraReceived = "received_uptime"
         private const val ExtraDecided = "decided_uptime"
+        private const val ExtraFresh = "fresh"
         private const val ExtraToken = "token"
         private const val ExtraTheme = "theme"
         private const val ExtraReduceMotion = "reduce_motion"
 
-        private val tokens = AtomicLong()
+        private val generations = AtomicLong()
 
         /**
-         * The token of the Shield aurora wants on screen, or 0 for none. An activity started for an older
-         * request (the person already switched away) finishes instead of appearing.
+         * Every intent carries the [generation] it was sent in. [hide] starts a new generation, so an
+         * activity started before the person switched away finishes instead of appearing. A newer
+         * [show] doesn't: it's the same Shield, asked for again. A new process starts with nothing wanted.
          */
-        @Volatile private var wanted = 0L
+        @Volatile private var generation = 0L
+        @Volatile private var wanted = false
+
+        private fun isWanted(intent: Intent) = wanted && intent.getLongExtra(ExtraToken, -1L) == generation
         private var current: WeakReference<ShieldActivity>? = null
+        internal var onHidden: (() -> Unit)? = null
 
         fun show(context: Context, request: ShieldRequest, preferences: UserPreferences?): Boolean {
             val intent = intentFor(context, request, preferences)
@@ -155,26 +178,27 @@ class ShieldActivity : ComponentActivity() {
                 true
             } catch (_: RuntimeException) {
                 // ActivityNotFoundException or a SecurityException from a background-start restriction.
-                wanted = 0L
                 false
             }
         }
 
         fun hide() {
-            wanted = 0L
+            wanted = false
+            generation = generations.incrementAndGet()
             current?.get()?.finish()
         }
 
         /** The intent for [request], which also makes it the Shield aurora wants on screen. */
         internal fun intentFor(context: Context, request: ShieldRequest, preferences: UserPreferences? = null): Intent {
-            val token = tokens.incrementAndGet()
-            wanted = token
+            wanted = true
+            val token = generation
             return Intent(context, ShieldActivity::class.java)
                 .putExtra(ExtraPackage, request.packageName)
                 .putExtra(ExtraReason, request.reason.name)
                 .putExtra(ExtraEvent, request.eventUptime)
                 .putExtra(ExtraReceived, request.receivedUptime)
                 .putExtra(ExtraDecided, request.decidedUptime)
+                .putExtra(ExtraFresh, request.fresh)
                 .putExtra(ExtraToken, token)
                 .putExtra(ExtraTheme, preferences?.themeMode?.name)
                 .putExtra(ExtraReduceMotion, preferences?.reduceMotion == true)
@@ -184,7 +208,10 @@ class ShieldActivity : ComponentActivity() {
             val pkg = getStringExtra(ExtraPackage) ?: return null
             val reason = ShieldReason.entries.find { it.name == getStringExtra(ExtraReason) } ?: return null
             val now = SystemClock.uptimeMillis()
-            return ShieldRequest(pkg, reason, getLongExtra(ExtraEvent, now), getLongExtra(ExtraReceived, now), getLongExtra(ExtraDecided, now))
+            return ShieldRequest(
+                pkg, reason, getLongExtra(ExtraEvent, now), getLongExtra(ExtraReceived, now), getLongExtra(ExtraDecided, now),
+                fresh = getBooleanExtra(ExtraFresh, true),
+            )
         }
     }
 }

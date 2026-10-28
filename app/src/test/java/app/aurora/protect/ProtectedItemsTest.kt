@@ -80,7 +80,7 @@ class ProtectedItemsTest {
         assertEquals(AddResult.AlreadyProtected, repo.add(app("com.a"), Plan.Free))
         assertEquals(AddResult.Added, repo.add(app("com.b"), Plan.Free))
         assertEquals(listOf(app("com.a"), app("com.b")), repo.list.first().items)
-        repo.remove(listOf(app("com.a")))
+        repo.remove(listOf(app("com.a")), Plan.Free)
         assertEquals(listOf(app("com.b")), repo.list.first().items)
         // A second repository on the same store (a new process) reads the same list.
         assertEquals(listOf(app("com.b")), ProtectionRepository(store).list.first().items)
@@ -97,9 +97,47 @@ class ProtectedItemsTest {
         assertEquals(6, list.items.size)
         assertEquals(listOf(app("com.sixth")), list.paused(Plan.Free))
         assertEquals(AddResult.AtLimit, repo.add(app("com.seventh"), Plan.Free))
-        // Removing an active item frees a slot: the paused one becomes active.
-        repo.remove(listOf(app("com.app1")))
+        // Removing an active item frees a slot, but the paused item stays paused until the person chooses it.
+        repo.remove(listOf(app("com.app1")), Plan.Free)
+        val afterRemove = repo.list.first()
+        assertEquals(listOf(app("com.sixth")), afterRemove.paused(Plan.Free))
+        assertEquals(4, afterRemove.active(Plan.Free).size)
+        assertEquals(AddResult.Added, repo.resume(app("com.sixth"), Plan.Free))
         assertTrue(repo.list.first().paused(Plan.Free).isEmpty())
+        // aurora plus enforces everything, held or not.
+        assertEquals(5, repo.list.first().active(Plan.Plus).size)
+    }
+
+    @Test
+    fun theFreedSlotGoesToTheAppThePersonChooses() = runBlocking {
+        val seven = (1..7).map { app("com.old$it") }
+        store.edit { it[stringSetPreferencesKey("protected_apps")] = seven.map { a -> a.packageName }.toSet() }
+        repo.remove(listOf(app("com.old2")), Plan.Free)
+        // Order is kept, nothing woke up, and both paused apps are saved as paused.
+        val list = repo.list.first()
+        assertEquals(seven - app("com.old2"), list.items)
+        assertEquals(listOf(app("com.old6"), app("com.old7")), list.paused(Plan.Free))
+        assertEquals("app:com.old1\napp:com.old3\napp:com.old4\napp:com.old5\npaused:app:com.old6\npaused:app:com.old7",
+            store.data.first()[stringPreferencesKey("protected_items")])
+        // The person picks the newer one.
+        assertEquals(AddResult.Added, repo.resume(app("com.old7"), Plan.Free))
+        assertEquals(listOf(app("com.old6")), repo.list.first().paused(Plan.Free))
+        assertEquals(AddResult.AtLimit, repo.resume(app("com.old6"), Plan.Free))
+        // A new app also takes a free slot only when one exists.
+        assertEquals(AddResult.AtLimit, repo.add(app("com.new"), Plan.Free))
+        // Removing a paused app frees nothing and wakes nothing.
+        repo.remove(listOf(app("com.old6")), Plan.Free)
+        assertEquals(5, repo.list.first().active(Plan.Free).size)
+        assertTrue(repo.list.first().paused(Plan.Free).isEmpty())
+    }
+
+    @Test
+    fun heldMarksSurviveEncodingAndUnknownLines() {
+        val list = decodeItems("app:com.a\npaused:app:com.b\npaused:zzz:x\napp:com.c")
+        assertEquals(listOf(app("com.a"), app("com.b"), app("com.c")), list.items)
+        assertEquals(setOf(app("com.b")), list.held)
+        assertEquals(1, list.skipped)
+        assertEquals(list, decodeItems(encodeItems(list.items, list.held)).copy(skipped = 1))
     }
 
     @Test

@@ -31,6 +31,8 @@ import androidx.lifecycle.viewModelScope
 import app.aurora.AuroraApplication
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
+import app.aurora.data.AccessState
+import app.aurora.rememberAccess
 import app.aurora.data.InstalledApp
 import app.aurora.data.openAccessSettings
 import app.aurora.plan.Allowance
@@ -39,7 +41,9 @@ import app.aurora.plan.limit
 import app.aurora.protect.AddResult
 import app.aurora.protect.ProtectedList
 import app.aurora.protect.exemptPackages
+import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
+import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.AppIcon
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraScreen
@@ -83,6 +87,11 @@ class ProtectViewModel(private val app: AuroraApplication) : ViewModel() {
     /** True after an add was refused at the plan's limit, until the message is dismissed. */
     val atLimit: StateFlow<Boolean> = _atLimit
 
+    private val _choosing = MutableStateFlow<String?>(null)
+
+    /** The paused app the person tapped: they choose to resume it or remove it. */
+    val choosing: StateFlow<String?> = _choosing
+
     val plan = app.plan
 
     init {
@@ -95,18 +104,44 @@ class ProtectViewModel(private val app: AuroraApplication) : ViewModel() {
 
     fun toggle(packageName: String) {
         val item = ProtectedItem.App.of(packageName) ?: return
-        viewModelScope.launch {
-            try {
-                if (item in app.protection.list.first().items) app.protection.remove(listOf(item))
-                else if (app.protection.add(item, plan) == AddResult.AtLimit) _atLimit.value = true
-            } catch (_: IOException) {
-                // The list on screen is read back from storage, so it keeps showing the truth.
+        write {
+            val list = app.protection.list.first()
+            when (item) {
+                in list.paused(plan) -> _choosing.value = packageName
+                in list.items -> app.protection.remove(listOf(item), plan)
+                else -> if (app.protection.add(item, plan) == AddResult.AtLimit) _atLimit.value = true
             }
         }
     }
 
+    fun resume(packageName: String) {
+        _choosing.value = null
+        val item = ProtectedItem.App.of(packageName) ?: return
+        write { if (app.protection.resume(item, plan) == AddResult.AtLimit) _atLimit.value = true }
+    }
+
+    fun removePaused(packageName: String) {
+        _choosing.value = null
+        val item = ProtectedItem.App.of(packageName) ?: return
+        write { app.protection.remove(listOf(item), plan) }
+    }
+
+    fun dismissChoice() {
+        _choosing.value = null
+    }
+
     fun dismissLimit() {
         _atLimit.value = false
+    }
+
+    private fun write(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (_: IOException) {
+                // The list on screen is read back from storage, so it keeps showing the truth.
+            }
+        }
     }
 
     /**
@@ -117,7 +152,7 @@ class ProtectViewModel(private val app: AuroraApplication) : ViewModel() {
         val list = app.protection.list.first()
         if (!list.readable) return
         val gone = list.items.filterIsInstance<ProtectedItem.App>().filter { app.catalog.app(it.packageName) == null }
-        if (gone.isNotEmpty()) runCatching { app.protection.remove(gone) }
+        if (gone.isNotEmpty()) runCatching { app.protection.remove(gone, plan) }
     }
 }
 
@@ -129,6 +164,7 @@ fun ProtectScreen() {
     val list by vm.list.collectAsStateWithLifecycle()
     val exempt by vm.exempt.collectAsStateWithLifecycle()
     val atLimit by vm.atLimit.collectAsStateWithLifecycle()
+    val choosing by vm.choosing.collectAsStateWithLifecycle()
     val status = rememberProtectionStatus(list)
     val chosen = remember(list) { list?.apps.orEmpty().toSet() }
     val paused = remember(list) { list?.paused(vm.plan).orEmpty().mapNotNull { (it as? ProtectedItem.App)?.packageName }.toSet() }
@@ -157,6 +193,7 @@ fun ProtectScreen() {
             ShieldStatusCard(
                 status = status,
                 count = count,
+                allowed = rememberAccess(Access.Accessibility) == AccessState.Granted,
                 onTurnOn = { disclosure = true },
                 onOpenSettings = { openAccessSettings(context, Access.Accessibility) },
             )
@@ -164,8 +201,8 @@ fun ProtectScreen() {
         if (paused.isNotEmpty()) item(key = "paused") {
             Notice(
                 eyebrow = "Paused",
-                body = "aurora Free protects $max items. ${paused.size} of yours ${if (paused.size == 1) "is" else "are"} paused and saved. " +
-                    "Remove one to make the next one active.",
+                body = "aurora Free protects $max items at a time. ${paused.size} of yours ${if (paused.size == 1) "is" else "are"} paused and saved. " +
+                    "When a slot is free, tap a paused app to choose whether to resume it.",
                 modifier = Modifier.padding(top = Space.S),
             )
         }
@@ -204,7 +241,7 @@ fun ProtectScreen() {
                     chosen = isChosen,
                     note = when {
                         pkg in exempt -> "aurora never shields this app"
-                        pkg in paused -> "Paused · over the Free limit"
+                        pkg in paused -> "Paused · tap to choose"
                         else -> null
                     },
                     // A protected exempt app (chosen before Phase 3) can still be removed.
@@ -232,6 +269,21 @@ fun ProtectScreen() {
             },
             onDismiss = { disclosure = false },
         )
+    }
+    choosing?.let { pkg ->
+        val label = apps?.find { it.packageName == pkg }?.label ?: pkg
+        val free = (list?.active(vm.plan)?.size ?: 0) < (max ?: Int.MAX_VALUE)
+        AuroraDialog(
+            title = "$label is paused",
+            body = if (free) "You have a free slot. Resume $label to protect it again, or remove it from your list."
+            else "aurora Free protects $max items at a time. Remove another app first to resume $label, or remove it from your list.",
+            confirmLabel = if (free) "Resume" else "Remove $label",
+            onConfirm = { if (free) vm.resume(pkg) else vm.removePaused(pkg) },
+            dismissLabel = "Cancel",
+            onDismiss = vm::dismissChoice,
+        ) {
+            if (free) AuroraButton("Remove from list", { vm.removePaused(pkg) }, kind = ButtonKind.Quiet)
+        }
     }
     if (atLimit) {
         AuroraDialog(

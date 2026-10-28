@@ -8,7 +8,8 @@ package app.aurora.protect
  * Times are CLOCK_MONOTONIC milliseconds (SystemClock.uptimeMillis), so they never jump with the wall clock.
  */
 class ShieldTrace {
-    data class Timing(val decideMs: Long, val presentMs: Long, val exposureMs: Long)
+    /** detect: window event to the service. decide: service to decision. present: decision to first frame. */
+    data class Timing(val detectMs: Long, val decideMs: Long, val presentMs: Long, val exposureMs: Long)
 
     data class Snapshot(
         val events: Int,
@@ -16,6 +17,8 @@ class ShieldTrace {
         val repeats: Int,
         val failures: Int,
         val unavailable: Int,
+        /** Shields shown again because the app came back without a window event (Interceptor.shieldHidden). */
+        val recovered: Int,
         val timings: List<Timing>,
         val lifecycle: List<String>,
     ) {
@@ -29,6 +32,7 @@ class ShieldTrace {
     private var repeats = 0
     private var failures = 0
     private var unavailable = 0
+    private var recovered = 0
     private val timings = ArrayDeque<Timing>()
     private val lifecycle = ArrayDeque<String>()
 
@@ -41,20 +45,25 @@ class ShieldTrace {
         repeats++
     }
 
+    @Synchronized fun recovered() {
+        recovered++
+    }
+
     @Synchronized fun presented(ok: Boolean) {
         if (ok) shields++ else failures++
     }
 
     /** The Shield's first frame for a request, [frameEndUptime] being when it reached the compositor. */
-    @Synchronized fun shown(request: ShieldRequest, frameEndUptime: Long) {
-        timings.addLast(
-            Timing(
-                decideMs = request.decidedUptime - request.receivedUptime,
-                presentMs = frameEndUptime - request.decidedUptime,
-                exposureMs = frameEndUptime - request.eventUptime,
-            ),
+    @Synchronized fun shown(request: ShieldRequest, frameEndUptime: Long): Timing {
+        val timing = Timing(
+            detectMs = request.receivedUptime - request.eventUptime,
+            decideMs = request.decidedUptime - request.receivedUptime,
+            presentMs = frameEndUptime - request.decidedUptime,
+            exposureMs = frameEndUptime - request.eventUptime,
         )
+        timings.addLast(timing)
         if (timings.size > Keep) timings.removeFirst()
+        return timing
     }
 
     /** A service lifecycle change, for example "connected at 12.4 s". */
@@ -63,7 +72,7 @@ class ShieldTrace {
         if (lifecycle.size > Keep) lifecycle.removeFirst()
     }
 
-    @Synchronized fun snapshot() = Snapshot(events, shields, repeats, failures, unavailable, timings.toList(), lifecycle.toList())
+    @Synchronized fun snapshot() = Snapshot(events, shields, repeats, failures, unavailable, recovered, timings.toList(), lifecycle.toList())
 
     companion object {
         const val Keep = 20

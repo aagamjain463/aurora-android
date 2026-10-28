@@ -2,6 +2,8 @@ package app.aurora.protect
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import app.aurora.AuroraApplication
@@ -26,11 +28,13 @@ class ShieldService : AccessibilityService() {
 
     override fun onServiceConnected() {
         val app = application as AuroraApplication
-        val presenter = ActivityShieldPresenter(this)
+        val main = Handler(Looper.getMainLooper())
+        val presenter = ActivityShieldPresenter(this) { this.interceptor?.shieldHidden() }
         val exempt = exemptPackages(this)
         val interceptor = Interceptor(
             presenter, trace, packageName, overlayPackages(this),
             wallClock = System::currentTimeMillis, uptime = SystemClock::uptimeMillis,
+            schedule = { delay, block -> main.postDelayed(block, delay) },
         )
         this.interceptor = interceptor
         scope?.cancel()

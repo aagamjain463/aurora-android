@@ -56,12 +56,15 @@ fun ProtectionStatus.summary(): String = when (this) {
 
 /** The Protect tab's status card: the truth about protection, and the one step that fixes it. */
 @Composable
-fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit, onOpenSettings: () -> Unit) {
+fun ShieldStatusCard(status: ProtectionStatus, count: Int, allowed: Boolean, onTurnOn: () -> Unit, onOpenSettings: () -> Unit) {
     val colors = Aurora.colors
     val apps = if (count == 1) "1 app" else "$count apps"
     val (title, body) = when (status) {
-        ProtectionStatus.Off -> "Shield is ready" to "Choose the apps that pull you away. aurora asks before it turns Shield on."
-        ProtectionStatus.Active -> "Shield is on" to "aurora pauses you whenever one of your $apps opens."
+        ProtectionStatus.Off -> "Shield is ready" to
+            if (allowed) "Choose an app below and Shield protects it straight away."
+            else "Choose the apps that pull you away. aurora asks before it turns Shield on."
+        ProtectionStatus.Active -> "Shield is on" to
+            if (count == 1) "aurora pauses you whenever your protected app opens." else "aurora pauses you whenever one of your $apps opens."
         ProtectionStatus.NeedsPermission -> "Turn on Shield" to
             "Your $apps aren't protected yet. Shield needs Android's accessibility permission to notice when one opens."
         ProtectionStatus.NotRunning -> "Shield isn't running" to
@@ -121,7 +124,7 @@ fun ShieldDiagnostics(status: ProtectionStatus?, list: ProtectedList?, active: I
         add("Service: ${if (connected) "connected" else "not connected"}")
         if (list != null) add(if (list.readable) "Protected apps: $active active, ${list.items.size - active} paused" else "Protected apps: can't be read")
         if (list != null && list.skipped > 0) add("Unreadable saved entries: ${list.skipped}")
-        add("Since aurora started: ${trace.shields} Shields, ${trace.repeats} repeat events, ${trace.failures} failed")
+        add("Since aurora started: ${trace.events} window events, ${trace.shields} Shield requests (${trace.repeats} repeats, ${trace.recovered} re-shown after a silent return), ${trace.failures} refused")
         add(
             if (exposure == null) "Shield time: none measured yet"
             else "Shield time (app opened to first Shield frame): median ${exposure.first} ms, slowest ${exposure.second} ms, last ${trace.timings.size}",
