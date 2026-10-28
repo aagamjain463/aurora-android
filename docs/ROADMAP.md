@@ -303,14 +303,16 @@ every later phase uses.
 
 **Gates:** none. **Free limits wired:** none. This phase builds the core only.
 
-**Status (2026-10-28, branch `feat/phase-2b-foundation`, not yet merged or run on GitHub Actions):**
+**Status (2026-10-28, branch `feat/phase-2b-foundation`, not yet merged):**
 
-- Done locally: task 1 without the nightly emulator job, tasks 2, 3, 4 (usage access, accessibility
-  and notifications; exact alarms wait for Phase 5), task 5's `plan/` core plus the Lockdown budget,
-  and task 8.
+- Done: task 1 without the nightly emulator job, tasks 2, 3, 4 (usage access, accessibility and
+  notifications; exact alarms wait for Phase 5), task 5's `plan/` core plus the Lockdown budget,
+  and task 8. GitHub Actions passes on the feature branch.
 - Deferred: task 5's plan source and debug Plus switch, until a phase wires the first limit.
 - Not done: task 6 (Play Console) needs the account owner.
-- Acceptance still open: "CI is green on `main`" and the Play Console criterion.
+- Acceptance still open: "CI is green on `main`" (needs the merge), "a failing unit test blocks a
+  merge" (branch protection needs GitHub Pro or a public repository; until then, merge only on a
+  green check), and the Play Console criterion.
 
 ### Tasks
 
