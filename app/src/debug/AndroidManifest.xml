@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Phase 2A enforcement spike (gate G1). Debug builds only: none of this is merged into release.
+    See docs/ENFORCEMENT_FEASIBILITY.md. Phase 3 rebuilds the mechanism properly in main/.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 16+: lets the spike report whether Advanced Protection mode is on. -->
+    <uses-permission android:name="android.permission.QUERY_ADVANCED_PROTECTION_MODE" />
+
+    <application>
+        <!-- Separate launcher entry so the spike can be driven without touching the real app. -->
+        <activity
+            android:name=".spike.SpikeControlActivity"
+            android:exported="true"
+            android:label="aurora spike"
+            android:taskAffinity="app.aurora.spike"
+            android:theme="@style/Theme.Aurora.Shield">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Own task, out of Recents, so finishing it reveals whatever was underneath. -->
+        <activity
+            android:name=".spike.SpikeShieldActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="app.aurora.shield"
+            android:theme="@style/Theme.Aurora.Shield" />
+
+        <service
+            android:name=".spike.SpikeShieldService"
+            android:exported="true"
+            android:label="aurora spike shield"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/spike_shield_service" />
+        </service>
+    </application>
+</manifest>
