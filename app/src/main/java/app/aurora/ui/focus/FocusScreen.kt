@@ -83,8 +83,12 @@ class FocusViewModel(private val app: AuroraApplication) : ViewModel() {
         viewModelScope.launch { app.preferences.startSession(minutes, intention) }
     }
 
-    fun clear() {
-        viewModelScope.launch { app.preferences.clearSession() }
+    /** Calls [then] once the session is cleared. Leaving first would destroy this ViewModel and could cancel the write. */
+    fun clear(then: () -> Unit) {
+        viewModelScope.launch {
+            app.preferences.clearSession()
+            then()
+        }
     }
 }
 
@@ -165,7 +169,7 @@ fun FocusScreen(onClose: () -> Unit) {
                         Phase.Running -> AuroraButton(
                             "End session", { confirmEnd = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary,
                         )
-                        Phase.Complete -> AuroraButton("Done", { vm.clear(); onClose() }, Modifier.fillMaxWidth())
+                        Phase.Complete -> AuroraButton("Done", { vm.clear(onClose) }, Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -180,7 +184,7 @@ fun FocusScreen(onClose: () -> Unit) {
             body = "You've focused for ${formatDuration(session.durationMs - session.remaining(s.now))}. " +
                 "Stopping early is completely fine.",
             confirmLabel = "End session",
-            onConfirm = { confirmEnd = false; vm.clear(); onClose() },
+            onConfirm = { confirmEnd = false; vm.clear(onClose) },
             dismissLabel = "Keep going",
             onDismiss = { confirmEnd = false },
         )
