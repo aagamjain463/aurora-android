@@ -7,6 +7,17 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- aurora has no network access. Google Play Billing brings Google's datatransport library, which
+         asks for these to upload billing-library diagnostics; they're removed so nothing leaves the phone.
+         Purchases still go through the Play Store app over IPC. Verify with license testers before launch
+         (docs/PRODUCT.md, "Billing"). -->
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
+
     <!-- Lets aurora list the apps a person can open from their launcher, without QUERY_ALL_PACKAGES,
          and recognise the home screen so it isn't counted as screen time. -->
     <queries>

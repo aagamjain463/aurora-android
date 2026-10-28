@@ -27,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -83,7 +84,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.TextStyle
-import java.util.Locale
 import java.util.UUID
 
 data class UsageRow(val packageName: String, val label: String, val icon: ImageBitmap?, val ms: Long, val onList: Boolean)
@@ -307,8 +307,9 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
 @Composable
 private fun DayBars(days: List<DayUsage>) {
     val colors = Aurora.colors
+    val locale = LocalLocale.current.platformLocale
     val max = days.mapNotNull { it.total }.maxOrNull()?.coerceAtLeast(60_000L) ?: 1L
-    val spoken = days.joinToString(", ") { d -> "${d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${d.total?.let(::formatDuration) ?: "no data"}" }
+    val spoken = days.joinToString(", ") { d -> "${d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale)} ${d.total?.let(::formatDuration) ?: "no data"}" }
     Column(Modifier.semantics(mergeDescendants = true) { contentDescription = "Screen time by day: $spoken" }) {
         Canvas(Modifier.fillMaxWidth().height(120.dp)) {
             val slot = size.width / days.size
@@ -331,7 +332,7 @@ private fun DayBars(days: List<DayUsage>) {
         if (days.size <= 7) Row(Modifier.fillMaxWidth().padding(top = Space.XS)) {
             days.forEach { d ->
                 Text(
-                    d.date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                    d.date.dayOfWeek.getDisplayName(TextStyle.NARROW, locale),
                     Modifier.weight(1f),
                     color = colors.textTertiary,
                     style = AuroraType.Caption,

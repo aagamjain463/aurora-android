@@ -289,7 +289,7 @@ private fun Distractions(vm: ProtectModel) {
         Title(
             "what pulls you away",
             "Choose your\ndistractions.",
-            "aurora Free protects ${allowanceText(data?.active?.size ?: 0, data?.max(Allowance.ProtectedItems))} apps and sites. You can change these anytime.",
+            "Tick the apps that pull you in. You've chosen ${allowanceText(data?.active?.size ?: 0, data?.max(Allowance.ProtectedItems))} on aurora Free, and you can change them anytime.",
         )
         Spacer(Modifier.height(Space.L))
         if (ordered == null) SkeletonRows(4)

@@ -4,7 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import app.aurora.BuildConfig
 import app.aurora.data.JsonValue
 import com.android.billingclient.api.AcknowledgePurchaseParams
@@ -172,6 +172,7 @@ class BillingRepository(
     private fun describe(result: BillingResult): String = when (result.responseCode) {
         BillingResponseCode.BILLING_UNAVAILABLE -> "Google Play billing isn't available on this phone or account."
         BillingResponseCode.SERVICE_UNAVAILABLE, BillingResponseCode.NETWORK_ERROR -> "Google Play can't be reached right now. Try again when you're online."
+        BillingResponseCode.SERVICE_DISCONNECTED -> "aurora couldn't connect to Google Play on this phone. Make sure the Play Store is installed and signed in, then try again."
         BillingResponseCode.ITEM_UNAVAILABLE -> "aurora plus isn't available to buy in this version of aurora yet."
         BillingResponseCode.DEVELOPER_ERROR -> "This version of aurora can't sell aurora plus."
         else -> "Google Play couldn't complete that (code ${result.responseCode})."
@@ -180,7 +181,7 @@ class BillingRepository(
 
 /** Play's own subscription screen, where the person cancels or changes plan. aurora never cancels for them. */
 fun openSubscriptionSettings(context: Context, productId: String?) {
-    val uri = Uri.parse("https://play.google.com/store/account/subscriptions").buildUpon()
+    val uri = "https://play.google.com/store/account/subscriptions".toUri().buildUpon()
         .apply { if (productId != null) appendQueryParameter("sku", productId) }
         .appendQueryParameter("package", context.packageName)
         .build()
