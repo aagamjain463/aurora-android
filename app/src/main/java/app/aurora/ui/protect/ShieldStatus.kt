@@ -58,15 +58,15 @@ fun ProtectionStatus.summary(): String = when (this) {
 @Composable
 fun ShieldStatusCard(status: ProtectionStatus, count: Int, allowed: Boolean, onTurnOn: () -> Unit, onOpenSettings: () -> Unit) {
     val colors = Aurora.colors
-    val apps = if (count == 1) "1 app" else "$count apps"
     val (title, body) = when (status) {
         ProtectionStatus.Off -> "Shield is ready" to
             if (allowed) "Choose an app below and Shield protects it straight away."
             else "Choose the apps that pull you away. aurora asks before it turns Shield on."
         ProtectionStatus.Active -> "Shield is on" to
-            if (count == 1) "aurora pauses you whenever your protected app opens." else "aurora pauses you whenever one of your $apps opens."
+            if (count == 1) "aurora steps in whenever your protected app opens." else "aurora steps in whenever one of your $count items opens."
         ProtectionStatus.NeedsPermission -> "Turn on Shield" to
-            "Your $apps aren't protected yet. Shield needs Android's accessibility permission to notice when one opens."
+            (if (count == 1) "Your protected item isn't protected yet." else "Your $count items aren't protected yet.") +
+                " Shield needs Android's accessibility permission to notice when one opens."
         ProtectionStatus.NotRunning -> "Shield isn't running" to
             "It's allowed in Android settings, but Android hasn't started it. Turn aurora Shield off and on again in Accessibility settings."
         ProtectionStatus.ConfigError -> "Shield can't read your apps" to

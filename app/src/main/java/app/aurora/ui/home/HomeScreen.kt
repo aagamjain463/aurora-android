@@ -184,7 +184,7 @@ fun HomeScreen(
     }
     val s = state
     if (s == null) {
-        Box(Modifier.fillMaxSize().background(Aurora.colors.background))
+        app.aurora.ui.components.LoadingSurface()
         return
     }
 

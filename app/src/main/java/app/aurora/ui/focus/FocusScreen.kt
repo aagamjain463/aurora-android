@@ -163,7 +163,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
     val colors = Aurora.colors
     val s = state
     if (s == null) {
-        Box(Modifier.fillMaxSize().background(colors.background))
+        app.aurora.ui.components.LoadingSurface()
         return
     }
 

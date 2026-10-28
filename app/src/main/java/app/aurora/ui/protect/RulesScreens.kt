@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -68,6 +69,7 @@ import app.aurora.ui.home.clockTime
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
 import java.time.DayOfWeek
@@ -384,13 +386,15 @@ fun LockdownScreen(onBack: () -> Unit, onPlus: () -> Unit) {
         val activeKeys = d.active.map { it.key }.toSet()
         if (session != null) {
             item(key = "live") {
-                val remaining = session.remaining(d.time)
+                // The shared data refreshes every 15 s; the countdown needs every second.
+                val now by produceState(vm.app.now()) { while (true) { delay(1_000); value = vm.app.now() } }
+                val remaining = session.remaining(now)
                 Box(Modifier.fillMaxWidth().padding(horizontal = Space.Gutter, vertical = Space.L), contentAlignment = Alignment.BottomCenter) {
                     HorizonGlow(0.9f, Modifier.matchParentSize(), warmth = 0.1f, horizon = true)
-                    HorizonArc(session.progress(d.time), Modifier.fillMaxWidth().padding(top = Space.XL))
+                    HorizonArc(session.progress(now), Modifier.fillMaxWidth().padding(top = Space.XL))
                     Column(Modifier.padding(bottom = Space.L), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(formatClock(remaining), Modifier.clearAndSetSemantics { contentDescription = "${spokenDuration(remaining)} of Lockdown left" }, color = colors.textPrimary, style = AuroraType.Hero)
-                        Text("until ${clockTime(session.endWall(d.time))}", color = colors.textSecondary, style = AuroraType.Caption)
+                        Text("until ${clockTime(session.endWall(now))}", color = colors.textSecondary, style = AuroraType.Caption)
                     }
                 }
                 val covered = d.rules.cover(session.groupId, activeKeys)

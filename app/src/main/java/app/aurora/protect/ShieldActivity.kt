@@ -115,8 +115,12 @@ class ShieldActivity : ComponentActivity() {
                 val aurora = LocalContext.current.applicationContext as AuroraApplication
                 val website = pkg.startsWith(WebPrefix)
                 // Label and icon load off the main thread. The layout is there from the first frame.
-                val target by produceState<Pair<String, ImageBitmap?>?>(null, pkg) {
-                    value = if (website) pkg.removePrefix(WebPrefix) to null else aurora.catalog.app(pkg).let { (it?.label ?: pkg) to it?.icon }
+                // The name first (fast), then the icon, so the Shield never waits on icon decoding.
+                val label by produceState<String?>(if (website) pkg.removePrefix(WebPrefix) else null, pkg) {
+                    if (!website) value = aurora.catalog.label(pkg) ?: pkg
+                }
+                val icon by produceState<ImageBitmap?>(null, pkg) {
+                    if (!website) value = aurora.catalog.app(pkg)?.icon
                 }
                 val rules by aurora.rules.state.collectAsStateWithLifecycle()
                 val r = rules?.value
@@ -138,8 +142,8 @@ class ShieldActivity : ComponentActivity() {
                 }
                 val haptics = LocalHapticFeedback.current
                 ShieldScreen(
-                    label = target?.first,
-                    icon = target?.second,
+                    label = label,
+                    icon = icon,
                     info = ShieldInfo(
                         reason = req.reason,
                         until = req.until,

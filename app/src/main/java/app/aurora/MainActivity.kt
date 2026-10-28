@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
             AuroraTheme(darkTheme = dark, reduceMotion = current?.reduceMotion == true) {
                 if (current == null) {
                     // DataStore answers within a frame or two; hold the window colour until it does.
-                    Box(Modifier.fillMaxSize().background(Aurora.colors.background))
+                    app.aurora.ui.components.LoadingSurface()
                 } else {
                     val startOnboarded = remember { current.onboarded }
                     AuroraNavHost(startOnboarded)

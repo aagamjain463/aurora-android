@@ -41,6 +41,15 @@ class AppCatalog(private val context: Context) {
         }
     }
 
+    /** Just the name, which is much faster than the icon: the Shield shows it first. */
+    suspend fun label(packageName: String): String? = withContext(Dispatchers.IO) {
+        try {
+            pm.getApplicationInfo(packageName, 0).loadLabel(pm).toString()
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
+    }
+
     private fun ApplicationInfo.toInstalledApp() = InstalledApp(
         packageName = packageName,
         label = loadLabel(pm).toString(),

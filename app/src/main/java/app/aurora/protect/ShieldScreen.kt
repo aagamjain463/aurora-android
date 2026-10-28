@@ -235,7 +235,8 @@ private fun Pause(leftMs: Long, totalMs: Long) {
                 },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(if (seconds == 0) "✓" else "$seconds", color = colors.textPrimary, style = AuroraType.Display)
+            if (seconds == 0) Icon(AuroraIcons.Check, null, tint = colors.accent, modifier = Modifier.size(36.dp))
+            else Text("$seconds", color = colors.textPrimary, style = AuroraType.Display)
             Text(if (seconds == 0) "your choice" else "take a breath", color = colors.textSecondary, style = AuroraType.Caption)
         }
     }

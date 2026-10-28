@@ -9,7 +9,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +28,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -35,6 +38,25 @@ import app.aurora.ui.theme.Motion
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+
+/**
+ * What a screen shows while its data loads: the mark, on aurora's background. It fades in only after a
+ * moment, so a fast load never flashes it.
+ */
+@Composable
+fun LoadingSurface(modifier: Modifier = Modifier) {
+    val shown = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(300)
+        shown.animateTo(1f, tween(Motion.Gentle))
+    }
+    androidx.compose.foundation.layout.Box(
+        modifier.fillMaxSize().background(Aurora.colors.background),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        AuroraMark(56.dp, Modifier.graphicsLayer { alpha = shown.value })
+    }
+}
 
 /** The lowercase wordmark. Always "aurora", never capitalised. */
 @Composable
