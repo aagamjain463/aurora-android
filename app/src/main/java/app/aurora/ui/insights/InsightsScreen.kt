@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.aurora.AuroraApplication
 import app.aurora.auroraViewModel
+import app.aurora.data.Access
 import app.aurora.data.formatDuration
 import app.aurora.data.openUsageAccessSettings
 import app.aurora.ui.components.AuroraButton
@@ -60,12 +61,12 @@ data class InsightsState(
 )
 
 class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
-    private val _state = MutableStateFlow(InsightsState(access = app.screenTime.hasAccess(), loading = true))
+    private val _state = MutableStateFlow(InsightsState(access = app.access.isGranted(Access.Usage), loading = true))
     val state: StateFlow<InsightsState> = _state
 
     fun refresh() {
         viewModelScope.launch {
-            if (!app.screenTime.hasAccess()) {
+            if (!app.access.isGranted(Access.Usage)) {
                 _state.value = InsightsState(access = false)
                 return@launch
             }

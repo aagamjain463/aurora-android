@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.aurora.AuroraApplication
 import app.aurora.auroraViewModel
+import app.aurora.data.Access
 import app.aurora.data.FocusSession
 import app.aurora.data.InstalledApp
 import app.aurora.data.clockTicks
@@ -90,7 +91,7 @@ class HomeViewModel(private val app: AuroraApplication) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
-            screenTime.value = if (app.screenTime.hasAccess()) app.screenTime.today().values.sum() else null
+            screenTime.value = if (app.access.isGranted(Access.Usage)) app.screenTime.today().values.sum() else null
         }
     }
 

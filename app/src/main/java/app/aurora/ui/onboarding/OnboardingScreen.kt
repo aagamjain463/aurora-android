@@ -43,8 +43,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import app.aurora.data.Access
+import app.aurora.data.AccessState
 import app.aurora.data.openUsageAccessSettings
-import app.aurora.rememberUsageAccess
+import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraMark
@@ -68,7 +70,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val colors = Aurora.colors
     val reduced = Aurora.reducedMotion
     val context = LocalContext.current
-    val usageAccess = rememberUsageAccess()
+    val usageAccess = rememberAccess(Access.Usage) == AccessState.Granted
     var page by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = page > 0) { page-- }
 

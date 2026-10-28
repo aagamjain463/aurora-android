@@ -12,15 +12,20 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.aurora.data.Access
+import app.aurora.data.AccessRepository
+import app.aurora.data.AccessState
 import app.aurora.data.AppCatalog
 import app.aurora.data.PreferencesRepository
 import app.aurora.data.ScreenTimeRepository
+import app.aurora.data.accessState
 
-/** Long-lived dependencies. Three objects don't need a DI framework. */
+/** Long-lived dependencies. Four objects don't need a DI framework. */
 class AuroraApplication : Application() {
     val preferences by lazy { PreferencesRepository(this) }
     val catalog by lazy { AppCatalog(this) }
     val screenTime by lazy { ScreenTimeRepository(this) }
+    val access by lazy { AccessRepository(this, screenTime) }
 }
 
 @Composable
@@ -29,14 +34,14 @@ inline fun <reified VM : ViewModel> auroraViewModel(crossinline create: (AuroraA
     return viewModel<VM>(factory = viewModelFactory { initializer { create(app) } })
 }
 
-/** Whether Usage access is granted, re-checked every time the screen resumes (e.g. back from Settings). */
+/** [access]'s state, re-checked every time the screen resumes (e.g. back from Settings). */
 @Composable
-fun rememberUsageAccess(): Boolean {
+fun rememberAccess(access: Access): AccessState {
     val app = LocalContext.current.applicationContext as AuroraApplication
-    var granted by remember { mutableStateOf(app.screenTime.hasAccess()) }
-    LifecycleResumeEffect(Unit) {
-        granted = app.screenTime.hasAccess()
+    var state by remember { mutableStateOf(accessState(app.access.isGranted(access), previous = null)) }
+    LifecycleResumeEffect(access) {
+        state = accessState(app.access.isGranted(access), previous = state)
         onPauseOrDispose { }
     }
-    return granted
+    return state
 }

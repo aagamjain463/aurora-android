@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.roborazzi)
 }
 
 android {
@@ -13,6 +14,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -26,6 +28,25 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        // Robolectric renders Compose with the app's real resources and fonts.
+        unitTests.isIncludeAndroidResources = true
+        // Robolectric's Android 16 runtime reaches into JDK internals.
+        unitTests.all { it.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED") }
+    }
+
+    // UI tests in sharedTest run twice: on the JVM under Robolectric (every CI run) and on a device.
+    sourceSets {
+        named("test") { kotlin.directories += "src/sharedTest/java" }
+        named("androidTest") { kotlin.directories += "src/sharedTest/java" }
+    }
+
+    lint {
+        // New warnings fail the build. The four Phase 1 warnings are recorded in the baseline.
+        warningsAsErrors = true
+        baseline = file("lint-baseline.xml")
     }
 
     buildFeatures {
@@ -49,4 +70,16 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.androidx.test.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    debugImplementation(libs.compose.ui.test.manifest)
+
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

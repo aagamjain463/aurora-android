@@ -136,7 +136,8 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 enterTransition = { focusEnter(reduced) },
                 popExitTransition = { focusExit(reduced) },
             ) {
-                FocusScreen(onClose = { nav.popBackStack() })
+                // Closing waits for the session write, so a second tap can arrive after Focus has already gone.
+                FocusScreen(onClose = { if (nav.currentDestination?.route == Routes.Focus) nav.popBackStack() })
             }
         }
 
