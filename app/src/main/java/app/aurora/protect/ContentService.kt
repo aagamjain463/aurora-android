@@ -75,7 +75,7 @@ class ContentService : AccessibilityService() {
             lastKey = surface
             lastAt = now
             performGlobalAction(GLOBAL_ACTION_BACK)
-            Toast.makeText(this, if (surface == ContentShorts) "Shorts are off in aurora" else "Reels are off in aurora", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, if (surface == ContentShorts) "Shorts are off in Aurora" else "Reels are off in Aurora", Toast.LENGTH_SHORT).show()
             return
         }
     }

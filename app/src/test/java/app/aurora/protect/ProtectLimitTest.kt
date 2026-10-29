@@ -61,10 +61,10 @@ class ProtectLimitTest {
         list.performScrollToNode(hasText("com.example.app6"))
         compose.onNodeWithText("com.example.app6").performClick()
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("You're protecting 5 items, the most aurora Free allows.", substring = true)
+            compose.onAllNodesWithText("You're protecting 5 items, the most Aurora Free allows.", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithText("You're protecting 5 items, the most aurora Free allows.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("You're protecting 5 items, the most Aurora Free allows.", substring = true).assertIsDisplayed()
         assertEquals(5, runBlocking { app.protection.list.first().items.size })
     }
 }

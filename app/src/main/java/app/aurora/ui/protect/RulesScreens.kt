@@ -1,5 +1,6 @@
 package app.aurora.ui.protect
 
+import app.aurora.ui.components.auroraSurface
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -323,7 +324,7 @@ fun ScheduleEditorScreen(id: String?, onBack: () -> Unit) {
                     ScheduleStep.Summary -> {
                         Title(stringResource(R.string.schedule_step_summary), null)
                         Column(
-                            Modifier.fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, modeColor(mode).copy(alpha = 0.5f), Radius.L).padding(Space.L),
+                            Modifier.fillMaxWidth().auroraSurface(colors, edge = modeColor(mode)).padding(Space.L),
                             verticalArrangement = Arrangement.spacedBy(Space.XS),
                         ) {
                             Text(draft.name, color = modeColor(mode), style = AuroraType.Eyebrow)

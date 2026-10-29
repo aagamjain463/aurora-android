@@ -81,19 +81,23 @@ fun <T> ChoicePills(
     modifier: Modifier = Modifier,
     fill: Boolean = false,
     spokenLabel: (T) -> String = label,
+    /** One track holding all options, the chosen one lit inside it (Insights' period switch). */
+    segmented: Boolean = false,
 ) {
     val colors = Aurora.colors
     Row(
         modifier
             .then(if (fill) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState()))
+            .then(if (segmented) Modifier.clip(Radius.Pill).background(colors.surface).border(1.dp, colors.hairline, Radius.Pill).padding(4.dp) else Modifier)
             .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(Space.XS),
+        horizontalArrangement = Arrangement.spacedBy(if (segmented) 0.dp else Space.XS),
     ) {
         options.forEach { option ->
             val isSelected = option == selected
-            val bg by animateColorAsState(if (isSelected) colors.accentSoft else colors.surface, auroraTween(), label = "bg")
-            val fg by animateColorAsState(if (isSelected) colors.accent else colors.textSecondary, auroraTween(), label = "fg")
-            val stroke by animateColorAsState(if (isSelected) colors.accent.copy(alpha = 0.5f) else colors.hairline, auroraTween(), label = "stroke")
+            val idle = if (segmented) androidx.compose.ui.graphics.Color.Transparent else colors.surface
+            val bg by animateColorAsState(if (isSelected) colors.accentSoft else idle, auroraTween(), label = "bg")
+            val fg by animateColorAsState(if (isSelected) (if (segmented) colors.textPrimary else colors.accent) else colors.textSecondary, auroraTween(), label = "fg")
+            val stroke by animateColorAsState(if (isSelected) colors.accent.copy(alpha = 0.5f) else if (segmented) idle else colors.hairline, auroraTween(), label = "stroke")
             Box(
                 Modifier
                     .then(if (fill) Modifier.weight(1f) else Modifier)

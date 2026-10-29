@@ -31,10 +31,10 @@ object Space {
 
 /** Corner radii. Interactive pills are fully round; containers are soft but not bubbly. */
 object Radius {
-    val S = RoundedCornerShape(10.dp)
-    val M = RoundedCornerShape(16.dp)
-    val L = RoundedCornerShape(24.dp)
-    val Dialog = RoundedCornerShape(28.dp)
+    val S = RoundedCornerShape(12.dp)
+    val M = RoundedCornerShape(18.dp)
+    val L = RoundedCornerShape(26.dp)
+    val Dialog = RoundedCornerShape(30.dp)
     val Pill = RoundedCornerShape(percent = 50)
 }
 
@@ -44,6 +44,8 @@ object Motion {
     const val Quick = 120
     const val Standard = 240
     const val Gentle = 420
+    /** Hero art and the day's numbers settling in on first show. */
+    const val Reveal = 900
     const val Breath = 4200
 }
 

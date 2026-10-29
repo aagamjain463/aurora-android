@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
@@ -44,6 +45,9 @@ enum class ButtonKind {
 
     /** Low-emphasis actions such as "Not now". */
     Quiet,
+
+    /** Ending something early, such as a Focus session. Outlined in coral, never filled. */
+    Danger,
 }
 
 @Composable
@@ -54,6 +58,8 @@ fun AuroraButton(
     kind: ButtonKind = ButtonKind.Primary,
     icon: ImageVector? = null,
     enabled: Boolean = true,
+    /** A small pill for actions inside a card header ("Add apps"). */
+    compact: Boolean = false,
 ) {
     val colors = Aurora.colors
     val interaction = remember { MutableInteractionSource() }
@@ -65,19 +71,27 @@ fun AuroraButton(
     )
     val (container, content) = when (kind) {
         ButtonKind.Primary -> colors.accent to colors.onAccent
-        ButtonKind.Secondary -> colors.elevated to colors.textPrimary
+        ButtonKind.Secondary -> colors.elevated.copy(alpha = if (colors.isDark) 0.72f else 1f) to colors.textPrimary
         ButtonKind.Quiet -> Color.Transparent to colors.textPrimary
+        ButtonKind.Danger -> colors.danger.copy(alpha = 0.10f) to colors.danger
     }
-    val fill = if (kind == ButtonKind.Primary && colors.isDark) {
-        Brush.horizontalGradient(0f to colors.accent, 0.65f to colors.accent, 1f to colors.light)
-    } else SolidColor(container)
+    // The primary action carries First Light: emerald warming to sunrise, with a soft glow beneath.
+    val fill = if (kind == ButtonKind.Primary) Brush.horizontalGradient(colors.cta) else SolidColor(container)
+    val glow = kind == ButtonKind.Primary && enabled && colors.isDark
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else 0.4f }
-            .heightIn(min = if (kind == ButtonKind.Quiet) 48.dp else 58.dp)
+            .heightIn(min = if (kind == ButtonKind.Quiet || compact) 48.dp else 58.dp)
+            .then(if (glow) Modifier.shadow(18.dp, Radius.Pill, ambientColor = colors.accent, spotColor = colors.accent) else Modifier)
             .clip(Radius.Pill)
             .background(fill)
-            .then(if (kind == ButtonKind.Secondary) Modifier.border(1.dp, colors.hairline, Radius.Pill) else Modifier)
+            .then(
+                when (kind) {
+                    ButtonKind.Secondary -> Modifier.border(1.dp, colors.hairline, Radius.Pill)
+                    ButtonKind.Danger -> Modifier.border(1.dp, colors.danger.copy(alpha = 0.45f), Radius.Pill)
+                    else -> Modifier
+                },
+            )
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = content),
@@ -85,7 +99,7 @@ fun AuroraButton(
                 role = Role.Button,
                 onClick = onClick,
             )
-            .padding(horizontal = Space.L),
+            .padding(horizontal = if (compact) Space.M else Space.L),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {

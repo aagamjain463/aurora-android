@@ -1,5 +1,10 @@
 package app.aurora.ui.insights
 
+import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.AuroraHeader
+import app.aurora.ui.components.auroraSurface
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -95,7 +100,7 @@ data class UsageRow(val packageName: String, val label: String, val icon: ImageB
 /** One day as Android measured it. Null totals: no records for that day (or no usage access). */
 data class DayUsage(val date: LocalDate, val total: Long?, val protected: Long?)
 
-enum class Period(val days: Int, val label: Int) { Today(1, R.string.tab_today), Week(7, R.string.plus_period_week), Month(30, R.string.plus_period_month) }
+enum class Period(val days: Int, val label: Int) { Today(1, R.string.tab_today), Week(7, R.string.insights_period_week), Month(30, R.string.insights_period_month) }
 
 private const val OtherApps = "other"
 
@@ -165,7 +170,7 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
  * time), counted by aurora (Shields, choices, Focus), and unavailable (shown as "—", never as zero).
  */
 @Composable
-fun InsightsScreen(onPlus: () -> Unit = {}) {
+fun InsightsScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null) {
     val vm = auroraViewModel { InsightsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -178,13 +183,29 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
         onPauseOrDispose { }
     }
 
-    AuroraScreen(title = stringResource(R.string.tab_insights), subtitle = stringResource(R.string.insights_measured_on_this_phone_nothing_leaves_it), tabBar = true) {
+    AuroraScreen(
+        title = stringResource(R.string.tab_insights),
+        tabBar = true,
+        art = ArtTier.Balanced,
+        header = {
+            Column {
+                AuroraHeader(onOpenSettings)
+                Spacer(Modifier.height(96.dp))
+                Text(stringResource(R.string.tab_insights), Modifier.padding(horizontal = Space.Gutter).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayXL)
+                Text(
+                    stringResource(R.string.insights_measured_on_this_phone_nothing_leaves_it),
+                    Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS, bottom = Space.M),
+                    color = colors.textSecondary, style = AuroraType.Body,
+                )
+            }
+        },
+    ) {
         item(key = "period") {
             ChoicePills(
                 Period.entries, state.period,
                 { p -> if (p == Period.Month && !has(state.plan, Feature.AdvancedInsights)) plusNote = true else vm.select(p) },
-                label = { resources.getString(it.label) }, fill = true,
-                modifier = Modifier.padding(horizontal = Space.M).padding(top = Space.M),
+                label = { resources.getString(it.label) }, fill = true, segmented = true,
+                modifier = Modifier.padding(horizontal = Space.M),
             )
         }
         if (state.loading) {
@@ -201,12 +222,16 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
             )
         } else item(key = "total") {
             val known = state.days.mapNotNull { it.total }
-            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L)) {
+            Column(Modifier.padding(horizontal = Space.M).padding(top = Space.M).fillMaxWidth().auroraSurface(colors).padding(Space.L)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS), modifier = Modifier.padding(bottom = Space.XS)) {
+                    androidx.compose.material3.Icon(AuroraIcons.Insights, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                    Text(stringResource(R.string.insights_screen_time_title), color = colors.textSecondary, style = AuroraType.BodyStrong)
+                }
                 if (state.period == Period.Today) {
-                    Text(if (known.isEmpty()) "—" else formatDuration(known.sum()), color = colors.textPrimary, style = AuroraType.Hero)
+                    Text(if (known.isEmpty()) "—" else formatDuration(known.sum()), color = colors.textPrimary, style = AuroraType.Metric)
                     Text(stringResource(R.string.insights_screen_time_since_midnight), color = colors.textSecondary, style = AuroraType.Secondary)
                 } else {
-                    Text(if (known.isEmpty()) "—" else formatDuration(known.sum() / known.size), color = colors.textPrimary, style = AuroraType.Hero)
+                    Text(if (known.isEmpty()) "—" else formatDuration(known.sum() / known.size), color = colors.textPrimary, style = AuroraType.Metric)
                     Text(stringResource(R.string.insights_average_days , known.size, state.days.size), color = colors.textSecondary, style = AuroraType.Secondary)
                     Spacer(Modifier.height(Space.L))
                     DayBars(state.days)
@@ -265,14 +290,14 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
             val light = state.history.light(today)
             val level = levelFor(state.history.totalXp())
             SectionLabel(stringResource(R.string.insights_progress))
-            RowGroup {
+            Column(Modifier.padding(horizontal = Space.M).fillMaxWidth().auroraSurface(colors, warm = true)) {
                 AuroraLight(light.glow, light.rise, Modifier.fillMaxWidth().height(120.dp))
                 Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.insights_level , level.name, level.number), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
                         Text(stringResource(R.string.insights_xp_today , state.history.day(today).xp()), color = colors.textSecondary, style = AuroraType.Caption)
                     }
-                    ProgressLine(level.progress)
+                    ProgressLine(level.progress, warm = true)
                     Text(
                         stringResource(R.string.insights_progress_detail , level.intoLevel, level.levelSize, state.history.steadyDays(today), light.activeDays),
                         color = colors.textSecondary,
@@ -319,7 +344,7 @@ private fun DayBars(days: List<DayUsage>) {
     val noData = stringResource(R.string.insights_no_data)
     val spoken = days.joinToString(", ") { d -> "${d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale)} ${d.total?.let(::formatDuration) ?: noData}" }
     Column(Modifier.semantics(mergeDescendants = true) { contentDescription = "Screen time by day: $spoken" }) {
-        Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(140.dp)) {
             val slot = size.width / days.size
             val bar = (slot * 0.56f).coerceAtMost(28.dp.toPx())
             days.forEachIndexed { i, d ->
@@ -330,10 +355,10 @@ private fun DayBars(days: List<DayUsage>) {
                 } else {
                     val h = (size.height * total / max).coerceAtLeast(3.dp.toPx())
                     val last = i == days.lastIndex
-                    drawRoundRect(
-                        if (last) colors.accent else colors.accent.copy(alpha = 0.35f),
-                        Offset(x, size.height - h), Size(bar, h), CornerRadius(bar / 2.5f),
-                    )
+                    // Today is lit with First Light; earlier days are the same bar, quieter.
+                    val brush = if (last) Brush.verticalGradient(listOf(colors.cta.last(), colors.accent, colors.cta.first()), size.height - h, size.height)
+                    else Brush.verticalGradient(listOf(colors.accent.copy(alpha = 0.42f), colors.accent.copy(alpha = 0.14f)), size.height - h, size.height)
+                    drawRoundRect(brush, Offset(x, size.height - h), Size(bar, h), CornerRadius(bar / 2.5f))
                 }
             }
         }

@@ -1,5 +1,6 @@
 package app.aurora.ui.protect
 
+import app.aurora.ui.components.auroraSurface
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -176,7 +177,7 @@ fun StartScreen(preselect: String?, onBack: () -> Unit, onDone: () -> Unit, onPl
                         val names = keys.map { d.label(it) }
                         StepTitle(stringResource(R.string.start_review_title), null)
                         Column(
-                            Modifier.fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, modeColor(mode).copy(alpha = 0.5f), Radius.L).padding(Space.L),
+                            Modifier.fillMaxWidth().auroraSurface(colors, edge = modeColor(mode)).padding(Space.L),
                             verticalArrangement = Arrangement.spacedBy(Space.XS),
                         ) {
                             Text(modeName(mode), color = modeColor(mode), style = AuroraType.Eyebrow)

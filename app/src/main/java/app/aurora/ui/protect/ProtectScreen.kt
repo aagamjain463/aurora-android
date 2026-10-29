@@ -1,5 +1,16 @@
 package app.aurora.ui.protect
 
+import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.AuroraHeader
+import app.aurora.ui.components.LitBadge
+import app.aurora.ui.components.TwoToneHeadline
+import app.aurora.ui.components.auroraSurface
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.semantics.heading
+import androidx.compose.material3.Icon
+import app.aurora.ui.components.auroraSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,7 +106,7 @@ object ProtectRoutes {
  * allows; saved apps are preferences and never protect anything until a session or schedule runs.
  */
 @Composable
-fun ProtectScreen(onOpen: (String) -> Unit, onOpenItem: (String) -> Unit) {
+fun ProtectScreen(onOpen: (String) -> Unit, onOpenItem: (String) -> Unit, onOpenSettings: (() -> Unit)? = null) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
@@ -110,12 +121,19 @@ fun ProtectScreen(onOpen: (String) -> Unit, onOpenItem: (String) -> Unit) {
         title = stringResource(R.string.tab_protect),
         tabBar = true,
         listState = rememberLazyListState(),
+        art = ArtTier.Balanced,
         header = {
-            ScreenIntro(
-                stringResource(R.string.protect_headline),
-                Modifier.padding(top = Space.XS, bottom = Space.L),
-                eyebrow = stringResource(R.string.tab_protect),
-            )
+            Column {
+                AuroraHeader(onOpenSettings)
+                Spacer(Modifier.height(104.dp))
+                TwoToneHeadline(stringResource(R.string.protect_headline), Modifier.padding(horizontal = Space.Gutter), tailWords = 3)
+                Text(
+                    stringResource(R.string.protect_subtitle),
+                    Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S, bottom = Space.L),
+                    color = Aurora.colors.textSecondary,
+                    style = AuroraType.Body,
+                )
+            }
         },
     ) {
         item(key = "status") {
@@ -138,13 +156,16 @@ fun ProtectScreen(onOpen: (String) -> Unit, onOpenItem: (String) -> Unit) {
             items(windows, key = { "w-" + it.id }) { w -> WindowCard(w, d) { vm.run { vm.app.skipWindow(w.id) } } }
         }
 
+        item(key = "items") { ProtectedAppsCard(d, onAdd = { onOpen(ProtectRoutes.Apps) }, onAddWebsite = { onOpen(ProtectRoutes.Web) }, onOpenItem = onOpenItem) }
+        item(key = "modes") { ModesCard() }
+
         item(key = "start") {
-            Column(Modifier.padding(horizontal = Space.M, vertical = Space.L)) {
+            Column(Modifier.padding(horizontal = Space.M, vertical = Space.M)) {
                 AuroraButton(
                     stringResource(R.string.protect_start),
                     { onOpen(ProtectRoutes.Start) },
                     Modifier.fillMaxWidth(),
-                    icon = AuroraIcons.Protect,
+                    icon = AuroraIcons.Play,
                     enabled = d.active.isNotEmpty(),
                 )
                 if (d.active.isEmpty()) {
@@ -154,30 +175,6 @@ fun ProtectScreen(onOpen: (String) -> Unit, onOpenItem: (String) -> Unit) {
         }
 
         item(key = "intent") { IntentFeatureCard(d) { onOpen(ProtectRoutes.Intent) } }
-
-        item(key = "items-label") {
-            SectionLabel(stringResource(R.string.protected_apps_name) + " · " + allowanceText(d.active.size, d.max(Allowance.ProtectedItems)))
-        }
-        item(key = "items") {
-            RowGroup {
-                d.list.items.forEachIndexed { i, item ->
-                    if (i > 0) RowDivider(72.dp)
-                    val key = item.key
-                    val paused = item in d.paused
-                    AuroraRow(
-                        title = d.label(key),
-                        subtitle = if (paused) stringResource(R.string.protect_paused) else d.rules.summary(key, d.plan, key.startsWith(WebPrefix)) { modeNameText(context, it) },
-                        leading = { ItemIcon(key, d) },
-                        onClick = { onOpenItem(key) },
-                        trailing = { Chevron() },
-                    )
-                }
-                if (d.list.items.isNotEmpty()) RowDivider(72.dp)
-                AuroraRow(stringResource(R.string.protect_add_apps), leading = { IconBadge(AuroraIcons.Plus) }, onClick = { onOpen(ProtectRoutes.Apps) })
-                RowDivider(72.dp)
-                AuroraRow(stringResource(R.string.protect_add_website), leading = { IconBadge(AuroraIcons.Globe) }, onClick = { onOpen(ProtectRoutes.Web) })
-            }
-        }
 
         item(key = "more") { SectionLabel(stringResource(R.string.protect_more)) }
         item(key = "rules") {
@@ -246,8 +243,7 @@ private fun WindowCard(w: RunningWindow, d: ProtectData, onSkip: () -> Unit) {
     val colors = Aurora.colors
     val tint = modeColor(w.mode)
     Column(
-        Modifier.padding(horizontal = Space.M).padding(bottom = Space.S).fillMaxWidth().clip(Radius.L).background(colors.surface)
-            .border(1.dp, tint.copy(alpha = 0.45f), Radius.L).padding(Space.L),
+        Modifier.padding(horizontal = Space.M).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors, edge = tint).padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
@@ -271,14 +267,12 @@ private fun IntentFeatureCard(d: ProtectData, onOpen: () -> Unit) {
         Modifier
             .padding(horizontal = Space.M)
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(colors.dawnSoft, colors.accentSoft)))
-            .border(1.dp, colors.hairline, Radius.L)
+            .auroraSurface(colors, warm = true)
             .clickable(role = Role.Button, onClick = onOpen)
             .padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        Text(stringResource(R.string.intent_card_eyebrow), color = colors.dawnText, style = AuroraType.Eyebrow)
+        Text(stringResource(R.string.intent_card_eyebrow), color = colors.sun, style = AuroraType.Eyebrow)
         Text(stringResource(R.string.intent_name), color = colors.textPrimary, style = AuroraType.Headline)
         Text(stringResource(R.string.intent_card_body), color = colors.textSecondary, style = AuroraType.Body)
         Spacer(Modifier.height(Space.XS))
@@ -380,5 +374,85 @@ private fun AppPickRow(app: InstalledApp, selected: Boolean, onClick: () -> Unit
         AppIcon(app, size = 44.dp)
         Text(app.label, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
         SelectionMark(selected)
+    }
+}
+
+/** The saved apps and sites, each with its mode, and the way to add more. */
+@Composable
+private fun ProtectedAppsCard(d: ProtectData, onAdd: () -> Unit, onAddWebsite: () -> Unit, onOpenItem: (String) -> Unit) {
+    val colors = Aurora.colors
+    val context = LocalContext.current
+    Column(Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(vertical = Space.M)) {
+        Row(
+            Modifier.padding(horizontal = Space.M).padding(bottom = Space.S),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.M),
+        ) {
+            LitBadge(AuroraIcons.Protect, lit = d.sessions.isNotEmpty(), size = 48)
+            Column(Modifier.weight(1f).semantics(mergeDescendants = true) { heading() }) {
+                Text(stringResource(R.string.protected_apps_name), color = colors.textPrimary, style = AuroraType.Title)
+                Text(stringResource(R.string.protect_saved_count, allowanceText(d.active.size, d.max(Allowance.ProtectedItems))), color = colors.textSecondary, style = AuroraType.Secondary)
+            }
+            AuroraButton(stringResource(R.string.protect_add_apps), onAdd, kind = ButtonKind.Secondary, icon = AuroraIcons.Plus, compact = true)
+        }
+        d.list.items.forEach { item ->
+            val key = item.key
+            val paused = item in d.paused
+            val mode = d.rules.rule(key).mode
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = { onOpenItem(key) })
+                    .semantics(mergeDescendants = true) { }
+                    .padding(horizontal = Space.M, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.M),
+            ) {
+                ItemIcon(key, d, size = 44.dp)
+                Column(Modifier.weight(1f)) {
+                    Text(d.label(key), color = colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val extra = d.rules.summary(key, d.plan, key.startsWith(WebPrefix)) { modeNameText(context, it) }.substringAfter(" · ", "")
+                    if (paused) Text(stringResource(R.string.protect_paused), color = colors.textTertiary, style = AuroraType.Caption)
+                    else if (extra.isNotEmpty()) Text(extra, color = colors.textTertiary, style = AuroraType.Caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (!paused) ModeChip(mode)
+                Chevron()
+            }
+        }
+        if (d.list.items.isEmpty()) {
+            Text(stringResource(R.string.protect_empty), Modifier.padding(horizontal = Space.M, vertical = Space.S), color = colors.textSecondary, style = AuroraType.Secondary)
+        }
+        RowDivider(Space.M)
+        AuroraRow(stringResource(R.string.protect_add_website), leading = { IconBadge(AuroraIcons.Globe) }, onClick = onAddWebsite)
+    }
+}
+
+/** The four modes, in the founder's words. An explainer: modes are chosen per app when protection starts. */
+@Composable
+private fun ModesCard() {
+    val colors = Aurora.colors
+    Column(
+        Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.M),
+        verticalArrangement = Arrangement.spacedBy(Space.S),
+    ) {
+        Row(Modifier.padding(Space.XS), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M)) {
+            Icon(AuroraIcons.Layers, null, tint = colors.accent, modifier = Modifier.size(26.dp))
+            Column(Modifier.semantics(mergeDescendants = true) { heading() }) {
+                Text(stringResource(R.string.protect_modes_title), color = colors.textPrimary, style = AuroraType.Title)
+                Text(stringResource(R.string.protect_modes_body), color = colors.textSecondary, style = AuroraType.Secondary)
+            }
+        }
+        Mode.entries.chunked(2).forEach { pair ->
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+                pair.forEach { mode ->
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight().auroraSurface(colors, Radius.M).padding(Space.M).semantics(mergeDescendants = true) { },
+                        verticalArrangement = Arrangement.spacedBy(Space.XS),
+                    ) {
+                        LitBadge(modeIcon(mode), tint = modeColor(mode), size = 44)
+                        Text(modeName(mode), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                        Text(modeDescription(mode), color = colors.textSecondary, style = AuroraType.Caption)
+                    }
+                }
+            }
+        }
     }
 }

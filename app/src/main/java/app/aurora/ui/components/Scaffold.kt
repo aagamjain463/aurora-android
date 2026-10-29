@@ -3,6 +3,7 @@ package app.aurora.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +72,8 @@ fun AuroraScreen(
     actions: @Composable RowScope.() -> Unit = {},
     /** Replaces the standard large title, for screens that open with their own composition. */
     header: (@Composable () -> Unit)? = null,
+    /** First Light behind the top of the screen. Null for configuration screens. */
+    art: ArtTier? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val colors = Aurora.colors
@@ -78,11 +81,16 @@ fun AuroraScreen(
     val collapsed by remember {
         derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > threshold }
     }
-    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + TopBarHeight
+    // A tab screen over First Light opens with its own header (the mark), so no bar height is reserved.
+    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (art != null && onBack == null) 0.dp else TopBarHeight
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
         (if (tabBar) TabBarHeight else 0.dp) + Space.XXL
 
     Box(modifier.fillMaxSize().background(colors.background)) {
+        if (art != null) {
+            val tall = with(LocalDensity.current) { art.height.roundToPx() * 2 }
+            FirstLightBackdrop(art, scroll = { if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else tall })
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -100,15 +108,16 @@ fun AuroraScreen(
             }
             content()
         }
-        TopBar(title, collapsed, onBack, actions)
+        TopBar(title, collapsed, onBack, actions, overArt = art != null)
     }
 }
 
 @Composable
-private fun TopBar(title: String, collapsed: Boolean, onBack: (() -> Unit)?, actions: @Composable RowScope.() -> Unit) {
+private fun TopBar(title: String, collapsed: Boolean, onBack: (() -> Unit)?, actions: @Composable RowScope.() -> Unit, overArt: Boolean = false) {
     val colors = Aurora.colors
     val titleAlpha by animateFloatAsState(if (collapsed) 1f else 0f, auroraTween(), label = "title")
-    Column(Modifier.fillMaxWidth().background(colors.background).statusBarsPadding()) {
+    // Over First Light the bar is clear until the title collapses into it.
+    Column(Modifier.fillMaxWidth().background(colors.background.copy(alpha = if (overArt) titleAlpha else 1f)).statusBarsPadding()) {
         Row(
             Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = Space.XS),
             verticalAlignment = Alignment.CenterVertically,
@@ -129,12 +138,19 @@ private fun TopBar(title: String, collapsed: Boolean, onBack: (() -> Unit)?, act
 
 data class NavItem(val route: String, @androidx.annotation.StringRes val label: Int, val icon: ImageVector)
 
-/** Bottom tab bar. The selected tab is marked by the rising point: a small dot of aurora light. */
+/**
+ * Bottom tab bar: a lifted panel with soft top corners. The selected tab sits in a pill of aurora light,
+ * its label lit, with the rising point (a small dot) beneath it.
+ */
 @Composable
 fun AuroraNavBar(items: List<NavItem>, current: String?, onSelect: (String) -> Unit) {
     val colors = Aurora.colors
-    Column(Modifier.fillMaxWidth().background(colors.background)) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.hairline))
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    Column(
+        Modifier.fillMaxWidth().clip(shape)
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(colors.elevated, colors.background)))
+            .border(1.dp, androidx.compose.ui.graphics.Brush.verticalGradient(listOf(colors.hairline, androidx.compose.ui.graphics.Color.Transparent)), shape),
+    ) {
         Row(
             Modifier
                 .navigationBarsPadding()
@@ -144,7 +160,7 @@ fun AuroraNavBar(items: List<NavItem>, current: String?, onSelect: (String) -> U
         ) {
             items.forEach { item ->
                 val selected = item.route == current
-                val tint by animateColorAsState(if (selected) colors.textPrimary else colors.textTertiary, auroraTween(), label = "tint")
+                val tint by animateColorAsState(if (selected) colors.accent else colors.textTertiary, auroraTween(), label = "tint")
                 val dot by animateFloatAsState(if (selected) 1f else 0f, auroraTween(), label = "dot")
                 Column(
                     Modifier
@@ -154,18 +170,19 @@ fun AuroraNavBar(items: List<NavItem>, current: String?, onSelect: (String) -> U
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    // The selected tab sits in a soft pill of aurora light.
                     Box(
                         Modifier
-                            .size(width = 60.dp, height = 32.dp)
+                            .size(width = 64.dp, height = 32.dp)
                             .clip(Radius.Pill)
-                            .background(colors.accent.copy(alpha = 0.16f * dot)),
+                            .background(colors.accent.copy(alpha = 0.14f * dot)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(item.icon, null, tint = if (selected) colors.accent else tint, modifier = Modifier.size(24.dp))
+                        Icon(item.icon, null, tint = tint, modifier = Modifier.size(24.dp))
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(androidx.compose.ui.res.stringResource(item.label), color = tint, style = AuroraType.Caption)
+                    Text(androidx.compose.ui.res.stringResource(item.label), color = if (selected) colors.textPrimary else colors.textTertiary, style = AuroraType.Caption)
+                    Spacer(Modifier.height(3.dp))
+                    Box(Modifier.size(4.dp).graphicsLayer { alpha = dot }.clip(Radius.Pill).background(colors.accent))
                 }
             }
         }

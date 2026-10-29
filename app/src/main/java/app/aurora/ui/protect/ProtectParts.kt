@@ -46,15 +46,39 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 
-/** Each mode's colour: green for Flexible, blue for Friction, dawn for Cooldown, ember for Always Block. */
+/** Each mode's colour: quiet mist for Flexible, sun for Friction, glacier for Cooldown, aurora for Always Block. */
 @Composable
 fun modeColor(mode: Mode): Color {
     val dark = Aurora.colors.isDark
     return when (mode) {
-        Mode.Flexible -> Aurora.colors.accent
-        Mode.Friction -> if (dark) Color(0xFF9DB8FF) else Color(0xFF3557B7)
-        Mode.Cooldown -> if (dark) Color(0xFFF0B48A) else Color(0xFFA6532A)
-        Mode.AlwaysBlock -> if (dark) Color(0xFFFF9B87) else Color(0xFFB13B27)
+        // Flexible is the calm default; the others each carry one First Light hue (brand bible: Modes).
+        Mode.Flexible -> Aurora.colors.textSecondary
+        Mode.Friction -> Aurora.colors.sun
+        Mode.Cooldown -> if (dark) app.aurora.ui.theme.Palette.Glacier400 else app.aurora.ui.theme.Palette.Glacier700
+        Mode.AlwaysBlock -> Aurora.colors.accent
+    }
+}
+
+/** Each mode's glyph, used on chips, tiles and the Shield. */
+fun modeIcon(mode: Mode): androidx.compose.ui.graphics.vector.ImageVector = when (mode) {
+    Mode.Flexible -> AuroraIcons.Hourglass
+    Mode.Friction -> AuroraIcons.Target
+    Mode.Cooldown -> AuroraIcons.Focus
+    Mode.AlwaysBlock -> AuroraIcons.Lock
+}
+
+/** A small outlined pill naming an item's mode, in the mode's colour. */
+@Composable
+fun ModeChip(mode: Mode, modifier: Modifier = Modifier, label: String = modeName(mode)) {
+    val tint = modeColor(mode)
+    Row(
+        modifier.clip(Radius.Pill).background(tint.copy(alpha = 0.08f)).border(1.dp, tint.copy(alpha = 0.55f), Radius.Pill)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(modeIcon(mode), null, tint = tint, modifier = Modifier.size(15.dp))
+        Text(label, color = tint, style = AuroraType.Caption, maxLines = 1)
     }
 }
 

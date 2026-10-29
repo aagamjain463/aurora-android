@@ -19,12 +19,17 @@ import app.aurora.protect.Decision
 import app.aurora.protect.FrictionSettings
 import app.aurora.protect.FrictionTask
 import app.aurora.protect.AppRule
+import app.aurora.protect.Mode
+import app.aurora.plan.ProtectedItem
 import app.aurora.protect.IntentConfig
 import app.aurora.protect.Restriction
 import app.aurora.protect.ShieldContent
 import app.aurora.protect.ShieldReason
 import app.aurora.protect.ShieldRequest
 import app.aurora.ui.focus.FocusScreen
+import app.aurora.startFocus
+import app.aurora.protect
+import app.aurora.unprotect
 import app.aurora.ui.home.HomeScreen
 import app.aurora.ui.insights.InsightsScreen
 import app.aurora.ui.onboarding.OnboardingScreen
@@ -110,7 +115,7 @@ class ScreenshotTest(private val variant: Variant) {
             }
         }
         if (screen == "insights") compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("Counted by aurora").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Screen time").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen.startsWith("shield_")) compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Photos").fetchSemanticsNodes().isNotEmpty()
@@ -129,6 +134,31 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun settings() = capture("settings") { SettingsScreen(onBack = {}, onReplayIntro = {}) }
 
     @Test fun focus() = capture("focus") { FocusScreen(onClose = {}) }
+
+    private val application get() = ApplicationProvider.getApplicationContext<AuroraApplication>()
+
+    /** A session 30 minutes into two hours. Runtime is reset before every test. */
+    @Test fun focusRunning() {
+        runBlocking {
+            application.startFocus(120, null, null, "Study mathematics")
+            application.runtime.update { r -> r.copy(focus = r.focus?.let { it.copy(startElapsed = it.startElapsed - 30 * 60_000L, startWall = it.startWall - 30 * 60_000L) }) }
+        }
+        capture("focus_running") { FocusScreen(onClose = {}) }
+    }
+
+    /** Protect with one saved app on Friction, so the app row and its mode chip are in the baseline. */
+    @Test fun protectSaved() {
+        val photos = ProtectedItem.App.of("com.example.photos")!!
+        runBlocking {
+            application.protect(photos)
+            application.rules.update { r -> r.copy(apps = r.apps.mapValues { (_, rule) -> rule.copy(mode = Mode.Friction) }) }
+        }
+        try {
+            capture("protect_saved") { ProtectScreen(onOpen = {}, onOpenItem = {}) }
+        } finally {
+            runBlocking { application.unprotect(listOf(photos)) }
+        }
+    }
 
     private fun shield(reason: ShieldReason, until: Long? = System.currentTimeMillis() + 5_400_000) = ShieldRequest(
         "com.example.photos", reason, until, 0, 0, 0,

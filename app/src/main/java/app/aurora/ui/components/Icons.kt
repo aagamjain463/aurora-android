@@ -47,6 +47,10 @@ object AuroraIcons {
         moveTo(6.5f, 6.5f); lineTo(17.5f, 17.5f)
         moveTo(17.5f, 6.5f); lineTo(6.5f, 17.5f)
     }
+    /** Start: a soft-cornered play triangle. */
+    val Play = icon("play") {
+        moveTo(8f, 5.8f); lineTo(18f, 12f); lineTo(8f, 18.2f); close()
+    }
     val Back = icon("back") { moveTo(14.5f, 5.5f); lineTo(8f, 12f); lineTo(14.5f, 18.5f) }
     val Chevron = icon("chevron") { moveTo(10f, 6f); lineTo(16f, 12f); lineTo(10f, 18f) }
     val Check = icon("check") { moveTo(5f, 12.5f); lineTo(9.75f, 17f); lineTo(19f, 7.5f) }

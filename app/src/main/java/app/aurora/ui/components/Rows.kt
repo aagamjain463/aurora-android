@@ -56,9 +56,7 @@ fun RowGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
         modifier
             .padding(horizontal = Space.M)
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(Aurora.colors.surface)
-            .border(1.dp, Aurora.colors.hairline, Radius.L),
+            .auroraSurface(Aurora.colors),
         content = content,
     )
 }

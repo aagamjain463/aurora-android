@@ -15,9 +15,9 @@ import app.aurora.protect.ShieldService
  */
 enum class Access(val title: String, val why: String) {
     Usage("Usage access", "Powers Insights. Read on this phone only."),
-    Accessibility("Accessibility", "Lets aurora notice when a protected app opens."),
+    Accessibility("Accessibility", "Lets Aurora notice when a protected app opens."),
     Notifications("Notifications", "Tells you when a focus session ends."),
-    Content("Web & content Shield", "Lets aurora see the address in supported browsers, and when Shorts or Reels is open."),
+    Content("Web & content Shield", "Lets Aurora see the address in supported browsers, and when Shorts or Reels is open."),
 }
 
 /** [Revoked] is access that was granted earlier in this visit and has since been turned off. */

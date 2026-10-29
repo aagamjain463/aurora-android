@@ -140,7 +140,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
             val startFor: (String?) -> Unit = { key -> nav.navigate(if (key == null) ProtectRoutes.Start else "${ProtectRoutes.Start}?key=${Uri.encode(key)}") }
             val intentApp: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.IntentApp}/${Uri.encode(key)}") }
-            composable(Routes.Protect) { ProtectScreen(onOpen = { nav.navigate(it) }, onOpenItem = openItem) }
+            composable(Routes.Protect) { ProtectScreen(onOpen = { nav.navigate(it) }, onOpenItem = openItem, onOpenSettings = { nav.navigate(Routes.Settings) }) }
             composable(ProtectRoutes.Apps) { AppPickerScreen(back, plus) }
             composable("${ProtectRoutes.Item}/{key}") { entry ->
                 ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, onStart = { startFor(it) }, onIntent = intentApp, onPlus = plus)
@@ -156,7 +156,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             composable(ProtectRoutes.Groups) { GroupsScreen(back) }
             composable(ProtectRoutes.Web) { WebScreen(back, openItem, plus) }
             composable(ProtectRoutes.Plus) { PlusScreen(back) }
-            composable(Routes.Insights) { InsightsScreen(onPlus = plus) }
+            composable(Routes.Insights) { InsightsScreen(onPlus = plus, onOpenSettings = { nav.navigate(Routes.Settings) }) }
             composable(Routes.Settings) {
                 SettingsScreen(
                     onBack = back,

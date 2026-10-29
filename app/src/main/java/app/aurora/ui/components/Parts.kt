@@ -171,3 +171,71 @@ fun Modifier.bleed(by: Dp) = layout { measurable, constraints ->
     val placeable = measurable.measure(constraints.copy(minWidth = constraints.minWidth + 2 * px, maxWidth = constraints.maxWidth + 2 * px))
     layout(placeable.width - 2 * px, placeable.height) { placeable.place(-px, 0) }
 }
+
+/**
+ * A round badge holding an icon, lit with a faint ring of aurora light when [lit] (protection running,
+ * a mode chosen). The Shield and the mode tiles use it, so "on" always looks the same.
+ */
+@Composable
+fun LitBadge(icon: ImageVector, modifier: Modifier = Modifier, lit: Boolean = true, tint: Color = Aurora.colors.accent, size: Int = 56) {
+    val colors = Aurora.colors
+    val ring = if (lit) tint.copy(alpha = 0.55f) else colors.hairline
+    Box(
+        modifier.size(size.dp).clip(Radius.Pill)
+            .background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(tint.copy(alpha = if (lit) 0.20f else 0.08f), tint.copy(alpha = 0.03f))))
+            .border(1.dp, ring, Radius.Pill),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = if (lit) tint else colors.textSecondary, modifier = Modifier.size((size * 0.46f).dp))
+    }
+}
+
+/** One figure and what it counts, for a row of stats in a card. */
+@Composable
+fun StatCell(value: String, label: String, modifier: Modifier = Modifier, tint: Color = Aurora.colors.textPrimary) {
+    Column(modifier.padding(horizontal = Space.S).semantics(mergeDescendants = true) { }) {
+        Text(value, color = tint, style = AuroraType.Title, maxLines = 1)
+        Text(label, color = Aurora.colors.textSecondary, style = AuroraType.Caption)
+    }
+}
+
+@Composable
+fun StatDivider() {
+    Box(Modifier.width(1.dp).height(44.dp).background(Aurora.colors.hairline))
+}
+
+/**
+ * This week as seven points of light, Monday first. A recorded day with progress is lit; today wears a
+ * ring; days still ahead are faint.
+ */
+@Composable
+fun WeekDots(week: List<java.time.LocalDate>, today: java.time.LocalDate, active: (Int) -> Boolean, modifier: Modifier = Modifier) {
+    val colors = Aurora.colors
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val lit = week.indices.count { active(it) && !week[it].isAfter(today) }
+    val spoken = androidx.compose.ui.res.pluralStringResource(app.aurora.R.plurals.week_dots_spoken, lit, lit)
+    Row(modifier.semantics(mergeDescendants = true) { contentDescription = spoken }, horizontalArrangement = Arrangement.SpaceBetween) {
+        week.forEachIndexed { i, day ->
+            val on = active(i) && !day.isAfter(today)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    Modifier.size(14.dp)
+                        .then(if (day == today) Modifier.border(1.5.dp, colors.accent.copy(alpha = 0.7f), Radius.Pill).padding(3.dp) else Modifier.padding(2.dp))
+                        .clip(Radius.Pill)
+                        .background(
+                            when {
+                                on -> colors.accent
+                                day.isAfter(today) -> colors.hairline
+                                else -> colors.textTertiary.copy(alpha = 0.35f)
+                            },
+                        ),
+                )
+                Text(
+                    day.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, locale),
+                    color = if (day == today) colors.accent else colors.textTertiary,
+                    style = AuroraType.Caption,
+                )
+            }
+        }
+    }
+}

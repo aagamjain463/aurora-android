@@ -1,5 +1,6 @@
 package app.aurora.ui.home
 
+import app.aurora.ui.components.auroraSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -65,6 +66,18 @@ import app.aurora.protect.windowsBetween
 import app.aurora.protect.nextStart
 import app.aurora.protect.key
 import app.aurora.settleFocus
+import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.AuroraHeader
+import app.aurora.ui.components.Chevron
+import app.aurora.ui.components.FirstLightBackdrop
+import app.aurora.ui.components.LitBadge
+import app.aurora.ui.components.StatCell
+import app.aurora.ui.components.StatDivider
+import app.aurora.ui.components.TwoToneHeadline
+import app.aurora.ui.components.WeekDots
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.pluralStringResource
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIconButton
 import app.aurora.ui.components.AuroraIcons
@@ -181,45 +194,36 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
     Box(Modifier.fillMaxSize().background(colors.background)) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val heroVisible by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex == 0 } }
-    NightStatusBar(heroVisible)
+    FirstLightBackdrop(ArtTier.Immersive, scroll = { if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else Int.MAX_VALUE / 4 })
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottom)) {
-        // 1. The hero: always a night sky, in both themes. aurora's signature, and the one dark moment on a light day.
+        // 1. The hero: the mark, then the founder's headline set over the lake.
         item(key = "hero") {
-            CompositionLocalProvider(LocalAuroraColors provides DarkColors) {
-                val night = Aurora.colors
-                Box(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp))
-                        .background(Brush.verticalGradient(listOf(night.sky, night.background))),
-                ) {
-                    AuroraLandscape(Modifier.matchParentSize())
-                    Column {
-                    Row(Modifier.statusBarsPadding().padding(horizontal = Space.Gutter, vertical = Space.S).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Wordmark(Modifier.weight(1f))
-                        AuroraIconButton(AuroraIcons.Settings, stringResource(R.string.settings_title), onOpenSettings)
-                    }
-                    Spacer(Modifier.height(100.dp))
-                    Text(
-                        stringResource(R.string.today_headline),
-                        Modifier.padding(horizontal = Space.Gutter, vertical = Space.L).semantics { heading() },
-                        color = night.textPrimary,
-                        style = AuroraType.Display,
-                    )
-                    }
-                }
+            Column(Modifier.statusBarsPadding()) {
+                AuroraHeader(onOpenSettings)
+                Spacer(Modifier.height(176.dp))
+                TwoToneHeadline(stringResource(R.string.today_headline), Modifier.padding(horizontal = Space.Gutter))
+                Text(
+                    stringResource(R.string.today_subtitle),
+                    Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S, bottom = Space.L).fillMaxWidth(0.82f),
+                    color = colors.textSecondary,
+                    style = AuroraType.Body,
+                )
             }
         }
         // 2. Time away from protected apps.
         item(key = "metric") {
-            Column(Modifier.padding(horizontal = Space.M, vertical = Space.M).fillMaxWidth().clip(Radius.L)
-                .background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L)) {
-                Text(stringResource(R.string.today_metric_label), color = colors.textSecondary, style = AuroraType.BodyStrong)
+            Column(Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.L)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
+                    androidx.compose.material3.Icon(AuroraIcons.Insights, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                    Text(stringResource(R.string.today_metric_label), color = colors.textSecondary, style = AuroraType.BodyStrong)
+                }
+                Spacer(Modifier.height(Space.XS))
                 when (val a = away) {
                     is AwayState.Measured -> {
                         Text(formatDuration(a.away.awayMs), color = colors.textPrimary, style = AuroraType.Metric)
                         Text(
                             stringResource(R.string.today_metric_detail, formatDuration(a.away.protectedMs), formatDuration(a.away.usedMs)),
-                            color = colors.textSecondary, style = AuroraType.Secondary,
+                            color = colors.accent, style = AuroraType.Secondary,
                         )
                         Text(stringResource(R.string.today_metric_definition), Modifier.padding(top = 4.dp), color = colors.textTertiary, style = AuroraType.Caption)
                     }
@@ -240,73 +244,113 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
                 }
             }
         }
-        // 3. Focus, right away.
-        item(key = "focus") {
-            val focusing = data?.runtime?.focus?.takeUnless { it.isOver(today.app.now()) }
-            AuroraButton(
-                if (focusing != null) stringResource(R.string.today_focus_running) else stringResource(R.string.today_focus_start, minutesText(prefs?.defaultFocusMinutes ?: 25)),
-                onStartFocus,
-                Modifier.padding(horizontal = Space.M).fillMaxWidth(),
-                icon = AuroraIcons.Focus,
-            )
-        }
-
-        // 4. Protection.
-        item(key = "protection") { PillarHeading(stringResource(R.string.today_protection_title), status?.summary() ?: "") }
+        // 3. Protection and Focus: what's guarded now, and the one action Aurora suggests.
         val d = data
-        if (d != null) {
-            if (d.sessions.isEmpty() && runningWindows(d).isEmpty()) {
-                item(key = "nothing") {
-                    Column(
-                        Modifier.padding(horizontal = Space.M).fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
-                        verticalArrangement = Arrangement.spacedBy(Space.S),
-                    ) {
-                        Text(stringResource(R.string.today_nothing_protected), color = colors.textPrimary, style = AuroraType.Title)
-                        Text(nextScheduleText(d), color = colors.textSecondary, style = AuroraType.Secondary)
-                        AuroraButton(stringResource(R.string.protect_start), if (d.active.isEmpty()) onOpenProtect else onStartProtection, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+        item(key = "protection") {
+            val focusing = data?.runtime?.focus?.takeUnless { it.isOver(today.app.now()) }
+            val running = d != null && (d.sessions.isNotEmpty() || runningWindows(d).isNotEmpty())
+            val guarded = d?.let { x -> (x.sessions.flatMap { it.keys } + runningWindows(x).flatMap { it.keys }).toSet().size } ?: 0
+            Column(
+                Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.M),
+                verticalArrangement = Arrangement.spacedBy(Space.M),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().clip(Radius.M).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onOpenProtect).padding(Space.XS),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Space.M),
+                ) {
+                    LitBadge(AuroraIcons.Protect, lit = running)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (running) stringResource(R.string.today_shield_on) else stringResource(R.string.today_nothing_protected),
+                            color = colors.textPrimary, style = AuroraType.Title,
+                        )
+                        Text(
+                            when {
+                                d == null -> status?.summary() ?: ""
+                                running -> pluralStringResource(R.plurals.today_shield_apps, guarded, guarded)
+                                else -> nextScheduleText(d)
+                            },
+                            color = colors.textSecondary, style = AuroraType.Secondary,
+                        )
                     }
+                    Chevron()
                 }
-            } else {
-                items(d.sessions, key = { "s-" + it.id }) { s -> SessionCard(s, d, onTurnOff = onOpenProtect, Modifier.padding(bottom = Space.S)) }
-                items(runningWindows(d), key = { "w-" + it.id }) { w ->
-                    Row(
-                        Modifier.padding(horizontal = Space.M).padding(bottom = Space.S).fillMaxWidth().clip(Radius.L).background(colors.surface)
-                            .border(1.dp, modeColor(w.mode).copy(alpha = 0.45f), Radius.L).padding(Space.L),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S),
-                    ) {
-                        ModeGlyph(modeColor(w.mode), size = 14)
-                        Column(Modifier.weight(1f)) {
-                            Text("${w.name} · ${modeName(w.mode)}", color = colors.textPrimary, style = AuroraType.BodyStrong)
-                            Text(stringResource(R.string.schedule_running_until, clockTime(w.end)), color = colors.textSecondary, style = AuroraType.Secondary)
-                        }
+                AuroraButton(
+                    if (focusing != null) stringResource(R.string.today_focus_running) else stringResource(R.string.today_focus_start, minutesText(prefs?.defaultFocusMinutes ?: 25)),
+                    onStartFocus,
+                    Modifier.fillMaxWidth(),
+                    icon = AuroraIcons.Play,
+                )
+                if (d != null && !running) {
+                    AuroraButton(stringResource(R.string.protect_start), if (d.active.isEmpty()) onOpenProtect else onStartProtection, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Protect)
+                }
+            }
+        }
+        if (d != null) {
+            items(d.sessions, key = { "s-" + it.id }) { s -> SessionCard(s, d, onTurnOff = onOpenProtect, Modifier.padding(top = Space.XS)) }
+            items(runningWindows(d), key = { "w-" + it.id }) { w ->
+                Row(
+                    Modifier.padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors, edge = modeColor(w.mode)).padding(Space.L),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S),
+                ) {
+                    ModeGlyph(modeColor(w.mode), size = 14)
+                    Column(Modifier.weight(1f)) {
+                        Text("${w.name} · ${modeName(w.mode)}", color = colors.textPrimary, style = AuroraType.BodyStrong)
+                        Text(stringResource(R.string.schedule_running_until, clockTime(w.end)), color = colors.textSecondary, style = AuroraType.Secondary)
                     }
                 }
             }
         }
 
-        // 5. Progress: a separate pillar.
-        item(key = "progress") { PillarHeading(stringResource(R.string.today_progress_title), stringResource(R.string.today_progress_body)) }
+        // 4. Progress: this week, from recorded days only.
+        item(key = "progress") {
+            val week = (0..6).map { date.with(java.time.DayOfWeek.MONDAY).plusDays(it.toLong()) }
+            val days = week.map { h.day(it) }
+            val steady = h.steadyDays(date)
+            Column(
+                Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onOpenInsights).padding(Space.L),
+                verticalArrangement = Arrangement.spacedBy(Space.M),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M)) {
+                    androidx.compose.material3.Icon(AuroraIcons.Spark, null, tint = colors.sun, modifier = Modifier.size(26.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.today_progress_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
+                        Text(stringResource(R.string.today_progress_body), color = colors.textSecondary, style = AuroraType.Secondary)
+                    }
+                    if (steady > 1) Text(stringResource(R.string.today_steady, steady), color = colors.sun, style = AuroraType.Label)
+                    Chevron()
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    WeekDots(week, date, active = { i -> days[i].xp() > 0 }, Modifier.weight(1.25f))
+                    StatDivider()
+                    StatCell(days.sumOf { it.focusSessions }.toString(), stringResource(R.string.today_week_sessions), Modifier.weight(0.8f))
+                    StatDivider()
+                    StatCell(minutesText(days.sumOf { it.completedFocusMinutes }), stringResource(R.string.today_week_focus), Modifier.weight(0.9f))
+                }
+            }
+        }
+        // 5. Aurora Light: the level, drawn from real progress.
         item(key = "level") {
             val xp = h.totalXp()
             val level = levelFor(xp)
-            val steady = h.steadyDays(date)
             Column(
-                Modifier.padding(horizontal = Space.M).fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+                Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L),
                 verticalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
-                Text(stringResource(R.string.today_light_level, level.number, level.name), color = colors.dawnText, style = AuroraType.Eyebrow)
-                AuroraLight(light.glow, light.rise, Modifier.fillMaxWidth().height(120.dp), description = stringResource(R.string.today_light_description))
+                Text(stringResource(R.string.today_light_level, level.number, level.name), color = colors.sun, style = AuroraType.Eyebrow)
+                AuroraLight(light.glow, light.rise, Modifier.fillMaxWidth().height(112.dp), description = stringResource(R.string.today_light_description))
                 Text(stringResource(R.string.today_xp_today, h.day(date).xp()), color = colors.textPrimary, style = AuroraType.Headline)
                 ProgressLine(level.progress, Modifier.padding(vertical = Space.XS), warm = true)
                 Text(stringResource(R.string.today_xp_next, level.levelSize - level.intoLevel, light.activeDays), color = colors.textSecondary, style = AuroraType.Secondary)
-                if (steady > 1) Text(stringResource(R.string.today_steady, steady), color = colors.accent, style = AuroraType.Label)
                 Text(stringResource(R.string.today_xp_how), color = colors.textTertiary, style = AuroraType.Caption)
             }
         }
         if (d != null && d.rules.goals.isNotEmpty()) {
             item(key = "goals") {
                 Column(
-                    Modifier.padding(horizontal = Space.M).padding(top = Space.S).fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+                    Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.L),
                     verticalArrangement = Arrangement.spacedBy(Space.S),
                 ) {
                     Text(stringResource(R.string.today_goals), color = colors.textPrimary, style = AuroraType.Title)
@@ -352,20 +396,4 @@ private fun nextScheduleText(d: ProtectData): String {
     val zone = ZoneId.systemDefault()
     val next = d.rules.activeSchedules(d.plan).mapNotNull { s -> s.nextStart(d.time.wall, zone)?.let { s to it } }.minByOrNull { it.second }
     return if (next == null) stringResource(R.string.today_no_schedule) else stringResource(R.string.today_next_schedule, next.first.name, clockTime(next.second))
-}
-
-/** Light status-bar icons over the night hero, the theme's own once it scrolls away. */
-@Composable
-private fun NightStatusBar(overHero: Boolean) {
-    val activity = androidx.activity.compose.LocalActivity.current as? androidx.activity.ComponentActivity ?: return
-    val dark = Aurora.colors.isDark
-    androidx.compose.runtime.DisposableEffect(overHero, dark) {
-        val transparent = android.graphics.Color.TRANSPARENT
-        val status = if (overHero || dark) androidx.activity.SystemBarStyle.dark(transparent) else androidx.activity.SystemBarStyle.light(transparent, transparent)
-        val nav = androidx.activity.SystemBarStyle.auto(transparent, transparent) { dark }
-        activity.enableEdgeToEdge(status, nav)
-        onDispose {
-            activity.enableEdgeToEdge(androidx.activity.SystemBarStyle.auto(transparent, transparent) { dark }, nav)
-        }
-    }
 }

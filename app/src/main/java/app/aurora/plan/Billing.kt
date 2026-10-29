@@ -110,7 +110,7 @@ class BillingRepository(
             offers = offers,
             message = when {
                 purchasesResult.responseCode != BillingResponseCode.OK -> describe(purchasesResult)
-                offers.isEmpty() -> "aurora plus isn't available to buy in this version of aurora yet."
+                offers.isEmpty() -> "Aurora Plus isn't available to buy in this version of Aurora yet."
                 else -> null
             },
         )
@@ -172,9 +172,9 @@ class BillingRepository(
     private fun describe(result: BillingResult): String = when (result.responseCode) {
         BillingResponseCode.BILLING_UNAVAILABLE -> "Google Play billing isn't available on this phone or account."
         BillingResponseCode.SERVICE_UNAVAILABLE, BillingResponseCode.NETWORK_ERROR -> "Google Play can't be reached right now. Try again when you're online."
-        BillingResponseCode.SERVICE_DISCONNECTED -> "aurora couldn't connect to Google Play on this phone. Make sure the Play Store is installed and signed in, then try again."
-        BillingResponseCode.ITEM_UNAVAILABLE -> "aurora plus isn't available to buy in this version of aurora yet."
-        BillingResponseCode.DEVELOPER_ERROR -> "This version of aurora can't sell aurora plus."
+        BillingResponseCode.SERVICE_DISCONNECTED -> "Aurora couldn't connect to Google Play on this phone. Make sure the Play Store is installed and signed in, then try again."
+        BillingResponseCode.ITEM_UNAVAILABLE -> "Aurora Plus isn't available to buy in this version of Aurora yet."
+        BillingResponseCode.DEVELOPER_ERROR -> "This version of Aurora can't sell Aurora Plus."
         else -> "Google Play couldn't complete that (code ${result.responseCode})."
     }
 }

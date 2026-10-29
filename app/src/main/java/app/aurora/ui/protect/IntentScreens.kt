@@ -1,5 +1,6 @@
 package app.aurora.ui.protect
 
+import app.aurora.ui.components.auroraSurface
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
@@ -213,7 +214,7 @@ private fun IntentSteps() {
         R.string.intent_step_follow to R.string.intent_step_follow_body,
     )
     Column(
-        Modifier.padding(horizontal = Space.M).fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+        Modifier.padding(horizontal = Space.M).fillMaxWidth().auroraSurface(colors).padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
         steps.forEachIndexed { i, (title, body) ->

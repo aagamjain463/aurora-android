@@ -1,0 +1,119 @@
+{
+  "$description": "Aurora design tokens, First Light system. W3C Design Tokens format. Source of truth for app/src/main/java/app/aurora/ui/theme/*.kt (kept in sync by DesignTokensTest).",
+  "color": {
+    "palette": {
+      "night-1000": { "$type": "color", "$value": "#031110", "$description": "Sky: behind hero art, Shield, launcher icon top" },
+      "night-950": { "$type": "color", "$value": "#05100D", "$description": "App background (dark)" },
+      "night-900": { "$type": "color", "$value": "#0A1814", "$description": "Card surface (dark)" },
+      "night-850": { "$type": "color", "$value": "#10221D", "$description": "Raised surface, selected cards, sheets (dark)" },
+      "night-800": { "$type": "color", "$value": "#173029", "$description": "Controls at rest (dark)" },
+      "mist-300": { "$type": "color", "$value": "#B4C2BC" },
+      "mist-400": { "$type": "color", "$value": "#8E9D97" },
+      "frost": { "$type": "color", "$value": "#F1F6F3" },
+      "linen": { "$type": "color", "$value": "#F5F1E8", "$description": "App background (light)" },
+      "paper": { "$type": "color", "$value": "#FFFCF6" },
+      "shell": { "$type": "color", "$value": "#EDE7DA" },
+      "ink": { "$type": "color", "$value": "#0B1411" },
+      "ink-75": { "$type": "color", "$value": "#39453F" },
+      "ink-60": { "$type": "color", "$value": "#56625C" },
+      "aurora-300": { "$type": "color", "$value": "#A6F0CF" },
+      "aurora-400": { "$type": "color", "$value": "#7BE3B6", "$description": "Founder accent, dark" },
+      "aurora-500": { "$type": "color", "$value": "#3FC495" },
+      "aurora-600": { "$type": "color", "$value": "#2FB883", "$description": "Symbol ring start" },
+      "aurora-700": { "$type": "color", "$value": "#137A57", "$description": "Founder accent, light" },
+      "dawn-300": { "$type": "color", "$value": "#F7CFAF" },
+      "dawn-400": { "$type": "color", "$value": "#F0B48A", "$description": "Founder dawn accent" },
+      "dawn-700": { "$type": "color", "$value": "#9C4A20" },
+      "sun-300": { "$type": "color", "$value": "#F3C77D", "$description": "First Light gold: the ring, the rising point, streaks" },
+      "sun-100": { "$type": "color", "$value": "#E9DDBF", "$description": "Lead line of hero headlines (dark)" },
+      "sun-700": { "$type": "color", "$value": "#8A5A12", "$description": "Gold text on light surfaces (AA)" },
+      "glacier-400": { "$type": "color", "$value": "#7FB8E6", "$description": "Cooldown mode" },
+      "coral-400": { "$type": "color", "$value": "#F2877E" },
+      "coral-700": { "$type": "color", "$value": "#B3261E" }
+    },
+    "dark": {
+      "background": { "$type": "color", "$value": "{color.palette.night-950}" },
+      "surface": { "$type": "color", "$value": "{color.palette.night-900}" },
+      "elevated": { "$type": "color", "$value": "{color.palette.night-850}" },
+      "hairline": { "$type": "color", "$value": "#1FA6F0CF", "$description": "aurora-300 at 12%: an emerald-tinted border" },
+      "text-primary": { "$type": "color", "$value": "{color.palette.frost}" },
+      "text-secondary": { "$type": "color", "$value": "{color.palette.mist-300}" },
+      "text-tertiary": { "$type": "color", "$value": "{color.palette.mist-400}" },
+      "accent": { "$type": "color", "$value": "{color.palette.aurora-400}" },
+      "sun": { "$type": "color", "$value": "{color.palette.sun-300}" },
+      "headline-lead": { "$type": "color", "$value": "{color.palette.sun-100}" }
+    },
+    "light": {
+      "background": { "$type": "color", "$value": "{color.palette.linen}" },
+      "surface": { "$type": "color", "$value": "{color.palette.paper}" },
+      "elevated": { "$type": "color", "$value": "#FFFFFF" },
+      "hairline": { "$type": "color", "$value": "#1A137A57", "$description": "aurora-700 at 10%" },
+      "text-primary": { "$type": "color", "$value": "{color.palette.ink}" },
+      "text-secondary": { "$type": "color", "$value": "{color.palette.ink-75}" },
+      "text-tertiary": { "$type": "color", "$value": "{color.palette.ink-60}" },
+      "accent": { "$type": "color", "$value": "{color.palette.aurora-700}" },
+      "sun": { "$type": "color", "$value": "{color.palette.sun-700}" },
+      "headline-lead": { "$type": "color", "$value": "#5E6B4F" }
+    },
+    "gradient": {
+      "cta-dark": { "$type": "gradient", "$value": ["#5FD39B", "#7BE3B6", "#DCE8A8"], "$description": "Primary action, emerald to first-light gold, left to right" },
+      "cta-light": { "$type": "gradient", "$value": ["#137A57", "#1E8C66", "#4E9A62"] },
+      "symbol-ring": { "$type": "gradient", "$value": ["#2FB883", "#8BE8BF"] }
+    },
+    "mode": {
+      "flexible": { "$type": "color", "$value": "{color.palette.aurora-400}" },
+      "friction": { "$type": "color", "$value": "{color.palette.sun-300}" },
+      "cooldown": { "$type": "color", "$value": "{color.palette.glacier-400}" },
+      "always-block": { "$type": "color", "$value": "{color.palette.aurora-500}" }
+    }
+  },
+  "font": {
+    "family": { "$type": "fontFamily", "$value": "Manrope", "$description": "SIL OFL, bundled variable font res/font/manrope.ttf" }
+  },
+  "typography": {
+    "hero-timer": { "$type": "typography", "$value": { "fontSize": "60sp", "lineHeight": "64sp", "fontWeight": 500, "letterSpacing": "-0.04em", "fontFeature": "tnum" } },
+    "metric": { "$type": "typography", "$value": { "fontSize": "48sp", "lineHeight": "52sp", "fontWeight": 600, "letterSpacing": "-0.04em", "fontFeature": "tnum" } },
+    "display-xl": { "$type": "typography", "$value": { "fontSize": "56sp", "lineHeight": "60sp", "fontWeight": 500, "letterSpacing": "-0.04em" }, "$description": "One-word screen titles: Focus" },
+    "display": { "$type": "typography", "$value": { "fontSize": "34sp", "lineHeight": "40sp", "fontWeight": 560, "letterSpacing": "-0.03em" }, "$description": "Hero headlines, two-tone" },
+    "headline": { "$type": "typography", "$value": { "fontSize": "26sp", "lineHeight": "32sp", "fontWeight": 620, "letterSpacing": "-0.02em" } },
+    "title": { "$type": "typography", "$value": { "fontSize": "19sp", "lineHeight": "25sp", "fontWeight": 620, "letterSpacing": "-0.012em" } },
+    "body": { "$type": "typography", "$value": { "fontSize": "16sp", "lineHeight": "24sp", "fontWeight": 450 } },
+    "body-strong": { "$type": "typography", "$value": { "fontSize": "16sp", "lineHeight": "22sp", "fontWeight": 620 } },
+    "secondary": { "$type": "typography", "$value": { "fontSize": "15sp", "lineHeight": "21sp", "fontWeight": 450 } },
+    "label": { "$type": "typography", "$value": { "fontSize": "16sp", "lineHeight": "20sp", "fontWeight": 620 } },
+    "caption": { "$type": "typography", "$value": { "fontSize": "13sp", "lineHeight": "18sp", "fontWeight": 550 } },
+    "eyebrow": { "$type": "typography", "$value": { "fontSize": "13sp", "lineHeight": "16sp", "fontWeight": 650, "letterSpacing": "0.04em" } },
+    "wordmark": { "$type": "typography", "$value": { "fontSize": "24sp", "lineHeight": "28sp", "fontWeight": 500, "letterSpacing": "-0.01em" } }
+  },
+  "space": {
+    "xxs": { "$type": "dimension", "$value": "4dp" },
+    "xs": { "$type": "dimension", "$value": "8dp" },
+    "s": { "$type": "dimension", "$value": "12dp" },
+    "m": { "$type": "dimension", "$value": "16dp" },
+    "l": { "$type": "dimension", "$value": "24dp" },
+    "xl": { "$type": "dimension", "$value": "32dp" },
+    "xxl": { "$type": "dimension", "$value": "48dp" },
+    "gutter": { "$type": "dimension", "$value": "24dp" },
+    "card-inset": { "$type": "dimension", "$value": "16dp", "$description": "Cards sit 16dp from the screen edge" }
+  },
+  "radius": {
+    "s": { "$type": "dimension", "$value": "12dp" },
+    "m": { "$type": "dimension", "$value": "18dp" },
+    "l": { "$type": "dimension", "$value": "26dp", "$description": "Cards" },
+    "dialog": { "$type": "dimension", "$value": "30dp" },
+    "pill": { "$type": "dimension", "$value": "50%" }
+  },
+  "motion": {
+    "ease": { "$type": "cubicBezier", "$value": [0.2, 0, 0, 1], "$description": "One curve everywhere: quick to respond, slow to settle" },
+    "quick": { "$type": "duration", "$value": "120ms" },
+    "standard": { "$type": "duration", "$value": "240ms" },
+    "gentle": { "$type": "duration", "$value": "420ms" },
+    "reveal": { "$type": "duration", "$value": "900ms", "$description": "Hero art and metrics fading up on first show" },
+    "breath": { "$type": "duration", "$value": "4200ms" }
+  },
+  "art": {
+    "immersive": { "$type": "other", "$value": { "asset": "first_light_night / first_light_day", "height": "0.92 x width", "scrim": 0 }, "$description": "Today, Focus, Intent, onboarding" },
+    "balanced": { "$type": "other", "$value": { "asset": "first_light_night / first_light_day", "height": "0.70 x width", "scrim": 0.25 }, "$description": "Protect, Insights, Shield" },
+    "restrained": { "$type": "other", "$value": { "asset": "drawn horizon glow, no image", "height": "120dp" }, "$description": "Settings, schedules, pickers, forms" }
+  }
+}

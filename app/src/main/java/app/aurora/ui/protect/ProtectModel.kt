@@ -156,14 +156,14 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
         _notice.value = when (allowance) {
             Allowance.ProtectedItems -> LimitNotice(
                 "That's the most for now",
-                "You're protecting $max items, the most aurora Free allows. Remove one to add another, or protect everything with aurora plus.",
+                "You're protecting $max items, the most Aurora Free allows. Remove one to add another, or protect everything with Aurora Plus.",
                 plus = true,
             )
-            Allowance.IntentApps -> LimitNotice("Intentional opening is on for $max apps", "aurora Free asks first on up to $max apps. Turn it off for one, or use it on every app with aurora plus.", true)
-            Allowance.DailyLimitRules -> LimitNotice("$max daily limits are on", "aurora Free includes $max daily limits. Turn one off, or set as many as you like with aurora plus.", true)
-            Allowance.Schedules -> LimitNotice("Your schedule is on", "aurora Free includes $max schedule. Turn it off to use another, or add more with aurora plus.", true)
-            Allowance.FocusProfiles -> LimitNotice("One Focus profile on Free", "aurora plus adds profiles for each kind of focus.", true)
-            Allowance.AlwaysBlockMinutesPerDay -> LimitNotice("Not enough Always Block time left", "aurora Free includes $max minutes of Always Block a day. Choose a shorter time, use Flexible, or get unlimited Always Block with aurora plus.", true)
+            Allowance.IntentApps -> LimitNotice("Intentional opening is on for $max apps", "Aurora Free asks first on up to $max apps. Turn it off for one, or use it on every app with Aurora Plus.", true)
+            Allowance.DailyLimitRules -> LimitNotice("$max daily limits are on", "Aurora Free includes $max daily limits. Turn one off, or set as many as you like with Aurora Plus.", true)
+            Allowance.Schedules -> LimitNotice("Your schedule is on", "Aurora Free includes $max schedule. Turn it off to use another, or add more with Aurora Plus.", true)
+            Allowance.FocusProfiles -> LimitNotice("One Focus profile on Free", "Aurora Plus adds profiles for each kind of focus.", true)
+            Allowance.AlwaysBlockMinutesPerDay -> LimitNotice("Not enough Always Block time left", "Aurora Free includes $max minutes of Always Block a day. Choose a shorter time, use Flexible, or get unlimited Always Block with Aurora Plus.", true)
         }
     }
 

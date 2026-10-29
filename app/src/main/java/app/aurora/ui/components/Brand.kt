@@ -9,6 +9,18 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import app.aurora.ui.theme.Space
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,44 +70,111 @@ fun LoadingSurface(modifier: Modifier = Modifier) {
     }
 }
 
-/** The wordmark: "aurora", always lowercase, set tight in Manrope Bold. */
+/** The wordmark: "Aurora", title case, Manrope Medium. Always beside or below the symbol, never restyled. */
 @Composable
 fun Wordmark(modifier: Modifier = Modifier, color: Color = Aurora.colors.textPrimary) {
-    Text("aurora", modifier, color = color, style = AuroraType.Wordmark)
+    Text("Aurora", modifier, color = color, style = AuroraType.Wordmark)
 }
 
 /**
- * The aurora symbol, "First Light": a peak drawn as one continuous stroke on a horizon, and a point of
- * light just above its summit. It reads as an A, as a summit catching the first light of the day, and as
- * a person (the point) rising above what pulls them down. Built on a 24-unit grid (docs/BRAND_SYSTEM.md):
- * stroke 2.6u, peak at (12, 8.2), base on the horizon at y 19, light at (12, 3.6) r 1.9u.
+ * The Aurora symbol, "First Light": a ring of light resting on the horizon, and a point of light rising
+ * above it. The ring is the one in the First Light artwork; the point is you. Built on a 24-unit grid
+ * (brand/tools/logo.py, the source of the SVG masters and launcher icon): ring centre (12, 19.2), radius
+ * 7.5, stroke 3 with flat ends on the horizon; point at (12, 6.2), radius 2.
  */
 @Composable
-fun AuroraMark(size: Dp, modifier: Modifier = Modifier) {
+fun AuroraMark(size: Dp, modifier: Modifier = Modifier, mono: Color? = null) {
     val colors = Aurora.colors
     Canvas(modifier.size(size).clearAndSetSemantics { }) {
-        drawAuroraMark(this.size.minDimension, colors.dawn, colors.accent, colors.light, colors.glowCool)
+        drawAuroraMark(this.size.minDimension, colors.isDark, mono)
     }
 }
 
 /** Draws the symbol in a [side]-sized square at the origin. Shared by the in-app mark and the splash. */
-fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAuroraMark(side: Float, warm: Color, cool: Color, light: Color, glow: Color) {
+fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAuroraMark(side: Float, dark: Boolean = true, mono: Color? = null) {
     val u = side / 24f
-    val peak = androidx.compose.ui.graphics.Path().apply {
-        moveTo(4.2f * u, 19f * u)
-        lineTo(12f * u, 8.2f * u)
-        lineTo(19.8f * u, 19f * u)
-    }
-    drawPath(
-        peak,
-        Brush.linearGradient(listOf(warm, cool), Offset(4f * u, 19f * u), Offset(20f * u, 9f * u)),
-        style = Stroke(width = 2.6f * u, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
+    val c = Offset(12f * u, 19.2f * u)
+    val r = 7.5f * u
+    val ring = if (mono != null) androidx.compose.ui.graphics.SolidColor(mono) else Brush.linearGradient(
+        if (dark) listOf(Color(0xFF2FB883), Color(0xFF8BE8BF)) else listOf(Color(0xFF137A57), Color(0xFF2FB883)),
+        Offset(c.x - r, c.y), Offset(c.x + r, c.y - r),
     )
-    // The horizon: short, quiet, centred under the peak.
-    drawLine(cool.copy(alpha = 0.45f), Offset(2.5f * u, 21.6f * u), Offset(21.5f * u, 21.6f * u), strokeWidth = 1.1f * u, cap = StrokeCap.Round)
-    val point = Offset(12f * u, 3.6f * u)
-    drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.45f), Color.Transparent), point, 4.2f * u), 4.2f * u, point)
-    drawCircle(light, 1.9f * u, point)
+    drawArc(ring, 180f, 180f, false, Offset(c.x - r, c.y - r), Size(2 * r, 2 * r), style = Stroke(width = 3f * u, cap = StrokeCap.Butt))
+    val point = Offset(12f * u, 6.2f * u)
+    if (mono == null) {
+        val sun = if (dark) Color(0xFFF3C77D) else Color(0xFFD99A4E)
+        drawCircle(Brush.radialGradient(listOf(sun.copy(alpha = 0.35f), Color.Transparent), point, 4.4f * u), 4.4f * u, point)
+        drawCircle(sun, 2f * u, point)
+    } else {
+        drawCircle(mono, 2f * u, point)
+    }
+}
+
+/**
+ * The top of every tab screen: the symbol and wordmark at the left, Settings at the right. Aurora has no
+ * accounts, so there is no profile button; Settings uses the sliders glyph, which can't be mistaken for
+ * the symbol.
+ */
+@Composable
+fun AuroraHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = Modifier, title: String? = null) {
+    val colors = Aurora.colors
+    androidx.compose.foundation.layout.Row(
+        modifier.fillMaxWidth().padding(start = Space.Gutter, end = Space.M, top = Space.XS, bottom = Space.XS),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        AuroraMark(34.dp)
+        androidx.compose.foundation.layout.Spacer(Modifier.width(Space.S))
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f).semantics(mergeDescendants = true) { }) {
+            Wordmark()
+            if (title != null) Text(title, color = colors.textSecondary, style = AuroraType.Caption)
+        }
+        if (onOpenSettings != null) {
+            androidx.compose.foundation.layout.Box(
+                Modifier.size(48.dp).border(1.dp, colors.hairline.copy(alpha = 0.3f).compositeOver(colors.textTertiary.copy(alpha = 0.35f)), CircleShape)
+                    .clip(CircleShape).background(colors.background.copy(alpha = 0.35f))
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = androidx.compose.ui.res.stringResource(app.aurora.R.string.settings_title), onClick = onOpenSettings),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
+                androidx.compose.material3.Icon(AuroraIcons.Settings, androidx.compose.ui.res.stringResource(app.aurora.R.string.settings_title), tint = colors.textPrimary, modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+}
+
+/**
+ * A hero headline in two tones: the lead in First Light cream, the last [tailWords] words in full white,
+ * on their own line. The words themselves are never changed (founder-approved copy stays exact); only the
+ * line break and colour are design.
+ */
+@Composable
+fun TwoToneHeadline(
+    text: String,
+    modifier: Modifier = Modifier,
+    tailWords: Int = 2,
+    style: androidx.compose.ui.text.TextStyle = AuroraType.Display,
+    leadFirst: Boolean = true,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+) {
+    val colors = Aurora.colors
+    val words = text.split(" ")
+    val split = (words.size - tailWords).coerceIn(0, words.size)
+    val lead = words.take(split).joinToString(" ")
+    val tail = words.drop(split).joinToString(" ")
+    val annotated = androidx.compose.ui.text.buildAnnotatedString {
+        val leadColor = if (leadFirst) colors.headlineLead else colors.textPrimary
+        val tailColor = if (leadFirst) colors.textPrimary else colors.headlineLead
+        if (lead.isNotEmpty()) {
+            pushStyle(androidx.compose.ui.text.SpanStyle(color = leadColor)); append(lead); pop()
+            append(if (leadFirst) "\n" else " ")
+        }
+        pushStyle(androidx.compose.ui.text.SpanStyle(color = tailColor)); append(tail); pop()
+    }
+    Text(
+        annotated,
+        modifier.semantics { heading(); contentDescription = text },
+        style = style,
+        textAlign = textAlign,
+    )
 }
 
 /**

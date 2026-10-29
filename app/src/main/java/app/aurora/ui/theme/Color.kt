@@ -6,16 +6,20 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
-/** Raw palette. Screens never use these directly; they read semantic [AuroraColors]. See docs/BRAND.md. */
+/**
+ * Raw palette. Screens never use these directly; they read semantic [AuroraColors].
+ * Source of truth: brand/tokens/aurora.tokens.json (DesignTokensTest keeps the two in sync).
+ * See docs/design-studio/AURORA_BRAND_BIBLE.md.
+ */
 object Palette {
     // Night: rich green-tinted near-blacks, the sky an hour before dawn.
-    val Night1000 = Color(0xFF050B09)
-    val Night950 = Color(0xFF08110E)
-    val Night900 = Color(0xFF0E1915)
-    val Night850 = Color(0xFF14221D)
-    val Night800 = Color(0xFF1B2C26)
+    val Night1000 = Color(0xFF031110)
+    val Night950 = Color(0xFF05100D)
+    val Night900 = Color(0xFF0A1814)
+    val Night850 = Color(0xFF10221D)
+    val Night800 = Color(0xFF173029)
     val Mist300 = Color(0xFFB4C2BC)
-    val Mist400 = Color(0xFF8A9993)
+    val Mist400 = Color(0xFF8E9D97)
     val Frost = Color(0xFFF1F6F3)
 
     // Day: warm off-whites, like paper in early light.
@@ -24,12 +28,13 @@ object Palette {
     val Shell = Color(0xFFEDE7DA)
     val Ink = Color(0xFF0B1411)
     val Ink75 = Color(0xFF39453F)
-    val Ink60 = Color(0xFF5B6761)
+    val Ink60 = Color(0xFF56625C)
 
     // Aurora: the signature luminous green. 400 on night, 700 on day.
     val Aurora300 = Color(0xFFA6F0CF)
     val Aurora400 = Color(0xFF7BE3B6)
     val Aurora500 = Color(0xFF3FC495)
+    val Aurora600 = Color(0xFF2FB883)
     val Aurora700 = Color(0xFF137A57)
     val Aurora900 = Color(0xFF0A3D2C)
 
@@ -37,6 +42,15 @@ object Palette {
     val Dawn300 = Color(0xFFF7CFAF)
     val Dawn400 = Color(0xFFF0B48A)
     val Dawn700 = Color(0xFF9C4A20)
+
+    // Sun: First Light gold. The ring in the artwork, the rising point in the symbol, streaks.
+    val Sun100 = Color(0xFFE9DDBF)
+    val Sun300 = Color(0xFFF3C77D)
+    val Sun700 = Color(0xFF8A5A12)
+
+    // Glacier: the Cooldown mode, cool and patient.
+    val Glacier400 = Color(0xFF7FB8E6)
+    val Glacier700 = Color(0xFF2F6FA8)
 
     val Starlight = Color(0xFFFFF6E6)
     val Coral400 = Color(0xFFF2877E)
@@ -67,6 +81,12 @@ data class AuroraColors(
     /** The rising point of light in the mark and the focus arc. */
     val light: Color,
     val danger: Color,
+    /** First Light gold: the symbol's point, streaks, warm emphasis. Text-safe on [surface]. */
+    val sun: Color,
+    /** The lead phrase of a two-tone hero headline. */
+    val headlineLead: Color,
+    /** Primary action fill, left to right. */
+    val cta: List<Color>,
 )
 
 val LightColors = AuroraColors(
@@ -75,7 +95,7 @@ val LightColors = AuroraColors(
     sky = Palette.Shell,
     surface = Palette.Paper,
     elevated = Color.White,
-    hairline = Palette.Ink.copy(alpha = 0.09f),
+    hairline = Palette.Aurora700.copy(alpha = 0.10f),
     textPrimary = Palette.Ink,
     textSecondary = Palette.Ink75,
     textTertiary = Palette.Ink60,
@@ -89,6 +109,9 @@ val LightColors = AuroraColors(
     glowWarm = Palette.Dawn400,
     light = Palette.Aurora700,
     danger = Palette.Coral700,
+    sun = Palette.Sun700,
+    headlineLead = Color(0xFF5E6B4F),
+    cta = listOf(Palette.Aurora700, Color(0xFF178160), Color(0xFF2A7F55)),
 )
 
 val DarkColors = AuroraColors(
@@ -97,7 +120,7 @@ val DarkColors = AuroraColors(
     sky = Palette.Night1000,
     surface = Palette.Night900,
     elevated = Palette.Night850,
-    hairline = Color.White.copy(alpha = 0.09f),
+    hairline = Palette.Aurora300.copy(alpha = 0.12f),
     textPrimary = Palette.Frost,
     textSecondary = Palette.Mist300,
     textTertiary = Palette.Mist400,
@@ -111,6 +134,9 @@ val DarkColors = AuroraColors(
     glowWarm = Palette.Dawn400,
     light = Palette.Starlight,
     danger = Palette.Coral400,
+    sun = Palette.Sun300,
+    headlineLead = Palette.Sun100,
+    cta = listOf(Color(0xFF5FD39B), Palette.Aurora400, Color(0xFFDCE8A8)),
 )
 
 /** Maps aurora's semantics onto Material 3 so stock components (switch, text selection, ripples) match. */

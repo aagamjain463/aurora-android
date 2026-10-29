@@ -32,7 +32,7 @@ import app.aurora.R
 @Composable
 fun AuroraLandscape(modifier: Modifier = Modifier) {
     Box(modifier) {
-        Image(painterResource(R.drawable.aurora_landscape), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Image(painterResource(R.drawable.first_light_cinematic), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
             0f to DarkColors.sky,
             0.18f to DarkColors.sky.copy(alpha = 0.1f),
