@@ -133,7 +133,8 @@ fun IntentScreen(onBack: () -> Unit, onOpenApp: (String) -> Unit, onAddApps: () 
                 )
             }
             item(key = "tracking") {
-                Text(stringResource(R.string.intent_tracking_note), Modifier.padding(horizontal = Space.Gutter, vertical = Space.XS), color = colors.textTertiary, style = AuroraType.Caption)
+                val precise = remember { vm.app.screenTime.hasAccess() }
+                Text(stringResource(if (precise) R.string.intent_tracking_note else R.string.intent_tracking_estimate), Modifier.padding(horizontal = Space.Gutter, vertical = Space.XS), color = colors.textTertiary, style = AuroraType.Caption)
             }
         }
 

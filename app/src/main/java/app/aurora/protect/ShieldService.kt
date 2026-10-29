@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityEvent
 import androidx.core.content.ContextCompat
 import app.aurora.AuroraApplication
 import app.aurora.commitScheduleWindows
+import app.aurora.correctIntentUse
 import app.aurora.foregroundChanged
 import app.aurora.settleIntent
 import kotlinx.coroutines.CoroutineScope
@@ -100,6 +101,7 @@ class ShieldService : AccessibilityService() {
     private fun measure(key: String?) {
         val app = application as AuroraApplication
         if (key != null) scope?.launch {
+            runCatching { app.correctIntentUse(key) }
             runCatching { app.settleIntent(key) }
             interceptor?.recheck()
         }

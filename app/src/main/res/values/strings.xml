@@ -377,6 +377,8 @@
     <string name="intent_session_line">%1$s used of %2$s · %3$s left</string>
     <string name="intent_cooldown_until">Cooldown until %1$s</string>
     <string name="intent_tracking_note">Time counts only while the app is in front and the screen is on, as seen by aurora Shield.</string>
+    <string name="intent_tracking_estimate">Estimated from the apps aurora Shield sees in front. Allow usage access in Settings for exact times.</string>
+    <string name="intent_pause_done">You can decide now.</string>
     <string name="intent_apps">Apps · %1$s on</string>
     <string name="intent_empty_title">Add an app first</string>
     <string name="intent_empty_body">Choose the apps you open out of habit.</string>

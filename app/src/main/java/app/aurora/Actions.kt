@@ -268,6 +268,25 @@ suspend fun AuroraApplication.settleIntent(key: String) {
     }
 }
 
+/**
+ * Corrects [key]'s intentional session from Android's usage records, when usage access is on. Window
+ * events alone can mislead: an app can send a late event after the person has already gone home, which
+ * would count time they didn't spend in it. The usage records say exactly when the app was in front.
+ * Without usage access the window-event estimate stands, and Protect says it's an estimate.
+ */
+suspend fun AuroraApplication.correctIntentUse(key: String) {
+    val use = runtime.value?.intentUses?.get(key) ?: return
+    if (!screenTime.hasAccess()) return
+    val now = now().wall
+    val spans = screenTime.intervals(use.startedAt, now)?.filter { it.packageName == key } ?: return
+    val exact = spans.sumOf { it.end - it.start }
+    val inFront = spans.any { it.end >= now - 1_000 }
+    runtime.update { r ->
+        val u = r.intentUses[key]?.takeIf { it.startedAt == use.startedAt } ?: return@update r
+        r.copy(intentUses = r.intentUses + (key to u.copy(usedMs = exact, runningSince = if (inFront) now else null)))
+    }
+}
+
 /** Ends [key]'s intentional session and records it. [within]: it ended inside the chosen time. */
 suspend fun AuroraApplication.endIntent(key: String, within: Boolean) {
     val now = now().wall

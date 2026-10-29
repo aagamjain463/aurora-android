@@ -572,23 +572,25 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
             Eyebrow(stringResource(R.string.intent_name))
             Headline(stringResource(R.string.intent_prompt_title, label))
             Body(stringResource(R.string.intent_prompt_question))
-            if (config.reason.isNotBlank()) {
+            if (config.reason.isNotBlank() || config.alternative.isNotBlank()) {
                 Column(
                     Modifier.padding(top = Space.L).fillMaxWidth().clip(Radius.L).background(colors.elevated).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
                     verticalArrangement = Arrangement.spacedBy(Space.XS),
                 ) {
-                    Text(stringResource(R.string.intent_your_reason), color = colors.accent, style = AuroraType.Eyebrow)
-                    Text(config.reason, color = colors.textPrimary, style = AuroraType.Title)
+                    if (config.reason.isNotBlank()) {
+                        Text(stringResource(R.string.intent_your_reason), color = colors.accent, style = AuroraType.Eyebrow)
+                        Text(config.reason, color = colors.textPrimary, style = AuroraType.Title)
+                    }
                     if (config.alternative.isNotBlank()) {
-                        Spacer(Modifier.height(Space.XS))
+                        if (config.reason.isNotBlank()) Spacer(Modifier.height(Space.XS))
                         Text(stringResource(R.string.intent_instead), color = colors.dawnText, style = AuroraType.Eyebrow)
                         Text(config.alternative, color = colors.textPrimary, style = AuroraType.Body)
                     }
                 }
             }
-            if (left > 0) {
+            if (config.reflectionSeconds > 0) {
                 Text(
-                    stringResource(R.string.intent_pause_left, ((left + 999) / 1000).toInt()),
+                    if (left > 0) stringResource(R.string.intent_pause_left, ((left + 999) / 1000).toInt()) else stringResource(R.string.intent_pause_done),
                     Modifier.padding(top = Space.L).semantics { liveRegion = LiveRegionMode.Polite },
                     color = colors.textSecondary,
                     style = AuroraType.BodyStrong,

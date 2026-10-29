@@ -76,7 +76,7 @@ data class IntentConfig(
     val reason: String = "",
     val alternative: String = "",
     /** The pause before "Continue intentionally" is available. 0 = no pause. */
-    val reflectionSeconds: Int = 10,
+    val reflectionSeconds: Int = 15,
     val enabled: Boolean = true,
     /** Preselected in the usage picker; the person can change it every time. Null = no default. */
     val defaultUsageMinutes: Int? = null,
