@@ -19,6 +19,25 @@ object AuroraIcons {
         moveTo(5.5f, 18f); arcTo(6.5f, 6.5f, 0f, false, true, 18.5f, 18f)
         circle(12f, 6.5f, 1.1f)
     }
+    /** Home: the horizon under a roof line, so it still reads as Aurora. */
+    val Home = icon("home") {
+        moveTo(4.5f, 11f); lineTo(12f, 4.5f); lineTo(19.5f, 11f)
+        moveTo(6.5f, 9.5f); verticalLineTo(19.5f); horizontalLineTo(17.5f); verticalLineTo(9.5f)
+        moveTo(9.5f, 19.5f); arcTo(2.5f, 2.5f, 0f, false, true, 14.5f, 19.5f)
+    }
+    /** Intent: a door held open, with the decision crossing it. */
+    val Intent = icon("intent") {
+        moveTo(14f, 4.5f); horizontalLineTo(18.5f); verticalLineTo(19.5f); horizontalLineTo(14f)
+        moveTo(4f, 12f); horizontalLineTo(13f)
+        moveTo(10f, 8.5f); lineTo(13.5f, 12f); lineTo(10f, 15.5f)
+    }
+    /** Track: rising bars with the point of light at the top. */
+    val Track = icon("track") {
+        moveTo(6f, 19.5f); verticalLineTo(14f)
+        moveTo(12f, 19.5f); verticalLineTo(10.5f)
+        moveTo(18f, 19.5f); verticalLineTo(12f)
+        circle(12f, 5.5f, 1.25f)
+    }
     val Protect = icon("protect") {
         moveTo(12f, 3.5f); lineTo(19f, 6.2f); verticalLineTo(11.5f)
         curveTo(19f, 15.8f, 16f, 19.1f, 12f, 20.5f)

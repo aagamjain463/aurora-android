@@ -29,6 +29,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import app.aurora.AuroraApplication
+import app.aurora.adoptOnboarding
 import app.aurora.R
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraNavBar
@@ -40,16 +41,19 @@ import app.aurora.ui.onboarding.OnboardingScreen
 import android.net.Uri
 import app.aurora.ui.plus.PlusScreen
 import app.aurora.ui.protect.AppPickerScreen
-import app.aurora.ui.protect.GroupsScreen
 import app.aurora.ui.protect.ItemScreen
 import app.aurora.ui.protect.LimitsScreen
-import app.aurora.ui.protect.IntentAppScreen
-import app.aurora.ui.protect.IntentScreen
-import app.aurora.ui.protect.ScheduleEditorScreen
-import app.aurora.ui.protect.StartScreen
 import app.aurora.ui.protect.ProtectRoutes
-import app.aurora.ui.protect.ProtectScreen
-import app.aurora.ui.protect.SchedulesScreen
+import app.aurora.ui.configure.ConfigureScreen
+import app.aurora.ui.library.IntentEditorScreen
+import app.aurora.ui.library.IntentLibraryScreen
+import app.aurora.ui.library.ShieldEditorScreen
+import app.aurora.ui.library.ShieldLibraryScreen
+import app.aurora.ui.strict.FocusRunScreen
+import app.aurora.ui.strict.StrictModeScreen
+import app.aurora.ui.track.HabitEditorScreen
+import app.aurora.ui.track.HabitScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.ui.protect.WebScreen
 import app.aurora.ui.settings.SettingsScreen
 import app.aurora.ui.theme.Aurora
@@ -58,26 +62,41 @@ import kotlinx.coroutines.launch
 
 object Routes {
     const val Onboarding = "onboarding"
-    const val Today = "today"
-    const val Protect = "protect"
-    const val Insights = "insights"
+    const val Home = "home"
+    const val Shield = "shield"
+    const val Intent = "intent"
+    const val Track = "track"
     const val Settings = "settings"
     const val Focus = "focus"
+    const val Configure = "configure"
+    const val ShieldEdit = "shield-edit"
+    const val IntentEdit = "intent-edit"
+    const val HabitEdit = "habit-edit"
+    const val Habit = "habit"
+    const val Strict = "strict"
+    const val FocusRun = "focus-run"
 }
 
-/** Three tabs, by design: what's happening now, what you protect, what you've learned. */
+/** Four pillars: activate (Home), create (Shield), configure (Intent), improve (Track). */
 private val Tabs = listOf(
-    NavItem(Routes.Today, R.string.tab_today, AuroraIcons.Today),
-    NavItem(Routes.Protect, R.string.tab_protect, AuroraIcons.Protect),
-    NavItem(Routes.Insights, R.string.tab_insights, AuroraIcons.Insights),
+    NavItem(Routes.Home, R.string.tab_home, AuroraIcons.Home),
+    NavItem(Routes.Shield, R.string.tab_shield, AuroraIcons.Protect),
+    NavItem(Routes.Intent, R.string.tab_intent, AuroraIcons.Intent),
+    NavItem(Routes.Track, R.string.tab_track, AuroraIcons.Track),
 )
 private val TabRoutes = Tabs.map { it.route }.toSet()
 
-/** Tabs keep their own scroll and state; Today is always the root of the back stack. */
+/** Tabs keep their own scroll and state; Home is always the root of the back stack. */
 private fun NavHostController.selectTab(route: String) = navigate(route) {
-    popUpTo(Routes.Today) { saveState = true }
+    popUpTo(Routes.Home) { saveState = true }
     launchSingleTop = true
     restoreState = true
+}
+
+/** Hands [value] back to the screen below (a flow that sent the person to create something), then returns. */
+private fun NavHostController.returnWith(key: String, value: String) {
+    previousBackStackEntry?.savedStateHandle?.set(key, value)
+    popBackStack()
 }
 
 @Composable
@@ -95,7 +114,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) {
         NavHost(
             navController = nav,
-            startDestination = if (startOnboarded) Routes.Today else Routes.Onboarding,
+            startDestination = if (startOnboarded) Routes.Home else Routes.Onboarding,
             modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 when {
@@ -122,50 +141,102 @@ fun AuroraNavHost(startOnboarded: Boolean) {
         ) {
             composable(Routes.Onboarding) {
                 OnboardingScreen(onFinish = {
-                    scope.launch { app.preferences.setOnboarded(true) }
-                    nav.navigate(Routes.Today) { popUpTo(Routes.Onboarding) { inclusive = true } }
+                    scope.launch {
+                        runCatching { app.adoptOnboarding() }
+                        app.preferences.setOnboarded(true)
+                    }
+                    nav.navigate(Routes.Home) { popUpTo(Routes.Onboarding) { inclusive = true } }
                 })
-            }
-            composable(Routes.Today) {
-                HomeScreen(
-                    onStartFocus = { nav.navigate(Routes.Focus) },
-                    onOpenProtect = { nav.selectTab(Routes.Protect) },
-                    onOpenInsights = { nav.selectTab(Routes.Insights) },
-                    onOpenSettings = { nav.navigate(Routes.Settings) },
-                    onStartProtection = { nav.navigate(ProtectRoutes.Start) },
-                )
             }
             val back: () -> Unit = { nav.popBackStack() }
             val plus: () -> Unit = { nav.navigate(ProtectRoutes.Plus) }
+            val settings: () -> Unit = { nav.navigate(Routes.Settings) }
             val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
-            val startFor: (String?) -> Unit = { key -> nav.navigate(if (key == null) ProtectRoutes.Start else "${ProtectRoutes.Start}?key=${Uri.encode(key)}") }
-            val intentApp: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.IntentApp}/${Uri.encode(key)}") }
-            composable(Routes.Protect) { ProtectScreen(onOpen = { nav.navigate(it) }, onOpenItem = openItem, onOpenSettings = { nav.navigate(Routes.Settings) }) }
+            composable(Routes.Home) {
+                HomeScreen(
+                    onNormalUse = { nav.navigate("${Routes.Configure}?custom=false") },
+                    onCustom = { nav.navigate("${Routes.Configure}?custom=true") },
+                    onOpenFocus = { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") },
+                    onOpenLegacyFocus = { nav.navigate(Routes.Focus) },
+                    onOpenTrack = { nav.selectTab(Routes.Track) },
+                    onOpenSettings = settings,
+                )
+            }
+            composable(Routes.Shield) {
+                ShieldLibraryScreen(
+                    onCreate = { nav.navigate(Routes.ShieldEdit) },
+                    onEdit = { id -> nav.navigate("${Routes.ShieldEdit}?id=$id") },
+                    onOpenLimits = { nav.navigate(ProtectRoutes.Limits) },
+                    onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
+                    onOpenSettings = settings,
+                )
+            }
+            composable("${Routes.ShieldEdit}?id={id}") { e ->
+                ShieldEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdShield", id) })
+            }
+            composable(Routes.Intent) {
+                IntentLibraryScreen(onCreate = { nav.navigate(Routes.IntentEdit) }, onEdit = { id -> nav.navigate("${Routes.IntentEdit}?id=$id") }, onOpenSettings = settings)
+            }
+            composable("${Routes.IntentEdit}?id={id}") { e ->
+                IntentEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdIntent", id) })
+            }
+            composable("${Routes.Configure}?custom={custom}&config={config}&habit={habit}") { e ->
+                val handle = e.savedStateHandle
+                val createdShield by handle.getStateFlow<String?>("createdShield", null).collectAsStateWithLifecycle()
+                val createdIntent by handle.getStateFlow<String?>("createdIntent", null).collectAsStateWithLifecycle()
+                val forHabit = e.arguments?.getString("habit") == "true"
+                ConfigureScreen(
+                    custom = e.arguments?.getString("custom") != "false",
+                    configId = e.arguments?.getString("config"),
+                    forHabit = forHabit,
+                    createdShield = createdShield,
+                    createdIntent = createdIntent,
+                    onBack = back,
+                    onDone = { id -> if (forHabit) nav.returnWith("createdConfig", id) else nav.popBackStack(Routes.Home, inclusive = false) },
+                    onCreateShield = { nav.navigate(Routes.ShieldEdit) },
+                    onCreateIntent = { nav.navigate(Routes.IntentEdit) },
+                    onStrict = { nav.navigate(Routes.Strict) },
+                    onPlus = plus,
+                )
+            }
+            composable(Routes.Track) {
+                InsightsScreen(
+                    onPlus = plus, onOpenSettings = settings,
+                    onCreateHabit = { nav.navigate(Routes.HabitEdit) },
+                    onOpenHabit = { id -> nav.navigate("${Routes.Habit}/$id") },
+                )
+            }
+            composable("${Routes.HabitEdit}?id={id}") { e ->
+                val createdConfig by e.savedStateHandle.getStateFlow<String?>("createdConfig", null).collectAsStateWithLifecycle()
+                HabitEditorScreen(
+                    e.arguments?.getString("id"), createdConfig, back,
+                    onSaved = { id -> nav.popBackStack(); if (e.arguments?.getString("id") == null) nav.navigate("${Routes.Habit}/$id") },
+                    onCreateConfig = { nav.navigate("${Routes.Configure}?custom=true&habit=true") },
+                )
+            }
+            composable("${Routes.Habit}/{id}") { e ->
+                val id = e.arguments?.getString("id").orEmpty()
+                HabitScreen(id, back, onEdit = { nav.navigate("${Routes.HabitEdit}?id=$id") })
+            }
+            composable(Routes.Strict) { StrictModeScreen(back) }
+            composable("${Routes.FocusRun}/{id}") { e -> FocusRunScreen(Uri.decode(e.arguments?.getString("id").orEmpty()), back) }
             composable(ProtectRoutes.Apps) { AppPickerScreen(back, plus) }
             composable("${ProtectRoutes.Item}/{key}") { entry ->
-                ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, onStart = { startFor(it) }, onIntent = intentApp, onPlus = plus)
+                ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, onStart = { nav.selectTab(Routes.Home) }, onIntent = { nav.selectTab(Routes.Intent) }, onPlus = plus)
             }
-            composable("${ProtectRoutes.Start}?key={key}") { entry ->
-                StartScreen(entry.arguments?.getString("key")?.let(Uri::decode), back, onDone = { nav.popBackStack() }, onPlus = plus)
-            }
-            composable(ProtectRoutes.Schedules) { SchedulesScreen(back, onEdit = { id -> nav.navigate(if (id == null) ProtectRoutes.ScheduleEdit else "${ProtectRoutes.ScheduleEdit}?id=$id") }, onPlus = plus) }
-            composable("${ProtectRoutes.ScheduleEdit}?id={id}") { entry -> ScheduleEditorScreen(entry.arguments?.getString("id"), back) }
-            composable(ProtectRoutes.Intent) { IntentScreen(back, onOpenApp = intentApp, onAddApps = { nav.navigate(ProtectRoutes.Apps) }, onPlus = plus) }
-            composable("${ProtectRoutes.IntentApp}/{key}") { entry -> IntentAppScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, plus) }
             composable(ProtectRoutes.Limits) { LimitsScreen(back, openItem) { nav.navigate(ProtectRoutes.Apps) } }
-            composable(ProtectRoutes.Groups) { GroupsScreen(back) }
             composable(ProtectRoutes.Web) { WebScreen(back, openItem, plus) }
             composable(ProtectRoutes.Plus) { PlusScreen(back) }
-            composable(Routes.Insights) { InsightsScreen(onPlus = plus, onOpenSettings = { nav.navigate(Routes.Settings) }) }
             composable(Routes.Settings) {
                 SettingsScreen(
                     onBack = back,
                     onReplayIntro = {
                         scope.launch { app.preferences.setOnboarded(false) }
-                        nav.navigate(Routes.Onboarding) { popUpTo(Routes.Today) { inclusive = true } }
+                        nav.navigate(Routes.Onboarding) { popUpTo(Routes.Home) { inclusive = true } }
                     },
                     onPlus = plus,
-                    onOpenProtect = { nav.selectTab(Routes.Protect) },
+                    onOpenProtect = { nav.selectTab(Routes.Shield) },
+                    onOpenStrict = { nav.navigate(Routes.Strict) },
                 )
             }
             composable(

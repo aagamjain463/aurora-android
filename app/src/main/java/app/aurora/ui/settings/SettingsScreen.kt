@@ -92,7 +92,7 @@ class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
 private enum class Sheet { DefaultMode, Privacy, Stored, ClearHistory, DeleteAll, Help, Licenses, Disclosure, Diagnostics, Notifications }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> Unit = {}, onOpenProtect: () -> Unit = {}) {
+fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> Unit = {}, onOpenProtect: () -> Unit = {}, onOpenStrict: () -> Unit = {}) {
     val vm = auroraViewModel { SettingsViewModel(it) }
     val prefs = vm.prefs.collectAsStateWithLifecycle().value ?: UserPreferences()
     val list by vm.list.collectAsStateWithLifecycle()
@@ -181,6 +181,14 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
                     subtitle = stringResource(R.string.settings_what_aurora_can_see_about_shield_on_this_phone),
                     icon = AuroraIcons.Insights,
                     onClick = { sheet = Sheet.Diagnostics },
+                    trailing = { Chevron() },
+                )
+                RowDivider(56.dp)
+                AuroraRow(
+                    title = stringResource(R.string.settings_strict_row),
+                    subtitle = stringResource(R.string.strict_body),
+                    icon = AuroraIcons.Lock,
+                    onClick = onOpenStrict,
                     trailing = { Chevron() },
                 )
             }

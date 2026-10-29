@@ -52,6 +52,27 @@ suspend fun AuroraApplication.migrateConfigurations() {
     rules.update { it.migratedToConfigurations(list.items.map { i -> i.key }, System.currentTimeMillis()) }
 }
 
+/**
+ * Onboarding still asks in the familiar way (apps, a mode, Intent apps). When it finishes, those choices
+ * become presets the same way a migration makes them: saved Shields, and Intent on for the apps chosen.
+ * Running it again (replayed introduction) replaces what it made before instead of duplicating it.
+ */
+suspend fun AuroraApplication.adoptOnboarding() {
+    val list = protectedList.value ?: return
+    rules.update { r ->
+        val made = r.copy(version = 0, shields = emptyList(), intentPresets = emptyList(), configs = emptyList(), activations = emptyList(), schedules = emptyList())
+            .migratedToConfigurations(list.items.map { it.key }, System.currentTimeMillis())
+        fun <T> merge(old: List<T>, new: List<T>, id: (T) -> String) = old.filterNot { o -> new.any { id(it) == id(o) } } + new
+        r.copy(
+            version = 1,
+            shields = merge(r.shields, made.shields) { it.id },
+            intentPresets = merge(r.intentPresets, made.intentPresets) { it.id },
+            configs = merge(r.configs, made.configs) { it.id },
+            activations = merge(r.activations, made.activations) { it.id },
+        )
+    }
+}
+
 /** The runs live right now (stored and not yet stored), for screens. */
 fun AuroraApplication.runsNow(t: DeviceTime = now()): List<ConfigRun> {
     val r = rules.value ?: return emptyList()

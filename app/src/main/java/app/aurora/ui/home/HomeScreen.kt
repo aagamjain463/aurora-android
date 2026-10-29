@@ -66,6 +66,7 @@ import app.aurora.protect.windowsBetween
 import app.aurora.protect.nextStart
 import app.aurora.protect.key
 import app.aurora.settleFocus
+import app.aurora.syncRuns
 import app.aurora.ui.components.ArtTier
 import app.aurora.ui.components.AuroraHeader
 import app.aurora.ui.components.Chevron
@@ -160,7 +161,10 @@ class TodayModel(val app: AuroraApplication) : ViewModel() {
 
     /** Records sessions that ended while aurora was closed. Idempotent. */
     fun settle() {
-        viewModelScope.launch { runCatching { app.settleFocus(endNow = false) } }
+        viewModelScope.launch {
+            runCatching { app.settleFocus(endNow = false) }
+            runCatching { app.syncRuns() }
+        }
     }
 }
 
@@ -170,7 +174,14 @@ class TodayModel(val app: AuroraApplication) : ViewModel() {
  * protected apps, measured from Android's usage records, never the time someone set on a timer.
  */
 @Composable
-fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProtection: () -> Unit, onOpenInsights: () -> Unit, onOpenSettings: () -> Unit) {
+fun HomeScreen(
+    onNormalUse: () -> Unit,
+    onCustom: () -> Unit,
+    onOpenFocus: (runId: String) -> Unit,
+    onOpenLegacyFocus: () -> Unit,
+    onOpenTrack: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     val today = auroraViewModel { TodayModel(it) }
     val protect = auroraViewModel { ProtectModel(it) }
     val data by protect.data.collectAsStateWithLifecycle()
@@ -178,7 +189,6 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
     val history by today.app.history.state.collectAsStateWithLifecycle()
     val minute by clockTicks(60_000).collectAsStateWithLifecycle(0L)
     val prefs by today.app.preferences.preferences.collectAsStateWithLifecycle(null)
-    val status = rememberProtectionStatus(data?.list)
     val context = androidx.compose.ui.platform.LocalContext.current
     LifecycleResumeEffect(minute) {
         today.refresh()
@@ -244,64 +254,10 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
                 }
             }
         }
-        // 3. Protection and Focus: what's guarded now, and the one action Aurora suggests.
+        // 3. How to use Aurora now: the two ways in, then what is running, scheduled and always on.
         val d = data
-        item(key = "protection") {
-            val focusing = data?.runtime?.focus?.takeUnless { it.isOver(today.app.now()) }
-            val running = d != null && (d.sessions.isNotEmpty() || runningWindows(d).isNotEmpty())
-            val guarded = d?.let { x -> (x.sessions.flatMap { it.keys } + runningWindows(x).flatMap { it.keys }).toSet().size } ?: 0
-            Column(
-                Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.M),
-                verticalArrangement = Arrangement.spacedBy(Space.M),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().clip(Radius.M).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onOpenProtect).padding(Space.XS),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Space.M),
-                ) {
-                    LitBadge(AuroraIcons.Protect, lit = running)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (running) stringResource(R.string.today_shield_on) else stringResource(R.string.today_nothing_protected),
-                            color = colors.textPrimary, style = AuroraType.Title,
-                        )
-                        Text(
-                            when {
-                                d == null -> status?.summary() ?: ""
-                                running -> pluralStringResource(R.plurals.today_shield_apps, guarded, guarded)
-                                else -> nextScheduleText(d)
-                            },
-                            color = colors.textSecondary, style = AuroraType.Secondary,
-                        )
-                    }
-                    Chevron()
-                }
-                AuroraButton(
-                    if (focusing != null) stringResource(R.string.today_focus_running) else stringResource(R.string.today_focus_start, minutesText(prefs?.defaultFocusMinutes ?: 25)),
-                    onStartFocus,
-                    Modifier.fillMaxWidth(),
-                    icon = AuroraIcons.Play,
-                )
-                if (d != null && !running) {
-                    AuroraButton(stringResource(R.string.protect_start), if (d.active.isEmpty()) onOpenProtect else onStartProtection, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Protect)
-                }
-            }
-        }
-        if (d != null) {
-            items(d.sessions, key = { "s-" + it.id }) { s -> SessionCard(s, d, onTurnOff = onOpenProtect, Modifier.padding(top = Space.XS)) }
-            items(runningWindows(d), key = { "w-" + it.id }) { w ->
-                Row(
-                    Modifier.padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors, edge = modeColor(w.mode)).padding(Space.L),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S),
-                ) {
-                    ModeGlyph(modeColor(w.mode), size = 14)
-                    Column(Modifier.weight(1f)) {
-                        Text("${w.name} · ${modeName(w.mode)}", color = colors.textPrimary, style = AuroraType.BodyStrong)
-                        Text(stringResource(R.string.schedule_running_until, clockTime(w.end)), color = colors.textSecondary, style = AuroraType.Secondary)
-                    }
-                }
-            }
-        }
+        item(key = "choose") { ChooseCard(onNormalUse, onCustom) }
+        if (d != null) homeSections(d, today.app, onOpenFocus, onOpenLegacyFocus)
 
         // 4. Progress: this week, from recorded days only.
         item(key = "progress") {
@@ -310,7 +266,7 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
             val steady = h.steadyDays(date)
             Column(
                 Modifier.padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors)
-                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onOpenInsights).padding(Space.L),
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onOpenTrack).padding(Space.L),
                 verticalArrangement = Arrangement.spacedBy(Space.M),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M)) {
@@ -382,18 +338,11 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
                     color = colors.textSecondary,
                     style = AuroraType.Body,
                 )
-                AuroraButton(stringResource(R.string.today_see_insights), onOpenInsights, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                AuroraButton(stringResource(R.string.today_see_insights), onOpenTrack, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
             }
         }
     }
     // Content scrolls under a calm status bar, never under the clock.
     if (!heroVisible) Box(Modifier.fillMaxWidth().background(colors.background.copy(alpha = 0.96f)).statusBarsPadding())
     }
-}
-
-@Composable
-private fun nextScheduleText(d: ProtectData): String {
-    val zone = ZoneId.systemDefault()
-    val next = d.rules.activeSchedules(d.plan).mapNotNull { s -> s.nextStart(d.time.wall, zone)?.let { s to it } }.minByOrNull { it.second }
-    return if (next == null) stringResource(R.string.today_no_schedule) else stringResource(R.string.today_next_schedule, next.first.name, clockTime(next.second))
 }

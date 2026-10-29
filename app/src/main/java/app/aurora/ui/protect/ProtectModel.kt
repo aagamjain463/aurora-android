@@ -7,6 +7,7 @@ import app.aurora.data.InstalledApp
 import app.aurora.data.clockTicks
 import app.aurora.plan.Allowance
 import app.aurora.plan.Plan
+import app.aurora.progress.History
 import app.aurora.plan.ProtectedItem
 import app.aurora.plan.canAdd
 import app.aurora.plan.limit
@@ -46,6 +47,7 @@ data class ProtectData(
     val time: DeviceTime,
     /** Names of protected apps, read directly so a name never waits for the full app list. */
     val labels: Map<String, String> = emptyMap(),
+    val history: History = History(),
 ) {
     val active: List<ProtectedItem> get() = list.active(plan)
     val paused: List<ProtectedItem> get() = list.paused(plan)
@@ -86,21 +88,25 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
 
     val data: StateFlow<ProtectData?> = combine(
         combine(app.protectedList, app.rules.state, app.runtime.state) { list, rules, runtime -> Triple(list, rules, runtime) },
-        combine(app.billing.plan, labels) { plan, names -> plan to names },
+        combine(app.billing.plan, labels, app.history.state) { plan, names, history -> Triple(plan, names, history) },
         installed,
         clockTicks(1_000),
-    ) { (list, rules, runtime), (plan, names), apps, _ ->
+    ) { (list, rules, runtime), (plan, names, history), apps, _ ->
         if (list == null || rules == null || runtime == null) null
-        else ProtectData(list, rules.value, rules.readable, runtime.value, plan, apps.orEmpty().associateBy { it.packageName }, app.now(), names)
+        else ProtectData(list, rules.value, rules.readable, runtime.value, plan, apps.orEmpty().associateBy { it.packageName }, app.now(), names, history?.value ?: History())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
         viewModelScope.launch {
             // Names of the apps on screen first (a few lookups), then the full list for pickers.
-            app.protectedList.collect { list ->
-                val keys = list?.items.orEmpty().map { it.key }.filterNot { it.startsWith(WebPrefix) } +
-                    app.runtime.value?.sessions.orEmpty().flatMap { it.keys }
-                labels.value = keys.distinct().associateWith { app.catalog.label(it) ?: "" }
+            combine(app.protectedList, app.rules.state) { list, rules -> list to rules?.value }.collect { (list, rules) ->
+                val keys = (list?.items.orEmpty().map { it.key } +
+                    app.runtime.value?.sessions.orEmpty().flatMap { it.keys } +
+                    app.runtime.value?.runs.orEmpty().flatMap { it.shield?.keys.orEmpty() + it.intent?.keys.orEmpty() } +
+                    rules?.shields.orEmpty().flatMap { it.keys } + rules?.intentPresets.orEmpty().flatMap { it.keys } +
+                    rules?.configs.orEmpty().flatMap { it.shield?.keys.orEmpty() + it.intent?.keys.orEmpty() })
+                    .filterNot { it.startsWith(WebPrefix) }.distinct().filterNot { it in labels.value }
+                if (keys.isNotEmpty()) labels.value = labels.value + keys.associateWith { app.catalog.label(it) ?: "" }
             }
         }
         viewModelScope.launch {

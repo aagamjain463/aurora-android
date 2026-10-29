@@ -20,7 +20,6 @@ import app.aurora.protect.FrictionSettings
 import app.aurora.protect.FrictionTask
 import app.aurora.protect.AppRule
 import app.aurora.protect.Mode
-import app.aurora.plan.ProtectedItem
 import app.aurora.protect.IntentConfig
 import app.aurora.protect.Restriction
 import app.aurora.protect.ShieldContent
@@ -28,12 +27,32 @@ import app.aurora.protect.ShieldReason
 import app.aurora.protect.ShieldRequest
 import app.aurora.ui.focus.FocusScreen
 import app.aurora.startFocus
-import app.aurora.protect
-import app.aurora.unprotect
 import app.aurora.ui.home.HomeScreen
 import app.aurora.ui.insights.InsightsScreen
 import app.aurora.ui.onboarding.OnboardingScreen
-import app.aurora.ui.protect.ProtectScreen
+import app.aurora.progress.Habit
+import app.aurora.progress.HabitTarget
+import app.aurora.progress.ServiceSpan
+import app.aurora.progress.record
+import app.aurora.protect.Activation
+import app.aurora.protect.ConfigRun
+import app.aurora.protect.FocusPlan
+import app.aurora.protect.IntentExpiry
+import app.aurora.protect.IntentPreset
+import app.aurora.protect.ShieldPreset
+import app.aurora.protect.Timing
+import app.aurora.protect.UsageConfig
+import app.aurora.ui.configure.ConfigureScreen
+import app.aurora.ui.configure.When
+import app.aurora.ui.library.IntentEditorScreen
+import app.aurora.ui.library.IntentLibraryScreen
+import app.aurora.ui.library.ShieldEditorScreen
+import app.aurora.ui.library.ShieldLibraryScreen
+import app.aurora.ui.strict.FocusRunScreen
+import app.aurora.ui.strict.StrictModeScreen
+import app.aurora.ui.track.HabitEditorScreen
+import app.aurora.ui.track.HabitScreen
+import java.time.LocalDate
 import app.aurora.ui.settings.SettingsScreen
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraTheme
@@ -114,7 +133,7 @@ class ScreenshotTest(private val variant: Variant) {
                 }
             }
         }
-        if (screen == "insights") compose.waitUntil(5_000) {
+        if (screen == "insights" || screen == "track") compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Screen time").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen.startsWith("shield_")) compose.waitUntil(5_000) {
@@ -125,11 +144,12 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun onboarding() = capture("onboarding") { OnboardingScreen(onFinish = {}) }
 
-    @Test fun today() = capture("today") { HomeScreen(onStartFocus = {}, onOpenProtect = {}, onStartProtection = {}, onOpenInsights = {}, onOpenSettings = {}) }
+    @Test fun home() = capture("home") { homeScreen() }
 
-    @Test fun protect() = capture("protect") { ProtectScreen(onOpen = {}, onOpenItem = {}) }
+    @Composable
+    private fun homeScreen() = HomeScreen(onNormalUse = {}, onCustom = {}, onOpenFocus = {}, onOpenLegacyFocus = {}, onOpenTrack = {}, onOpenSettings = {})
 
-    @Test fun insights() = capture("insights") { InsightsScreen() }
+    @Test fun track() = capture("insights") { InsightsScreen() }
 
     @Test fun settings() = capture("settings") { SettingsScreen(onBack = {}, onReplayIntro = {}) }
 
@@ -146,19 +166,123 @@ class ScreenshotTest(private val variant: Variant) {
         capture("focus_running") { FocusScreen(onClose = {}) }
     }
 
-    /** Protect with one saved app on Friction, so the app row and its mode chip are in the baseline. */
-    @Test fun protectSaved() {
-        val photos = ProtectedItem.App.of("com.example.photos")!!
-        runBlocking {
-            application.protect(photos)
-            application.rules.update { r -> r.copy(apps = r.apps.mapValues { (_, rule) -> rule.copy(mode = Mode.Friction) }) }
+    // ---- The four-pillar model ----------------------------------------------------------------------
+
+    private val social = ShieldPreset("s1", "Social Media Shield", listOf("com.example.photos", "web:reddit.com"), Mode.Cooldown, cooldownWaitMinutes = 1, createdAt = 2)
+    private val strict = ShieldPreset("s2", "Night Shield", listOf("com.example.photos"), Mode.AlwaysBlock, createdAt = 1)
+    private val video = IntentPreset("i1", "Intentional YouTube", listOf("com.example.photos"), IntentConfig(reflectionSeconds = 15, expiry = IntentExpiry.Cooldown, cooldownMinutes = 45), createdAt = 1)
+    private val study = UsageConfig("c1", "Study Configuration", shieldId = "s1", intentId = "i1", focus = FocusPlan("Study mathematics", goal = "Finish chapter 4"), createdAt = 1)
+    private val night = UsageConfig("c2", "Night", shieldId = "s2", createdAt = 2)
+
+    /** A library, a weekday schedule, a habit with two weeks of evidence, and one run going now. */
+    private fun library(running: Boolean = false) = runBlocking {
+        val now = System.currentTimeMillis()
+        val day = 86_400_000L
+        application.rules.update {
+            it.copy(
+                version = 1, shields = listOf(social, strict), intentPresets = listOf(video), configs = listOf(study, night),
+                activations = listOf(Activation("a1", "c2", Timing.Recurring(setOf(1, 2, 3, 4, 5), 22 * 60, 8 * 60), createdAt = 0)),
+                habits = listOf(Habit("h1", "Daily Study", "c1", "Study Configuration", listOf(HabitTarget(LocalDate.now().minusDays(20).toString(), days = (1..7).toSet())), createdAt = now - 20 * day)),
+            )
         }
-        try {
-            capture("protect_saved") { ProtectScreen(onOpen = {}, onOpenItem = {}) }
-        } finally {
-            runBlocking { application.unprotect(listOf(photos)) }
+        val spans = listOf(ServiceSpan(now - 30 * day, now))
+        val records = (1L..14L).filter { it % 5 != 0L }.map { back ->
+            val start = now - back * day
+            record("r$back", "c1", "Study Configuration", true, "Social Media Shield", Mode.Cooldown, "Intentional YouTube", setOf("com.example.photos"), start, start + 7_200_000, start + 7_200_000, spans, false, null, 0, null, 0)
+        }
+        application.history.update { it.copy(runs = records, service = spans) }
+        if (running) application.runtime.update {
+            it.copy(runs = listOf(ConfigRun("now:x", "c1", "Study Configuration", shield = social, intent = video, focus = study.focus, start = now - 3_600_000, end = now + 18_000_000)))
         }
     }
+
+    @Test fun homeActive() {
+        library(running = true)
+        capture("home_active") { homeScreen() }
+    }
+
+    @Test fun shieldLibrary() {
+        library()
+        capture("library_shield") { ShieldLibraryScreen({}, {}, {}, {}, {}) }
+    }
+
+    @Test fun shieldBuilder() {
+        library()
+        capture("builder_shield") { ShieldEditorScreen("s1", {}, {}, startStep = 3) }
+    }
+
+    @Test fun intentLibrary() {
+        library()
+        capture("intent_library") { IntentLibraryScreen({}, {}, {}) }
+    }
+
+    @Test fun intentBuilder() {
+        library()
+        capture("intent_builder") { IntentEditorScreen("i1", {}, {}, startStep = 2) }
+    }
+
+    @Composable
+    private fun configure(custom: Boolean, config: String? = null, step: String? = null, timing: When? = null) =
+        ConfigureScreen(custom, config, false, null, null, {}, {}, {}, {}, {}, {}, startStep = step, startWhen = timing)
+
+    @Test fun normalUse() = capture("configure_normal") { configure(custom = false) }
+
+    @Test fun customConfiguration() {
+        library()
+        capture("configure_custom") { configure(custom = true, config = "c1", step = "Contents") }
+    }
+
+    @Test fun startNow() {
+        library()
+        capture("configure_now") { configure(custom = true, config = "c1", step = "Timing", timing = When.Now) }
+    }
+
+    @Test fun startLater() {
+        library()
+        capture("configure_later") { configure(custom = true, config = "c1", step = "Timing", timing = When.Later) }
+    }
+
+    @Test fun schedule() {
+        library()
+        capture("configure_schedule") { configure(custom = true, config = "c1", step = "Timing", timing = When.Recurring) }
+    }
+
+    /** Always is shown but not offered with an Always Block Shield. */
+    @Test fun alwaysUnavailable() {
+        library()
+        capture("configure_when_always_block") { configure(custom = true, config = "c2", step = "When") }
+    }
+
+    @Test fun alwaysBlockCommitment() {
+        library()
+        capture("configure_commit") { configure(custom = true, config = "c2", step = "Review", timing = When.Now) }
+    }
+
+    @Test fun habitCreation() {
+        library()
+        capture("habit_create") { HabitEditorScreen(null, "c1", {}, {}, {}, startStep = 2) }
+    }
+
+    @Test fun habitDetail() {
+        library()
+        capture("habit_detail") { HabitScreen("h1", {}, {}) }
+    }
+
+    @Test fun trackHabits() {
+        library()
+        capture("track") { InsightsScreen() }
+    }
+
+    @Test fun strictMode() = capture("strict") { StrictModeScreen {} }
+
+    @Test fun focusRun() {
+        library(running = true)
+        capture("focus_run") { FocusRunScreen("now:x") {} }
+    }
+
+    @Test fun shieldCooldown() = capture("shield_cooldown") { ShieldContent(shield(ShieldReason.Cooldown)) { } }
+
+    @Test fun shieldIntentCooldown() = capture("shield_intent_cooldown") { ShieldContent(shield(ShieldReason.IntentCooldown)) { } }
 
     private fun shield(reason: ShieldReason, until: Long? = System.currentTimeMillis() + 5_400_000) = ShieldRequest(
         "com.example.photos", reason, until, 0, 0, 0,

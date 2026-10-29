@@ -384,7 +384,7 @@ private fun Title(title: String, body: String?) {
 
 /** A time of day typed as hour and minute, with an AM/PM switch in 12-hour locales. */
 @Composable
-private fun TimeEntry(label: String, minute: Int, onChange: (Int) -> Unit) {
+fun TimeEntry(label: String, minute: Int, onChange: (Int) -> Unit) {
     val colors = Aurora.colors
     val context = androidx.compose.ui.platform.LocalContext.current
     val h24 = android.text.format.DateFormat.is24HourFormat(context)

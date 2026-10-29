@@ -194,7 +194,7 @@ fun IntentScreen(onBack: () -> Unit, onOpenApp: (String) -> Unit, onAddApps: () 
 }
 
 @Composable
-private fun intentSummary(c: IntentConfig): String = listOf(
+fun intentSummary(c: IntentConfig): String = listOf(
     if (c.reflectionSeconds == 0) stringResource(R.string.intent_no_pause) else stringResource(R.string.intent_pause_of, secondsText(c.reflectionSeconds)),
     when (c.expiry) {
         IntentExpiry.Reminder -> stringResource(R.string.intent_expiry_reminder)
@@ -325,7 +325,7 @@ fun IntentAppScreen(key: String, onBack: () -> Unit, onPlus: () -> Unit) {
 /** Reflection pause: presets in seconds, and a custom number of seconds typed directly. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SecondsPicker(value: Int, onChange: (Int) -> Unit) {
+fun SecondsPicker(value: Int, onChange: (Int) -> Unit) {
     var custom by rememberSaveable { mutableStateOf(value !in ReflectionPresets) }
     var text by rememberSaveable { mutableStateOf(if (value !in ReflectionPresets) value.toString() else "") }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {

@@ -48,6 +48,10 @@ import androidx.lifecycle.viewModelScope
 import app.aurora.R
 import app.aurora.AuroraApplication
 import app.aurora.auroraViewModel
+import app.aurora.runsNow
+import app.aurora.ui.track.habitsSection
+import app.aurora.ui.track.performanceSection
+import app.aurora.syncRuns
 import app.aurora.data.Access
 import app.aurora.data.formatDuration
 import app.aurora.data.openUsageAccessSettings
@@ -113,6 +117,8 @@ data class InsightsState(
     val history: History = History(),
     val rules: Rules = Rules(),
     val plan: Plan = Plan.Free,
+    /** Configuration runs going now: activations, not yet results. */
+    val running: Int = 0,
 )
 
 class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
@@ -126,6 +132,7 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
+            runCatching { app.syncRuns() }
             val period = _state.value.period
             val access = app.access.isGranted(Access.Usage)
             val history = app.history.state.filterNotNull().first().value
@@ -138,7 +145,7 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
                 DayUsage(date, usage?.values?.sum(), usage?.filterKeys { it in protectedKeys }?.values?.sum())
             }
             val rows = if (!access || period != Period.Today) emptyList() else appRows(app.screenTime.today(), protectedKeys)
-            _state.value = InsightsState(access, loading = false, period = period, rows = rows, days = days, history = history, rules = rules, plan = app.plan)
+            _state.value = InsightsState(access, loading = false, period = period, rows = rows, days = days, history = history, rules = rules, plan = app.plan, running = app.runsNow().size)
         }
     }
 
@@ -170,7 +177,7 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
  * time), counted by aurora (Shields, choices, Focus), and unavailable (shown as "—", never as zero).
  */
 @Composable
-fun InsightsScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null) {
+fun InsightsScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, onCreateHabit: () -> Unit = {}, onOpenHabit: (String) -> Unit = {}) {
     val vm = auroraViewModel { InsightsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -184,22 +191,28 @@ fun InsightsScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null
     }
 
     AuroraScreen(
-        title = stringResource(R.string.tab_insights),
+        title = stringResource(R.string.tab_track),
         tabBar = true,
         art = ArtTier.Balanced,
         header = {
             Column {
                 AuroraHeader(onOpenSettings)
                 Spacer(Modifier.height(96.dp))
-                Text(stringResource(R.string.tab_insights), Modifier.padding(horizontal = Space.Gutter).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayXL)
+                Text(stringResource(R.string.tab_track), Modifier.padding(horizontal = Space.Gutter).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayXL)
                 Text(
-                    stringResource(R.string.insights_measured_on_this_phone_nothing_leaves_it),
+                    stringResource(R.string.track_body),
                     Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS, bottom = Space.M),
                     color = colors.textSecondary, style = AuroraType.Body,
                 )
             }
         },
     ) {
+        // Habits first: the reason to come back. Then how configurations performed, then screen time.
+        if (!state.loading) {
+            habitsSection(state.rules, state.history, onCreateHabit, onOpenHabit)
+            performanceSection(state.history, state.running)
+        }
+        item(key = "screen-label") { SectionLabel(stringResource(R.string.track_screen_time)) }
         item(key = "period") {
             ChoicePills(
                 Period.entries, state.period,
