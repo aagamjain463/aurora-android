@@ -45,6 +45,7 @@ class NavigationTest {
         runBlocking {
             app.preferences.setOnboarded(onboarded)
             app.preferences.setOnboardingStep(0)
+            app.preferences.setReduceMotion(true)
             app.runtime.update { it.copy(focus = null) }
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)

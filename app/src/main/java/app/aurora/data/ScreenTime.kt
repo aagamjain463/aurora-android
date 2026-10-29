@@ -24,6 +24,9 @@ import java.time.ZoneId
  */
 class ScreenTimeRepository(private val context: Context) {
 
+    /** Usage reads are blocking Binder calls: one at a time, so a burst of them can't take every IO thread. */
+    private val usageIo = Dispatchers.IO.limitedParallelism(1)
+
     @Suppress("DEPRECATION") // Both op-check APIs are deprecated at some level in 26..36; behaviour is unchanged.
     fun hasAccess(): Boolean {
         val appOps = context.getSystemService(AppOpsManager::class.java)
@@ -59,7 +62,7 @@ class ScreenTimeRepository(private val context: Context) {
      * Foreground spans per app within [from, to): what Time away subtracts. Null without usage access, so
      * callers show "unavailable" instead of a made-up number.
      */
-    suspend fun intervals(from: Long, to: Long): List<UsageInterval>? = withContext(Dispatchers.IO) {
+    suspend fun intervals(from: Long, to: Long): List<UsageInterval>? = withContext(usageIo) {
         if (!hasAccess() || from >= to) return@withContext null
         // Shield doesn't pause the app beneath it, so seed its earlier resume before clipping.
         // shortcut: one prior day seeds foreground; extend for uninterrupted multi-day app use.
@@ -100,7 +103,7 @@ class ScreenTimeRepository(private val context: Context) {
         return Records(signals, any)
     }
 
-    private suspend fun between(from: Long, to: Long): Map<String, Long>? = withContext(Dispatchers.IO) {
+    private suspend fun between(from: Long, to: Long): Map<String, Long>? = withContext(usageIo) {
         if (!hasAccess()) return@withContext null
         val records = records(from, to) ?: return@withContext null
         // No events at all: Android has nothing for this window. Today counts as zero (a quiet morning).

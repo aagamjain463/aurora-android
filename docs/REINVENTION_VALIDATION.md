@@ -13,6 +13,10 @@ This continuation preserved the previous four implementation commits. It complet
 
 Copy is inventoried in [AURORA_COPY_REVIEW.md](AURORA_COPY_REVIEW.md): 610 resource/plural entries, with the eight founder-approved strings exact. All other copy remains proposed for founder review. The founder approved retaining the disclosed Free Always Block schedule fallback on 29 October.
 
+Storage transactions now run on IO, preserving the existing mutex, strict decoding and error propagation. Native navigation fixtures use reduced motion; visual animation variants remain separate.
+
+The native Focus test exposed IO starvation: stacked Today refreshes filled every IO thread with blocking usage-record reads, so storage writes (starting Focus) waited. Usage reads now run one at a time on a single IO lane, and Today skips a refresh while one is still measuring.
+
 ## Automated gates
 
 | Gate | Result |
@@ -20,10 +24,10 @@ Copy is inventoried in [AURORA_COPY_REVIEW.md](AURORA_COPY_REVIEW.md): 610 resou
 | Debug APK | PASS — `:app:assembleDebug` |
 | Minified release APK | PASS — `:app:assembleRelease`; unsigned |
 | Lint | PASS — `:app:lintDebug`, warnings treated as errors; existing baseline unchanged |
-| JUnit / Robolectric | PASS — 174 tests, no failures, errors or skips |
+| JUnit / Robolectric | PASS — 175 tests, no failures, errors or skips |
 | Roborazzi | PASS — record followed by independent verification; 40 baselines across light, dark, 200% text and reduced motion |
 | Instrumentation test APK | PASS — `:app:assembleDebugAndroidTest` |
-| Emulator instrumentation | Result recorded below |
+| Emulator instrumentation | PASS — 3 tests (onboarding, tabs, Focus start/end early) on `aurora_pixel` API 36, three consecutive runs |
 | Diff whitespace | PASS — `git diff --check` |
 | Source navigation graph | Updated with `graphify update .`; generated graph remains local |
 

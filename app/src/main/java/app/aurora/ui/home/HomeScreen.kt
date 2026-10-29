@@ -90,6 +90,7 @@ import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -122,10 +123,12 @@ fun protectionToday(history: History, rules: Rules, runtime: Runtime, list: Prot
 class TodayModel(val app: AuroraApplication) : ViewModel() {
     private val _away = MutableStateFlow<AwayState>(AwayState.Loading)
     val away: StateFlow<AwayState> = _away
+    private var measuring: Job? = null
 
-    /** Measures time away now. Called on resume and every minute while Today is open. */
+    /** Measures time away now. Called on resume and every minute while Today is open; skipped while one is running. */
     fun refresh() {
-        viewModelScope.launch {
+        if (measuring?.isActive == true) return
+        measuring = viewModelScope.launch {
             val zone = ZoneId.systemDefault()
             val now = System.currentTimeMillis()
             val from = LocalDate.now().atStartOfDay(zone).toInstant().toEpochMilli()
