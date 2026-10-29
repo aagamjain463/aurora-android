@@ -68,6 +68,7 @@ import app.aurora.cooldownWait
 import app.aurora.data.formatClock
 import app.aurora.finishIntent
 import app.aurora.grantAccess
+import app.aurora.intentOverrun
 import app.aurora.record
 import app.aurora.reflectionStart
 import app.aurora.startIntent
@@ -243,6 +244,18 @@ private fun Countdown(until: Long, now: Long, caption: String) {
     }
 }
 
+/** Both cooldowns restart from every new attempt to open the app; the Shield says so plainly. */
+@Composable
+private fun RestartNote() {
+    Text(
+        stringResource(R.string.shield_restart_note),
+        Modifier.fillMaxWidth().padding(top = Space.XS).clip(Radius.Pill).background(Aurora.colors.dawnSoft).padding(horizontal = Space.M, vertical = 10.dp),
+        color = Aurora.colors.dawnText,
+        style = AuroraType.Label,
+        textAlign = TextAlign.Center,
+    )
+}
+
 @Composable
 private fun Actions(content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) { content() }
@@ -252,7 +265,10 @@ private fun Actions(content: @Composable () -> Unit) {
 
 @Composable
 private fun Blocked(decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onEnded: () -> Unit) {
-    val until = decision.until
+    val app = LocalContext.current.applicationContext as AuroraApplication
+    val runtime by app.runtime.state.collectAsStateWithLifecycle()
+    // An Intent cooldown is read live: a new attempt restarts it, and the countdown follows.
+    val until = if (decision.reason == ShieldReason.IntentCooldown) runtime?.value?.intentCooldowns?.get(decision.packageName) ?: decision.until else decision.until
     if (until != null && now >= until && decision.reason != ShieldReason.Limit) {
         Eyebrow(stringResource(R.string.shield_ended_eyebrow))
         Headline(stringResource(R.string.shield_ended_title))
@@ -301,6 +317,7 @@ private fun Blocked(decision: Decision.Shield, label: String, now: Long, home: (
         }
         Countdown(until, now, caption)
     }
+    if (decision.reason == ShieldReason.IntentCooldown) RestartNote()
     Actions { AuroraButton(stringResource(R.string.shield_return_home), home, Modifier.fillMaxWidth()) }
 }
 
@@ -309,10 +326,14 @@ private fun Blocked(decision: Decision.Shield, label: String, now: Long, home: (
 @Composable
 private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onOpen: () -> Unit) {
     val restriction = decision.restriction ?: return Blocked(decision, label, now, home, onOpen)
-    // The wait starts at the first attempt and is stored, so leaving and coming back continues it.
-    val readyAt by produceState(decision.readyAt, decision.packageName, restriction.id) {
-        if (value == null) value = try { app.cooldownWait(decision.packageName, restriction) } catch (_: IOException) { null }
+    // The wait is stored, and read live: a genuine new attempt restarts it (Cooldowns.kt), and the
+    // countdown shows the restart at once. Showing or recreating the Shield never restarts it.
+    val runtime by app.runtime.state.collectAsStateWithLifecycle()
+    val stored = runtime?.value?.cooldownWaits?.get(decision.packageName)?.takeIf { it.restrictionId == restriction.id }?.readyAt
+    LaunchedEffect(decision.packageName, restriction.id, stored == null) {
+        if (stored == null) runCatching { app.cooldownWait(decision.packageName, restriction) }
     }
+    val readyAt = stored ?: decision.readyAt
     val ready = readyAt?.let { now >= it } == true
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -321,6 +342,7 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
         Headline(stringResource(R.string.shield_cooldown_title, label), label)
         Body(stringResource(R.string.shield_cooldown_body))
         readyAt?.let { Countdown(it, now, stringResource(R.string.shield_cooldown_ready_at, clockTime(it))) }
+        RestartNote()
         Actions {
             AuroraButton(stringResource(R.string.shield_return_home), {
                 scope.launch { runCatching { app.wentBack(intent = false) } }
@@ -570,7 +592,7 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
     val colors = Aurora.colors
     val pkg = decision.packageName
     val rules by app.rules.state.collectAsStateWithLifecycle()
-    val config = rules?.value?.apps?.get(pkg)?.intent ?: IntentConfig()
+    val config = decision.intent ?: rules?.value?.apps?.get(pkg)?.intent ?: IntentConfig()
     val use = app.runtime.value?.intentUses?.get(pkg)
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -579,8 +601,8 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
         scope.launch {
             try {
-                app.startIntent(pkg, minutes, config)
-                onOpen()
+                // Refused during a post-usage cooldown: back home, and the next opening shows the cooldown.
+                if (app.startIntent(pkg, minutes, config)) onOpen() else home()
             } catch (_: IOException) {
                 // Not stored, so not started.
             }
@@ -598,7 +620,10 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
                 scope.launch { runCatching { app.finishIntent(pkg) } }
                 home()
             }, Modifier.fillMaxWidth())
-            AuroraButton(stringResource(R.string.intent_reminder_continue), { step = IntentStep.Usage }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+            AuroraButton(stringResource(R.string.intent_reminder_continue), {
+                scope.launch { runCatching { app.intentOverrun(pkg) } }
+                step = IntentStep.Usage
+            }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
         }
         return
     }
@@ -610,6 +635,10 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
                 else try { app.reflectionStart(pkg) } catch (_: IOException) { System.currentTimeMillis() }
             }
             val left = pauseStart?.let { it + config.reflectionSeconds * 1000L - now } ?: (config.reflectionSeconds * 1000L)
+            // Without an explicit confirmation, the time choice follows as soon as the pause is over.
+            LaunchedEffect(left <= 0 && pauseStart != null) {
+                if (!config.confirmContinue && left <= 0 && pauseStart != null) step = IntentStep.Usage
+            }
             Eyebrow(stringResource(R.string.intent_name))
             Headline(stringResource(R.string.intent_prompt_title, label), label)
             Body(stringResource(R.string.intent_prompt_question))

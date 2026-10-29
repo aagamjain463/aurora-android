@@ -56,6 +56,12 @@ class Interceptor(
      * Intentional App Opening counts foreground time from this (UsageMeter).
      */
     private val onForeground: (String?) -> Unit = {},
+    /**
+     * A genuine new attempt to open a shielded app: the person had left it and opened it again. Repeat
+     * events of one opening, the Shield's own window, rechecks, retries and reconnects never count. Both
+     * cooldowns restart from it (Cooldowns.kt).
+     */
+    private val onAttempt: (Decision.Shield) -> Unit = {},
 ) {
     @Volatile var state: PolicyState? = null
 
@@ -90,7 +96,18 @@ class Interceptor(
             if (packageName != ownPackage) lastApp = packageName
         }
         when {
-            decision is Decision.Shield -> shield(decision, eventUptime, receivedUptime)
+            decision is Decision.Shield -> {
+                // A Shield already up for this app means the same opening (repeats, the Shield's own window,
+                // the shade). A burst within AttemptDedupMs is one opening too, even if a launcher event
+                // came between. Uncertain cases only ever lengthen a wait, never shorten it.
+                val pkg = decision.packageName
+                if (pkg != shownFor && (pkg != lastAttempt || eventUptime - lastAttemptAt >= AttemptDedupMs)) {
+                    lastAttempt = pkg
+                    lastAttemptAt = eventUptime
+                    onAttempt(decision)
+                }
+                shield(decision, eventUptime, receivedUptime)
+            }
             packageName == null -> Unit
             packageName in overlays -> interrupted = true
             packageName == ownPackage -> {
@@ -192,6 +209,9 @@ class Interceptor(
         }
     }
 
+    private var lastAttempt: String? = null
+    private var lastAttemptAt = 0L
+
     private var leftApp: String? = null
     private var leftAt = 0L
     /** A real window after leaving confirms that a newer protected event is a genuine reopening. */
@@ -233,5 +253,6 @@ class Interceptor(
         const val MinWatchMs = 250L
         const val LeftGraceMs = 1_000L
         const val MaxWatchMs = 60_000L
+        const val AttemptDedupMs = 1_500L
     }
 }

@@ -11,7 +11,6 @@ import app.aurora.progress.DayStats
 import app.aurora.progress.FocusRecord
 import app.aurora.progress.ProtectionRecord
 import app.aurora.protect.AddResult
-import app.aurora.protect.CooldownWait
 import app.aurora.protect.FrictionSettings
 import app.aurora.protect.Grant
 import app.aurora.protect.IntentConfig
@@ -27,7 +26,9 @@ import app.aurora.protect.cover
 import app.aurora.protect.covers
 import app.aurora.protect.key
 import app.aurora.protect.migrated
+import app.aurora.protect.settledIntents
 import app.aurora.protect.toEntry
+import app.aurora.protect.waitFor
 import app.aurora.protect.windowAt
 import java.io.IOException
 import java.time.Instant
@@ -200,22 +201,11 @@ suspend fun AuroraApplication.grantAccess(key: String, minutes: Int, level: Mode
 
 /**
  * The Cooldown wait for [key] under [restriction]: the one already running, or a new one starting now.
- * Reopening the app, switching apps or recreating the Shield never restarts or skips it.
+ * Showing or recreating the Shield never restarts or skips it; a genuine new attempt does ([attempted]).
  */
 suspend fun AuroraApplication.cooldownWait(key: String, restriction: Restriction): Long {
-    var ready = 0L
     val now = now().wall
-    runtime.update { r ->
-        val existing = r.cooldownWaits[key]?.takeIf { it.restrictionId == restriction.id }
-        if (existing != null) {
-            ready = existing.readyAt
-            r
-        } else {
-            ready = now + restriction.cooldownWaitMs
-            r.copy(cooldownWaits = r.cooldownWaits + (key to CooldownWait(ready, restriction.id)))
-        }
-    }
-    return ready
+    return runtime.update { it.waitFor(key, restriction, now) }.cooldownWaits.getValue(key).readyAt
 }
 
 /** The reflection pause for [key]: continues one already running, or starts one. Returns its start. */
@@ -230,16 +220,27 @@ suspend fun AuroraApplication.wentBack(intent: Boolean) {
     record { if (intent) it.copy(intentLetGo = it.intentLetGo + 1) else it.copy(wentBack = it.wentBack + 1) }
 }
 
-/** Starts an intentional session: [minutes] of foreground time with [key], under its current settings. */
-suspend fun AuroraApplication.startIntent(key: String, minutes: Int, config: IntentConfig) {
+/**
+ * Starts an intentional session: [minutes] of foreground time with [key], under its current settings.
+ * Refused (false) while a post-usage cooldown for [key] is running: a new decision can't skip it.
+ */
+suspend fun AuroraApplication.startIntent(key: String, minutes: Int, config: IntentConfig): Boolean {
     val now = now().wall
-    runtime.update { r ->
+    var refused = false
+    runtime.update { r0 ->
+        val r = r0.settledIntents(now)
+        if ((r.intentCooldowns[key] ?: 0) > now) {
+            refused = true
+            return@update r
+        }
         r.copy(
             intentUses = r.intentUses + (key to IntentUse(minutes * 60_000L, 0, now, config.expiry, config.cooldownMinutes, config.freshEachOpen, now)),
             reflections = r.reflections - key,
         )
     }
+    if (refused) return false
     record { it.copy(intentSessions = it.intentSessions + 1, intentChosenMinutes = it.intentChosenMinutes + minutes) }
+    return true
 }
 
 /** At the reminder: the person is done. The session ends within what they chose. */
@@ -255,10 +256,7 @@ suspend fun AuroraApplication.settleIntent(key: String) {
     val now = now().wall
     val use = runtime.value?.intentUses?.get(key) ?: return
     if (!use.spent(now) || use.expiry != IntentExpiry.Cooldown) return
-    runtime.update { r ->
-        val u = r.intentUses[key] ?: return@update r
-        r.copy(intentUses = r.intentUses - key, intentCooldowns = r.intentCooldowns + (key to now + u.cooldownMinutes * 60_000L))
-    }
+    runtime.update { it.settledIntents(now) }
     record {
         it.copy(
             intentCooldowns = it.intentCooldowns + 1,
@@ -304,8 +302,12 @@ suspend fun AuroraApplication.endIntent(key: String, within: Boolean) {
 suspend fun AuroraApplication.foregroundChanged(pkg: String?) {
     val now = now().wall
     val ended = mutableListOf<Pair<String, IntentUse>>()
-    runtime.update { r ->
-        if (r.intentUses.isEmpty()) return@update r
+    val settled = mutableListOf<IntentUse>()
+    runtime.update { r0 ->
+        if (r0.intentUses.isEmpty()) return@update r0
+        // Time used up with a cooldown becomes that cooldown first, so leaving the app can never drop it.
+        val r = r0.settledIntents(now)
+        settled += (r0.intentUses - r.intentUses.keys).values
         val next = r.intentUses.mapValues { (key, use) ->
             when {
                 key == pkg && use.runningSince == null -> use.copy(runningSince = now)
@@ -318,6 +320,15 @@ suspend fun AuroraApplication.foregroundChanged(pkg: String?) {
             !leave
         }
         if (next == r.intentUses) r else r.copy(intentUses = next)
+    }
+    if (settled.isNotEmpty()) record { s ->
+        settled.fold(s) { acc, use ->
+            acc.copy(
+                intentCooldowns = acc.intentCooldowns + 1,
+                intentCooldownMinutes = acc.intentCooldownMinutes + use.cooldownMinutes,
+                intentUsedMinutes = acc.intentUsedMinutes + (use.used(now) / 60_000).toInt(),
+            )
+        }
     }
     if (ended.isNotEmpty()) record { s ->
         ended.fold(s) { acc, (_, use) ->
@@ -370,13 +381,14 @@ fun AuroraApplication.canEnable(allowance: Allowance, current: Int) = app.aurora
 suspend fun AuroraApplication.deleteAllData() {
     val t = now()
     val committed = runtime.value?.sessions.orEmpty().filter { !it.cancellable && !it.time.isOver(t) }
+    val committedRuns = runtime.value?.runs.orEmpty().filter { !it.cancellable(t) && !it.isOver(t) }
     dataStore.edit { it.clear() }
     rules.reset()
     runtime.reset()
     history.reset()
-    if (committed.isNotEmpty()) {
+    if (committed.isNotEmpty() || committedRuns.isNotEmpty()) {
         try {
-            runtime.update { Runtime(sessions = committed) }
+            runtime.update { Runtime(sessions = committed, runs = committedRuns) }
         } catch (_: IOException) {
             // Storage failed; nothing more can be kept.
         }

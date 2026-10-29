@@ -92,6 +92,9 @@ class AuroraApplication : Application() {
             runtime.state.first { it != null }
             runCatching { migrateRuntime() }
             runCatching { commitScheduleWindows() }
+            history.state.first { it != null }
+            runCatching { migrateConfigurations() }
+            runCatching { syncRuns() }
         }
     }
 

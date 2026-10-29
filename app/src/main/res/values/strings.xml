@@ -76,7 +76,8 @@
     <string name="shield_ended_title">Your timer has ended.</string>
     <string name="shield_ended_body">%1$s isn\'t protected right now.</string>
     <string name="shield_cooldown_title">Wait before opening %1$s.</string>
-    <string name="shield_cooldown_body">Your wait keeps running if you leave. When it ends, you choose how long to use the app.</string>
+    <string name="shield_cooldown_body">Stay with the wait. When it ends, you choose how long to use the app.</string>
+    <string name="shield_restart_note">Each new attempt restarts your wait.</string>
     <string name="shield_cooldown_ready_at">Ready at %1$s</string>
     <string name="shield_cooldown_done_title">Your wait is over.</string>
     <string name="shield_cooldown_done_body">You can open the app now, for as long as you choose.</string>

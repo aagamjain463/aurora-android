@@ -170,7 +170,7 @@ class PolicyTest {
     @Test
     fun scenario1IntentAsksThenAllowsTheChosenTime() {
         val s = state().copy(intents = intent)
-        assertEquals(Decision.Shield(ig, ShieldReason.Intent), decide(ig, 0, s))
+        assertEquals(Decision.Shield(ig, ShieldReason.Intent, intent = intent.getValue(ig)), decide(ig, 0, s))
         val using = s.copy(intentUses = mapOf(ig to IntentUse(15 * min, runningSince = 0)))
         assertEquals(Decision.TemporarilyAllowed(15 * min), decide(ig, 0, using))
     }
@@ -224,13 +224,13 @@ class PolicyTest {
     @Test
     fun scenario7AfterCooldownTheNextOpeningIsAFreshDecision() {
         val s = state().copy(intents = intent, intentCooldowns = mapOf(ig to 60 * min))
-        assertEquals(Decision.Shield(ig, ShieldReason.Intent), decide(ig, 60 * min, s))
+        assertEquals(Decision.Shield(ig, ShieldReason.Intent, intent = intent.getValue(ig)), decide(ig, 60 * min, s))
     }
 
     @Test
     fun intentTimeUpWithReminderOrCooldown() {
         val reminder = state().copy(intents = intent, intentUses = mapOf(ig to IntentUse(15 * min, usedMs = 15 * min, expiry = IntentExpiry.Reminder)))
-        assertEquals(Decision.Shield(ig, ShieldReason.Intent, timeUp = true), decide(ig, 20 * min, reminder))
+        assertEquals(Decision.Shield(ig, ShieldReason.Intent, timeUp = true, intent = intent.getValue(ig)), decide(ig, 20 * min, reminder))
         val cooldown = state().copy(intents = intent, intentUses = mapOf(ig to IntentUse(15 * min, usedMs = 15 * min, expiry = IntentExpiry.Cooldown, cooldownMinutes = 45)))
         assertEquals(Decision.Shield(ig, ShieldReason.IntentCooldown, 20 * min + 45 * min), decide(ig, 20 * min, cooldown))
     }

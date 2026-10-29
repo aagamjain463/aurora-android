@@ -83,6 +83,8 @@ sealed interface Decision {
         val readyAt: Long? = null,
         /** For [ShieldReason.Intent]: the chosen time ran out while the app was open (Reminder). */
         val timeUp: Boolean = false,
+        /** For [ShieldReason.Intent]: the settings that apply to this opening. */
+        val intent: IntentConfig? = null,
     ) : Decision
 
     /**
@@ -142,23 +144,25 @@ fun decide(packageName: String?, now: Long, state: PolicyState?): Decision {
 
     if (top != null && top.reason.ordinal < ShieldReason.Limit.ordinal) return Decision.Shield(packageName, top.reason, top.end, top)
     if (limitSpent) return Decision.Shield(packageName, ShieldReason.Limit, state.midnight)
+    // A post-usage cooldown is never lifted by a grant: no Friction task, wait or new decision opens it early.
+    val intentCooldown = state.intentCooldowns[packageName]?.takeIf { it > now }?.let { Decision.Shield(packageName, ShieldReason.IntentCooldown, it) }
     if (top != null) {
         // Cooldown or Friction.
-        if (grant != null && grant.level.reason.ordinal <= top.reason.ordinal) return Decision.TemporarilyAllowed(minOf(grant.until, top.end))
+        if (grant != null && grant.level.reason.ordinal <= top.reason.ordinal) return intentCooldown ?: Decision.TemporarilyAllowed(minOf(grant.until, top.end))
         val wait = state.cooldownWaits[packageName]?.takeIf { top.reason == ShieldReason.Cooldown && it.restrictionId == top.id }
         return Decision.Shield(packageName, top.reason, top.end, top, readyAt = wait?.readyAt)
     }
+    if (intentCooldown != null) return intentCooldown
     if (grant != null) return Decision.TemporarilyAllowed(grant.until)
 
-    state.intentCooldowns[packageName]?.takeIf { it > now }?.let { return Decision.Shield(packageName, ShieldReason.IntentCooldown, it) }
-    if (packageName !in state.intents) return Decision.Allow
+    val intent = state.intents[packageName] ?: return Decision.Allow
     val use = state.intentUses[packageName]
     return when {
-        use == null -> Decision.Shield(packageName, ShieldReason.Intent)
+        use == null -> Decision.Shield(packageName, ShieldReason.Intent, intent = intent)
         !use.spent(now) -> Decision.TemporarilyAllowed(now + use.left(now))
-        // Time's up with a cooldown: closed now. The service stores the exact end (settleIntent).
+        // Time's up with a cooldown: closed now. The service stores the exact end (settledIntents).
         use.expiry == IntentExpiry.Cooldown -> Decision.Shield(packageName, ShieldReason.IntentCooldown, now + use.cooldownMinutes * 60_000L)
-        else -> Decision.Shield(packageName, ShieldReason.Intent, timeUp = true)
+        else -> Decision.Shield(packageName, ShieldReason.Intent, timeUp = true, intent = intent)
     }
 }
 

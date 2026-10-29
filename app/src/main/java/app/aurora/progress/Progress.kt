@@ -74,7 +74,26 @@ data class History(
     @JsonNames("lockdowns") val committed: List<Long> = emptyList(),
     /** Newest last. Kept for [KeepDays]; time away is computed from these. */
     val protection: List<ProtectionRecord> = emptyList(),
+    /** Finished configuration runs, newest last (Runs.kt). Habits and Track read these. */
+    val runs: List<RunRecord> = emptyList(),
+    /** When the Shield service was bound, newest last: the evidence for verified protection. */
+    val service: List<ServiceSpan> = emptyList(),
 ) {
+    /** Adds or replaces the run record with [r]'s id. Kept for [KeepDays]. */
+    fun withRun(r: RunRecord): History =
+        copy(runs = (runs.filterNot { it.id == r.id } + r).filter { r.end - it.end < KeepDays * 86_400_000L }.takeLast(KeepSessions * 4))
+
+    /**
+     * The service was bound at [now]: extends the current span, or starts one ([newSpan], or after a
+     * disconnect closed the last). [connected] false closes the span at [now].
+     */
+    fun serviceSeen(now: Long, connected: Boolean, newSpan: Boolean = false): History {
+        val last = service.lastOrNull()
+        val next = if (newSpan || last == null || last.closed) service + ServiceSpan(now, now, closed = !connected)
+        else service.dropLast(1) + last.copy(seen = maxOf(last.seen, now), closed = !connected)
+        return copy(service = next.filter { now - it.seen < KeepDays * 86_400_000L }.takeLast(2000))
+    }
+
     /** Adds or replaces the record with [record]'s id. */
     fun withProtection(record: ProtectionRecord): History =
         copy(protection = (protection.filterNot { it.id == record.id } + record).filter { record.start - it.end < KeepDays * 86_400_000L }.takeLast(KeepSessions))

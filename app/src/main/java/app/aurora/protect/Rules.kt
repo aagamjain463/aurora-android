@@ -85,6 +85,8 @@ data class IntentConfig(
     val cooldownMinutes: Int = 30,
     /** True: leaving the app ends the session, so every opening is a fresh decision. */
     val freshEachOpen: Boolean = false,
+    /** True: after the pause the person confirms "Continue intentionally"; false: the time choice follows at once. */
+    val confirmContinue: Boolean = true,
 )
 
 /**
@@ -155,6 +157,13 @@ data class Rules(
     val defaultRule: AppRule = AppRule(),
     /** Content surfaces to leave automatically (Web & content Shield, experimental): [ContentShorts], [ContentReels]. */
     val content: Set<String> = emptySet(),
+    /** 0: the Phase 3/reinvention model. 1: presets and configurations ([migratedToConfigurations]). */
+    val version: Int = 0,
+    val shields: List<ShieldPreset> = emptyList(),
+    val intentPresets: List<IntentPreset> = emptyList(),
+    val configs: List<UsageConfig> = emptyList(),
+    val activations: List<Activation> = emptyList(),
+    val habits: List<app.aurora.progress.Habit> = emptyList(),
 ) {
     fun rule(key: String): AppRule = apps[key] ?: defaultRule
 
@@ -249,9 +258,12 @@ fun AlwaysBlockReservation.toEntry() = LedgerEntry(day.toString(), start.toEpoch
 @Serializable
 data class Grant(val until: Long, val level: Mode)
 
-/** A Shield Cooldown wait for one key. It belongs to one restriction ([restrictionId]) only. */
+/**
+ * A Shield Cooldown wait for one key. It belongs to one restriction ([restrictionId]) only. [startedAt] is
+ * the genuine opening attempt it runs from: each new attempt starts the full wait again ([attempted]).
+ */
 @Serializable
-data class CooldownWait(val readyAt: Long, val restrictionId: String)
+data class CooldownWait(val readyAt: Long, val restrictionId: String, val startedAt: Long = 0)
 
 /**
  * An intentional opening in progress. [usedMs] is measured foreground time; while the app is in front,
@@ -284,6 +296,12 @@ data class Runtime(
     val intentUses: Map<String, IntentUse> = emptyMap(),
     /** Post-usage cooldowns from Intentional App Opening: closed until the wall-clock value. */
     val intentCooldowns: Map<String, Long> = emptyMap(),
+    /** Each post-usage cooldown's full length, so a new attempt can start it again from the beginning. */
+    val intentCooldownLengths: Map<String, Long> = emptyMap(),
+    /** Configuration runs happening now (Configurations.kt). */
+    val runs: List<ConfigRun> = emptyList(),
+    /** Occurrences turned off or settled: run id to when its window ends, so they never start again. */
+    val closed: Map<String, Long> = emptyMap(),
     /** Flexible schedule windows the person turned off: schedule id to that window's start. */
     val skipped: Map<String, Long> = emptyMap(),
     val focus: Session? = null,
@@ -305,6 +323,8 @@ data class Runtime(
             access = access.filterValues { it.until > now },
             reflections = reflections.filterValues { now - it in 0 until ReflectionReuseMs },
             intentCooldowns = intentCooldowns.filterValues { it > now },
+            intentCooldownLengths = intentCooldownLengths.filterKeys { (intentCooldowns[it] ?: 0) > now },
+            closed = closed.filterValues { it > now },
             ledger = ledger.filter { now - it.end < 7 * 86_400_000L },
         )
     }
@@ -399,7 +419,10 @@ fun policyState(
     if (!list.readable) return null
     val now = time.wall
     val active = list.active(plan).map { it.key }.toSet()
+    val runs = liveRuns(rules, runtime, plan, time, zone)
+    val configured = intentsNow(runs, time)
     val restrictions = buildList {
+        for (run in runs) addAll(run.restrictions(time))
         runtime.lockdown?.takeUnless { it.isOver(time) }?.let {
             add(Restriction(ShieldReason.AlwaysBlock, rules.cover(it.groupId, active), it.startedWall(time), it.endWall(time), "lockdown-${it.startWall}"))
         }
@@ -431,10 +454,15 @@ fun policyState(
             }
         }
     }
-    val intents = rules.activeIntents(plan).filter { it in active }.associateWith { rules.apps.getValue(it).intent!! }
+    // Before the configurations migration, Intent was a per-app setting; after it, it comes from runs.
+    val legacyIntents = if (rules.version >= 1) emptyMap()
+    else rules.activeIntents(plan).filter { it in active }.associateWith { rules.apps.getValue(it).intent!! }
+    val intents = (legacyIntents.keys + configured.keys).associateWith { k ->
+        listOfNotNull(legacyIntents[k], configured[k]).reduce(::stricter)
+    }
     val limits = rules.activeLimits(plan).filter { it.key in active }.associate { it.key to it.minutes * 60_000L }
     return PolicyState(
-        protectedPackages = active + restrictions.flatMap { it.keys },
+        protectedPackages = active + restrictions.flatMap { it.keys } + intents.keys,
         exempt = exempt,
         restrictions = restrictions,
         access = runtime.access,

@@ -11,6 +11,9 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import androidx.core.content.ContextCompat
 import app.aurora.AuroraApplication
+import app.aurora.attempted
+import app.aurora.serviceSeen
+import app.aurora.syncRuns
 import app.aurora.commitScheduleWindows
 import app.aurora.correctIntentUse
 import app.aurora.foregroundChanged
@@ -55,6 +58,7 @@ class ShieldService : AccessibilityService() {
             schedule = { delay, block -> main.postDelayed(block, delay) },
             onAllowed = ::measure,
             onForeground = { pkg -> scope?.launch { runCatching { app.foregroundChanged(pkg) } } },
+            onAttempt = { decision -> scope?.launch { runCatching { app.attempted(decision) } } },
         )
         // Built from memory for every event: grants, schedules and Focus are never stale.
         interceptor.snapshot = { app.policySnapshot(exempt, usedToday) }
@@ -69,6 +73,8 @@ class ShieldService : AccessibilityService() {
                 // Screen off: nobody is using the app in front. Screen on: decide again for it.
                 if (intent.action == Intent.ACTION_SCREEN_OFF) scope?.launch { runCatching { app.foregroundChanged(null) } }
                 else interceptor.recheck()
+                // The service was bound through the screen-off: that time counts as verified protection.
+                scope?.launch { runCatching { app.serviceSeen(connected = true) } }
             }
         }.also {
             val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_SCREEN_ON) }
@@ -76,6 +82,7 @@ class ShieldService : AccessibilityService() {
         }
         measure(null)
         connectedState.value = true
+        scope?.launch { runCatching { app.serviceSeen(connected = true, newSpan = true) } }
         trace.lifecycle("connected", SystemClock.uptimeMillis())
     }
 
@@ -88,7 +95,11 @@ class ShieldService : AccessibilityService() {
         if (received - lastCommitCheck > CommitCheckMs) {
             lastCommitCheck = received
             val app = application as AuroraApplication
-            scope?.launch { runCatching { app.commitScheduleWindows() } }
+            scope?.launch {
+                runCatching { app.commitScheduleWindows() }
+                runCatching { app.syncRuns() }
+                runCatching { app.serviceSeen(connected = true) }
+            }
         }
     }
 
@@ -115,6 +126,8 @@ class ShieldService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         connectedState.value = false
+        val app = application as AuroraApplication
+        app.scope.launch { runCatching { app.serviceSeen(connected = false) } }
         trace.lifecycle("unbound", SystemClock.uptimeMillis())
         return super.onUnbind(intent)
     }

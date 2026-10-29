@@ -23,7 +23,11 @@ class InterceptorTest {
     private val presenter = Recorder()
     private val trace = ShieldTrace()
     private val scheduled = mutableListOf<() -> Unit>()
-    private val interceptor = Interceptor(presenter, trace, "app.aurora", setOf("com.android.systemui", "ime"), { 0L }, { now }, { _, block -> scheduled += block }).apply {
+    private val attempts = mutableListOf<String>()
+    private val interceptor = Interceptor(
+        presenter, trace, "app.aurora", setOf("com.android.systemui", "ime"), { 0L }, { now }, { _, block -> scheduled += block },
+        onAttempt = { attempts += it.packageName },
+    ).apply {
         state = PolicyState(
             setOf("com.social"), exempt = setOf("app.aurora", "com.launcher", "com.android.systemui"),
             restrictions = listOf(Restriction(ShieldReason.AlwaysBlock, setOf("com.social"), 0, Long.MAX_VALUE, "test")),
@@ -231,5 +235,32 @@ class InterceptorTest {
         interceptor.state = protected
         interceptor.recheck()
         assertEquals(emptyList<String>(), presenter.shown)
+    }
+
+    /** Founder scenario F: only a new opening after leaving restarts a cooldown, never repeats of one. */
+    @Test
+    fun onlyGenuineReopeningsAreAttempts() {
+        window("com.social")
+        window("com.social", after = 20) // the same opening's burst
+        window("app.aurora", after = 10) // the Shield's own window
+        window("com.social", after = 10) // the app over it again: same opening
+        window("com.android.systemui") // the shade
+        window("com.social")
+        assertEquals(listOf("com.social"), attempts)
+        interceptor.recheck() // a rule change or the screen coming on
+        scheduled.toList().forEach { it() } // retries
+        assertEquals(1, attempts.size)
+        window("com.launcher", after = 3_000) // the person leaves
+        window("com.social", after = 5_000) // and opens it again
+        assertEquals(listOf("com.social", "com.social"), attempts)
+    }
+
+    /** A late event from an opening the person already left within the dedupe window isn't a new attempt. */
+    @Test
+    fun aBurstAcrossALauncherEventIsOneAttempt() {
+        window("com.social")
+        window("com.launcher", after = 200)
+        window("com.social", after = 300)
+        assertEquals(1, attempts.size)
     }
 }
