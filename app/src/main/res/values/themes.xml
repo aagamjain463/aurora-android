@@ -3,8 +3,4 @@
         <item name="android:windowBackground">@color/aurora_window</item>
     </style>
 
-    <!-- Android draws this background before the Shield's first frame, so the protected app is hidden at once. -->
-    <style name="Theme.Aurora.Shield">
-        <item name="android:windowAnimationStyle">@null</item>
-    </style>
 </resources>

@@ -103,7 +103,7 @@ fun IntentScreen(onBack: () -> Unit, onOpenApp: (String) -> Unit, onAddApps: () 
                     verticalArrangement = Arrangement.spacedBy(Space.XS),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-                        ItemIcon(key, d, 36.dp)
+                        ItemIcon(key, d, size = 36.dp)
                         Text(d.label(key), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
                         Text(
                             stringResource(if (use.runningSince != null) R.string.intent_state_in_use else R.string.intent_state_paused),
@@ -129,7 +129,7 @@ fun IntentScreen(onBack: () -> Unit, onOpenApp: (String) -> Unit, onAddApps: () 
                     d.label(key),
                     Modifier.padding(horizontal = Space.M),
                     subtitle = stringResource(R.string.intent_cooldown_until, clockTime(until)),
-                    leading = { ItemIcon(key, d, 36.dp) },
+                    leading = { ItemIcon(key, d, size = 36.dp) },
                 )
             }
             item(key = "tracking") {

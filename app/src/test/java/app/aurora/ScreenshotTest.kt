@@ -9,9 +9,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.test.core.app.ApplicationProvider
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
+import org.robolectric.Shadows.shadowOf
 import androidx.compose.ui.unit.Density
 import app.aurora.protect.Decision
 import app.aurora.protect.FrictionSettings
+import app.aurora.protect.FrictionTask
+import app.aurora.protect.AppRule
+import app.aurora.protect.IntentConfig
 import app.aurora.protect.Restriction
 import app.aurora.protect.ShieldContent
 import app.aurora.protect.ShieldReason
@@ -36,6 +44,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.time.LocalTime
 import java.time.ZoneOffset
 import java.util.TimeZone
+import kotlinx.coroutines.runBlocking
 
 /**
  * Every screen, and the Shield, in light, dark, 200% font scale and reduced motion, rendered on the JVM.
@@ -65,11 +74,25 @@ class ScreenshotTest(private val variant: Variant) {
 
     /** Clock times on screen are pinned near 10:30 local, so baselines stay stable. */
     @Before
-    fun pinMorning() {
+    fun pinMorning() = runBlocking {
         zone = TimeZone.getDefault()
         val sinceMidnightUtc = LocalTime.now(ZoneOffset.UTC).toSecondOfDay()
         val offset = Math.floorMod(10 * 3600 + 1800 - sinceMidnightUtc + 43_200, 86_400) - 43_200
         TimeZone.setDefault(TimeZone.getTimeZone(ZoneOffset.ofTotalSeconds(offset)))
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        shadowOf(app.packageManager).installPackage(PackageInfo().apply {
+            packageName = "com.example.photos"
+            applicationInfo = ApplicationInfo().apply {
+                packageName = "com.example.photos"
+                nonLocalizedLabel = "Photos"
+            }
+        })
+        app.history.reset()
+        app.runtime.reset()
+        app.rules.reset()
+        app.preferences.setReduceMotion(variant.reduceMotion)
+        app.rules.update { it.copy(apps = mapOf("com.example.photos" to AppRule(intent = IntentConfig(reflectionSeconds = 0)))) }
+        Unit
     }
 
     @After
@@ -85,6 +108,12 @@ class ScreenshotTest(private val variant: Variant) {
                     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) { content() }
                 }
             }
+        }
+        if (screen == "insights") compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Counted by aurora").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (screen.startsWith("shield_")) compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Photos").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onRoot().captureRoboImage("src/test/screenshots/${screen}_${variant.name}.png")
     }
@@ -103,9 +132,10 @@ class ScreenshotTest(private val variant: Variant) {
 
     private fun shield(reason: ShieldReason, until: Long? = System.currentTimeMillis() + 5_400_000) = ShieldRequest(
         "com.example.photos", reason, until, 0, 0, 0,
+        fresh = false,
         decision = Decision.Shield(
             "com.example.photos", reason, until,
-            Restriction(reason, setOf("com.example.photos"), 0, until ?: Long.MAX_VALUE, "r", FrictionSettings(), 45 * 60_000L),
+            Restriction(reason, setOf("com.example.photos"), 0, until ?: Long.MAX_VALUE, "r", FrictionSettings(task = FrictionTask.Intention), 45 * 60_000L),
         ),
     )
 

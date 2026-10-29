@@ -1,5 +1,8 @@
 # aurora brand
 
+> Historical brand reference. The product reinvention uses [BRAND_SYSTEM.md](BRAND_SYSTEM.md), which
+> supersedes the palette, typography and mark below.
+
 This document guides every aurora surface: app, launcher, desktop and web. Code tokens live in
 `app/src/main/java/app/aurora/ui/theme/`. If this document and the code disagree, fix one of them.
 

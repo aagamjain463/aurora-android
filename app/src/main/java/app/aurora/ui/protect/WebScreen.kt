@@ -15,12 +15,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
 import app.aurora.data.AccessState
@@ -73,7 +75,7 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
     val colors = Aurora.colors
     val d = data
 
-    AuroraScreen(title = "Websites & content", subtitle = "Protect sites in your browser, and leave short-video feeds.", onBack = onBack) {
+    AuroraScreen(title = stringResource(R.string.web_title), subtitle = stringResource(R.string.web_subtitle), onBack = onBack) {
         item(key = "service") {
             val on = access == AccessState.Granted
             Column(
@@ -88,21 +90,21 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
             ) {
                 StatusPill(
                     when {
-                        on && connected -> "Active"
-                        on -> "Allowed, not running"
-                        else -> "Off"
+                        on && connected -> stringResource(R.string.web_active)
+                        on -> stringResource(R.string.web_not_running)
+                        else -> stringResource(R.string.web_off)
                     },
                     live = on && connected,
                 )
-                Text("Web & content Shield", Modifier.padding(top = 4.dp).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
+                Text(stringResource(R.string.web_shield_title), Modifier.padding(top = 4.dp).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
                 Text(
-                    if (on) "Works in ${BrowserNames.joinToString(", ")}. Other browsers, in-app browsers and some private tabs aren't covered."
-                    else "Optional and separate from Shield. It needs a broader Android accessibility permission, so it's off until you choose it.",
+                    if (on) stringResource(R.string.web_supported_browsers, BrowserNames.joinToString(", "))
+                    else stringResource(R.string.web_optional),
                     color = colors.textSecondary,
                     style = AuroraType.Secondary,
                 )
-                if (!on) AuroraButton("Turn on", { disclosure = true }, Modifier.padding(top = Space.XS))
-                else if (!connected) AuroraButton("Open Accessibility settings", { openAccessSettings(context, Access.Content) }, Modifier.padding(top = Space.XS), kind = ButtonKind.Secondary)
+                if (!on) AuroraButton(stringResource(R.string.web_turn_on), { disclosure = true }, Modifier.padding(top = Space.XS))
+                else if (!connected) AuroraButton(stringResource(R.string.web_open_accessibility), { openAccessSettings(context, Access.Content) }, Modifier.padding(top = Space.XS), kind = ButtonKind.Secondary)
             }
         }
         if (d == null) {
@@ -111,28 +113,28 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
         }
         val sites = d.list.items.filterIsInstance<ProtectedItem.Website>()
         item(key = "sites") {
-            SectionLabel("Websites · ${allowanceText(d.active.size, d.max(Allowance.ProtectedItems))} items protected")
+            SectionLabel(stringResource(R.string.web_items, allowanceText(d.active.size, d.max(Allowance.ProtectedItems))))
             Row(Modifier.padding(horizontal = Space.M), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                 AuroraTextField(
                     domain,
                     { domain = it.take(253); error = null },
-                    "reddit.com",
+                    stringResource(R.string.web_example),
                     Modifier.weight(1f),
                     icon = AuroraIcons.Globe,
                     imeAction = ImeAction.Done,
-                    onDone = { add(domain, sites, vm) { e -> error = e; if (e == null) domain = "" } },
+                    onDone = { add(domain, sites, vm, context) { e -> error = e; if (e == null) domain = "" } },
                 )
-                AuroraButton("Add", { add(domain, sites, vm) { e -> error = e; if (e == null) domain = "" } }, kind = ButtonKind.Secondary)
+                AuroraButton(stringResource(R.string.web_add), { add(domain, sites, vm, context) { e -> error = e; if (e == null) domain = "" } }, kind = ButtonKind.Secondary)
             }
             error?.let { Text(it, Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS), color = colors.dawnText, style = AuroraType.Caption) }
-            WebHint("A site covers its subdomains too: reddit.com includes old.reddit.com. Apps and sites share your protected items.")
+            WebHint(stringResource(R.string.web_hint))
             if (sites.isNotEmpty()) {
                 RowGroup(Modifier.padding(top = Space.M)) {
                     sites.forEachIndexed { i, site ->
                         if (i > 0) RowDivider(72.dp)
                         AuroraRow(
                             title = site.domain,
-                            subtitle = if (site in d.paused) "Paused" else d.rules.summary(site.key, d.plan, website = true) { modeNameText(context, it) },
+                            subtitle = if (site in d.paused) stringResource(R.string.web_paused) else d.rules.summary(site.key, d.plan, website = true) { modeNameText(context, it) },
                             leading = { IconBadge(AuroraIcons.Globe) },
                             onClick = { onOpenItem(site.key) },
                             trailing = { Chevron() },
@@ -142,53 +144,49 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
             }
         }
         item(key = "content") {
-            SectionLabel("Short-video feeds")
+            SectionLabel(stringResource(R.string.web_feeds))
             RowGroup {
                 for ((i, surface) in listOf(ContentShorts, ContentReels).withIndex()) {
                     if (i > 0) RowDivider()
                     val on = surface in d.rules.content
                     ToggleRow(
-                        title = if (surface == ContentShorts) "Leave YouTube Shorts" else "Leave Instagram Reels",
-                        subtitle = if (surface == ContentShorts) "Keep the rest of YouTube. When Shorts opens, aurora goes back."
-                        else "Keep messages and posts. When Reels opens, aurora goes back.",
+                        title = if (surface == ContentShorts) stringResource(R.string.web_shorts) else stringResource(R.string.web_reels),
+                        subtitle = if (surface == ContentShorts) stringResource(R.string.web_shorts_body)
+                        else stringResource(R.string.web_reels_body),
                         checked = on,
                         onCheckedChange = { want -> vm.edit { r -> r.copy(content = if (want) r.content + surface else r.content - surface) } },
                     )
                 }
             }
             Row(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S), horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
-                Tag("experimental")
-                Text("These apps change often, so this can stop working after an update. It isn't tested on every version.", color = colors.textTertiary, style = AuroraType.Caption)
+                Tag(stringResource(R.string.web_experimental))
+                Text(stringResource(R.string.web_experimental_body), color = colors.textTertiary, style = AuroraType.Caption)
             }
         }
     }
 
     if (disclosure) AuroraDialog(
-        title = "Turn on Web & content Shield",
-        body = "This is a second, optional accessibility service called aurora Web & content Shield.\n\n" +
-            "In supported browsers it reads the address shown in the address bar, to pause sites you protect. " +
-            "In YouTube and Instagram it checks the names of on-screen elements, only to notice Shorts or Reels if you turned that on.\n\n" +
-            "It doesn't read messages, passwords or what you type. Nothing is stored or sent, and nothing leaves your phone. " +
-            "You can turn it off in Settings › Accessibility at any time.",
-        confirmLabel = "Open settings",
+        title = stringResource(R.string.web_disclosure_title),
+        body = stringResource(R.string.web_disclosure_body),
+        confirmLabel = stringResource(R.string.web_open_settings),
         onConfirm = {
             disclosure = false
             openAccessSettings(context, Access.Content)
         },
-        dismissLabel = "Not now",
+        dismissLabel = stringResource(R.string.action_not_now),
         onDismiss = { disclosure = false },
     )
     notice?.let { n ->
-        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) "See aurora plus" else "OK", { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) "Not now" else null)
+        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) stringResource(R.string.web_see_plus) else stringResource(R.string.action_ok), { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) stringResource(R.string.action_not_now) else null)
     }
 }
 
-private fun add(text: String, sites: List<ProtectedItem.Website>, vm: ProtectModel, done: (String?) -> Unit) {
+private fun add(text: String, sites: List<ProtectedItem.Website>, vm: ProtectModel, context: android.content.Context, done: (String?) -> Unit) {
     val site = ProtectedItem.Website.of(text.trim().removePrefix("https://").removePrefix("http://").substringBefore('/'))
     when {
         text.isBlank() -> done(null)
-        site == null -> done("That doesn't look like a website. Try something like reddit.com.")
-        site in sites -> done("${site.domain} is already protected.")
+        site == null -> done(context.getString(R.string.web_invalid))
+        site in sites -> done(context.getString(R.string.web_duplicate, site.domain))
         else -> {
             vm.add(site)
             done(null)

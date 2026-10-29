@@ -5,6 +5,8 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -62,7 +64,7 @@ class JsonValue<T>(
     }
 
     /** Applies [transform] in one transaction and returns the stored value. Throws IOException if it can't be stored. */
-    suspend fun update(transform: (T) -> T): T = mutex.withLock {
+    suspend fun update(transform: (T) -> T): T = withContext(Dispatchers.IO) { mutex.withLock {
         var next = default
         store.edit { prefs ->
             val current = decode(prefs[key])
@@ -72,13 +74,13 @@ class JsonValue<T>(
         }
         _state.value = Loaded(next)
         next
-    }
+    } }
 
     /** Replaces the value with the default (Settings › Delete data). Works even when the stored value is unreadable. */
-    suspend fun reset() = mutex.withLock {
+    suspend fun reset() = withContext(Dispatchers.IO) { mutex.withLock {
         store.edit { it.remove(key) }
         _state.value = Loaded(default)
-    }
+    } }
 
     private fun decode(raw: String?): Loaded<T> = when (raw) {
         null -> Loaded(default)

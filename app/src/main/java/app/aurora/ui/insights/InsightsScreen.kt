@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +29,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -37,6 +40,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.aurora.R
 import app.aurora.AuroraApplication
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
@@ -91,7 +95,7 @@ data class UsageRow(val packageName: String, val label: String, val icon: ImageB
 /** One day as Android measured it. Null totals: no records for that day (or no usage access). */
 data class DayUsage(val date: LocalDate, val total: Long?, val protected: Long?)
 
-enum class Period(val days: Int, val label: String) { Today(1, "Today"), Week(7, "7 days"), Month(30, "30 days") }
+enum class Period(val days: Int, val label: Int) { Today(1, R.string.tab_today), Week(7, R.string.plus_period_week), Month(30, R.string.plus_period_month) }
 
 private const val OtherApps = "other"
 
@@ -141,7 +145,7 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
             if (installed == null) other += ms
             installed?.let { UsageRow(pkg, it.label, it.icon, ms, pkg in protectedKeys) }
         }
-        return (named + UsageRow(OtherApps, "Other apps", null, other, false))
+        return (named + UsageRow(OtherApps, app.getString(R.string.insights_other_apps), null, other, false))
             .filter { it.ms >= 60_000 }
             .sortedByDescending { it.ms }
             .take(8)
@@ -165,6 +169,7 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
     val vm = auroraViewModel { InsightsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val colors = Aurora.colors
     var addingGoal by remember { mutableStateOf(false) }
     var plusNote by remember { mutableStateOf(false) }
@@ -173,12 +178,12 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
         onPauseOrDispose { }
     }
 
-    AuroraScreen(title = "Insights", subtitle = "Measured on this phone. Nothing leaves it.", tabBar = true) {
+    AuroraScreen(title = stringResource(R.string.tab_insights), subtitle = stringResource(R.string.insights_measured_on_this_phone_nothing_leaves_it), tabBar = true) {
         item(key = "period") {
             ChoicePills(
                 Period.entries, state.period,
                 { p -> if (p == Period.Month && !has(state.plan, Feature.AdvancedInsights)) plusNote = true else vm.select(p) },
-                label = { it.label }, fill = true,
+                label = { resources.getString(it.label) }, fill = true,
                 modifier = Modifier.padding(horizontal = Space.M).padding(top = Space.M),
             )
         }
@@ -190,19 +195,19 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
         if (!state.access) item(key = "permission") {
             EmptyState(
                 icon = AuroraIcons.Insights,
-                title = "See where your time goes",
-                body = "With usage access, aurora can show how long you spend in each app. It's calculated on this phone and never leaves it. What aurora counts itself is below either way.",
-                action = { AuroraButton("Allow usage access", { openUsageAccessSettings(context) }) },
+                title = stringResource(R.string.insights_see_where_your_time_goes),
+                body = stringResource(R.string.insights_with_usage_access_aurora_can_show_how_long_you_spend_in_each_app),
+                action = { AuroraButton(stringResource(R.string.today_metric_allow), { openUsageAccessSettings(context) }) },
             )
         } else item(key = "total") {
             val known = state.days.mapNotNull { it.total }
             Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L)) {
                 if (state.period == Period.Today) {
-                    Text(formatDuration(known.sum()), color = colors.textPrimary, style = AuroraType.Hero)
-                    Text("screen time since midnight", color = colors.textSecondary, style = AuroraType.Secondary)
+                    Text(if (known.isEmpty()) "—" else formatDuration(known.sum()), color = colors.textPrimary, style = AuroraType.Hero)
+                    Text(stringResource(R.string.insights_screen_time_since_midnight), color = colors.textSecondary, style = AuroraType.Secondary)
                 } else {
                     Text(if (known.isEmpty()) "—" else formatDuration(known.sum() / known.size), color = colors.textPrimary, style = AuroraType.Hero)
-                    Text("average a day · ${known.size} of ${state.days.size} days measured", color = colors.textSecondary, style = AuroraType.Secondary)
+                    Text(stringResource(R.string.insights_average_days , known.size, state.days.size), color = colors.textSecondary, style = AuroraType.Secondary)
                     Spacer(Modifier.height(Space.L))
                     DayBars(state.days)
                 }
@@ -210,29 +215,31 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
         }
 
         if (state.access && state.period == Period.Today) {
-            if (state.rows.isEmpty()) item(key = "quiet") {
-                EmptyState(icon = AuroraIcons.Today, title = "A quiet day so far", body = "There's no screen time to show since midnight yet.")
+            if (state.days.none { it.total != null }) item(key = "unavailable") {
+                EmptyState(icon = AuroraIcons.Insights, title = stringResource(R.string.usage_records_unavailable_title), body = stringResource(R.string.usage_records_unavailable_body))
+            } else if (state.rows.isEmpty()) item(key = "quiet") {
+                EmptyState(icon = AuroraIcons.Today, title = stringResource(R.string.insights_a_quiet_day_so_far), body = stringResource(R.string.insights_there_s_no_screen_time_to_show_since_midnight_yet))
             } else {
-                item(key = "label") { SectionLabel("Most used") }
+                item(key = "label") { SectionLabel(stringResource(R.string.insights_most_used)) }
                 val max = state.rows.maxOfOrNull { it.ms } ?: 1L
                 items(state.rows, key = { it.packageName }) { row -> UsageBar(row, row.ms.toFloat() / max) }
             }
         }
 
         item(key = "aurora") {
-            SectionLabel("Counted by aurora")
+            SectionLabel(stringResource(R.string.insights_counted_by_aurora))
             MetricGrid(
                 listOf(
-                    "${stats.sumOf { it.focusMinutes }.let { if (it == 0) "0m" else formatDuration(it * 60_000L) }}" to "focus",
-                    "${stats.sumOf { it.shields }}" to "times aurora stepped in",
-                    "${stats.sumOf { it.wentBack }}" to "times you stepped back",
-                    "${stats.sumOf { it.grantedMinutes }}m" to "time you chose in protected apps",
+                    "${stats.sumOf { it.focusMinutes }.let { if (it == 0) "0m" else formatDuration(it * 60_000L) }}" to stringResource(R.string.insights_metric_focus),
+                    "${stats.sumOf { it.shields }}" to stringResource(R.string.insights_metric_shields),
+                    "${stats.sumOf { it.wentBack }}" to stringResource(R.string.insights_metric_back),
+                    "${stats.sumOf { it.grantedMinutes }}m" to stringResource(R.string.insights_metric_chosen),
                 ),
             )
             val continued = stats.sumOf { it.continued }
             val decided = continued + stats.sumOf { it.wentBack }
             if (decided > 0) Text(
-                "When aurora asked, you stepped back ${stats.sumOf { it.wentBack }} of $decided times. Chosen time is what you picked at the Shield; aurora doesn't claim it as time saved.",
+                pluralStringResource(R.plurals.insights_choices_body, decided, stats.sumOf { it.wentBack }, decided),
                 Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S),
                 color = colors.textTertiary,
                 style = AuroraType.Caption,
@@ -240,7 +247,7 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
         }
 
         item(key = "goals") {
-            SectionLabel("Goals")
+            SectionLabel(stringResource(R.string.today_goals))
             RowGroup {
                 state.rules.goals.forEachIndexed { i, goal ->
                     if (i > 0) RowDivider()
@@ -248,7 +255,7 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
                 }
                 if (state.rules.goals.isNotEmpty()) RowDivider()
                 Box(Modifier.fillMaxWidth().padding(Space.XS), contentAlignment = Alignment.Center) {
-                    AuroraButton("Add a goal", { addingGoal = true }, kind = ButtonKind.Quiet, icon = AuroraIcons.Target)
+                    AuroraButton(stringResource(R.string.insights_add_a_goal), { addingGoal = true }, kind = ButtonKind.Quiet, icon = AuroraIcons.Target)
                 }
             }
         }
@@ -257,25 +264,25 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
             val today = LocalDate.now()
             val light = state.history.light(today)
             val level = levelFor(state.history.totalXp())
-            SectionLabel("Progress")
+            SectionLabel(stringResource(R.string.insights_progress))
             RowGroup {
                 AuroraLight(light.glow, light.rise, Modifier.fillMaxWidth().height(120.dp))
                 Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${level.name} · level ${level.number}", Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                        Text("${state.history.day(today).xp()} XP today", color = colors.textSecondary, style = AuroraType.Caption)
+                        Text(stringResource(R.string.insights_level , level.name, level.number), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                        Text(stringResource(R.string.insights_xp_today , state.history.day(today).xp()), color = colors.textSecondary, style = AuroraType.Caption)
                     }
                     ProgressLine(level.progress)
                     Text(
-                        "${level.intoLevel} of ${level.levelSize} XP to the next level · ${state.history.steadyDays(today)} days in a row · light from ${light.activeDays} of the last 7 days",
+                        stringResource(R.string.insights_progress_detail , level.intoLevel, level.levelSize, state.history.steadyDays(today), light.activeDays),
                         color = colors.textSecondary,
                         style = AuroraType.Caption,
                     )
                 }
             }
             Text(
-                "XP comes only from completed Focus, stepping back at a Shield or an intentional opening, and committed Always Block time, with a daily cap. " +
-                    "aurora can't see whether you were truly focused, so leaving a timer running earns no more than the cap.",
+                stringResource(R.string.insights_xp_comes_only_from_completed_focus_stepping_back_at_a_shield_or) +
+                    stringResource(R.string.insights_aurora_can_t_see_whether_you_were_truly_focused_so_leaving_a_tim),
                 Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S),
                 color = colors.textTertiary,
                 style = AuroraType.Caption,
@@ -284,8 +291,8 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
 
         item(key = "footnote") {
             Text(
-                "Screen time is calculated on this phone from Android's usage records, which Android keeps for a limited time. " +
-                    "Days without records show “—”. Totals can differ slightly from Digital Wellbeing.",
+                stringResource(R.string.insights_screen_time_is_calculated_on_this_phone_from_android_s_usage_rec) +
+                    stringResource(R.string.insights_days_without_records_show_totals_can_differ_slightly_from_digita),
                 Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L),
                 color = colors.textTertiary,
                 style = AuroraType.Caption,
@@ -295,12 +302,12 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
 
     if (addingGoal) GoalDialog({ addingGoal = false }) { vm.addGoal(it); addingGoal = false }
     if (plusNote) AuroraDialog(
-        title = "30 days is part of plus",
-        body = "aurora Free shows today and the last 7 days. aurora plus adds a 30-day view.",
-        confirmLabel = "Got it",
+        title = stringResource(R.string.insights_30_days_is_part_of_plus),
+        body = stringResource(R.string.insights_aurora_free_shows_today_and_the_last_7_days_aurora_plus_adds_a_3),
+        confirmLabel = stringResource(R.string.settings_got_it),
         onConfirm = { plusNote = false },
         onDismiss = { plusNote = false },
-    ) { AuroraButton("About aurora plus", { plusNote = false; onPlus() }, kind = ButtonKind.Quiet) }
+    ) { AuroraButton(stringResource(R.string.insights_about_aurora_plus), { plusNote = false; onPlus() }, kind = ButtonKind.Quiet) }
 }
 
 /** Restrained daily bars. Today is full strength; days without records are a faint dash, never a zero bar. */
@@ -309,7 +316,8 @@ private fun DayBars(days: List<DayUsage>) {
     val colors = Aurora.colors
     val locale = LocalLocale.current.platformLocale
     val max = days.mapNotNull { it.total }.maxOrNull()?.coerceAtLeast(60_000L) ?: 1L
-    val spoken = days.joinToString(", ") { d -> "${d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale)} ${d.total?.let(::formatDuration) ?: "no data"}" }
+    val noData = stringResource(R.string.insights_no_data)
+    val spoken = days.joinToString(", ") { d -> "${d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale)} ${d.total?.let(::formatDuration) ?: noData}" }
     Column(Modifier.semantics(mergeDescendants = true) { contentDescription = "Screen time by day: $spoken" }) {
         Canvas(Modifier.fillMaxWidth().height(120.dp)) {
             val slot = size.width / days.size
@@ -352,13 +360,14 @@ private fun GoalRow(goal: Goal, days: List<DayUsage>, stats: List<DayStats>, onR
     }
     val met = results.count { it.met == true }
     val measured = results.count { it.met != null }
+    val metText = stringResource(R.string.insights_goal_met, met, measured)
     Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(goal.kind.title(goal.target), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
-            AuroraButton("Remove", onRemove, kind = ButtonKind.Quiet)
+            AuroraButton(stringResource(R.string.insights_remove), onRemove, kind = ButtonKind.Quiet)
         }
         if (days.size > 1) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Met on $met of $measured measured days" }) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = metText }) {
                 results.forEach { r ->
                     Box(
                         Modifier.size(10.dp).clip(Radius.Pill).background(
@@ -371,14 +380,14 @@ private fun GoalRow(goal: Goal, days: List<DayUsage>, stats: List<DayStats>, onR
                     )
                 }
             }
-            Text("Met on $met of $measured measured days", color = colors.textSecondary, style = AuroraType.Caption)
+            Text(metText, color = colors.textSecondary, style = AuroraType.Caption)
         } else {
             val r = results.single()
-            if (r.value == null) Text("Needs usage access to measure", color = colors.textTertiary, style = AuroraType.Caption)
+            if (r.value == null) Text(stringResource(R.string.insights_needs_usage_access_to_measure), color = colors.textTertiary, style = AuroraType.Caption)
             else {
                 ProgressLine(r.value.toFloat() / goal.target.coerceAtLeast(1), warm = r.met == false)
                 Text(
-                    "${r.value} of ${goal.target}${if (goal.kind == GoalKind.OpensUnder) "" else " min"} today",
+                    stringResource(R.string.insights_goal_today , r.value, goal.target, if (goal.kind == GoalKind.OpensUnder) "" else " min"),
                     color = colors.textSecondary,
                     style = AuroraType.Caption,
                 )
@@ -398,10 +407,10 @@ private fun GoalDialog(onDismiss: () -> Unit, onAdd: (Goal) -> Unit) {
     }
     var target by remember(kind) { mutableStateOf(options[1]) }
     AuroraDialog(
-        title = "A goal for each day",
-        confirmLabel = "Add goal",
+        title = stringResource(R.string.insights_a_goal_for_each_day),
+        confirmLabel = stringResource(R.string.insights_add_goal),
         onConfirm = { onAdd(Goal(UUID.randomUUID().toString(), kind, target)) },
-        dismissLabel = "Cancel",
+        dismissLabel = stringResource(R.string.action_cancel),
         onDismiss = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
@@ -409,10 +418,10 @@ private fun GoalDialog(onDismiss: () -> Unit, onAdd: (Goal) -> Unit) {
                 for (k in GoalKind.entries) {
                     RadioRow(
                         when (k) {
-                            GoalKind.ScreenTimeUnder -> "Less screen time"
-                            GoalKind.ProtectedTimeUnder -> "Less time in protected apps"
-                            GoalKind.FocusAtLeast -> "More focus"
-                            GoalKind.OpensUnder -> "Fewer unplanned openings"
+                            GoalKind.ScreenTimeUnder -> stringResource(R.string.insights_less_screen_time)
+                            GoalKind.ProtectedTimeUnder -> stringResource(R.string.insights_less_time_in_protected_apps)
+                            GoalKind.FocusAtLeast -> stringResource(R.string.insights_more_focus)
+                            GoalKind.OpensUnder -> stringResource(R.string.insights_fewer_unplanned_openings)
                         },
                         subtitle = null,
                         selected = kind == k,
@@ -429,12 +438,13 @@ private fun GoalDialog(onDismiss: () -> Unit, onAdd: (Goal) -> Unit) {
 @Composable
 private fun UsageBar(row: UsageRow, fraction: Float) {
     val colors = Aurora.colors
+    val protectedSuffix = stringResource(R.string.insights_protected_suffix)
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = Space.Gutter, vertical = Space.S)
             .semantics(mergeDescendants = true) {
-                contentDescription = "${row.label}, ${formatDuration(row.ms)}" + if (row.onList) ", protected" else ""
+                contentDescription = "${row.label}, ${formatDuration(row.ms)}" + if (row.onList) protectedSuffix else ""
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.M),
@@ -456,7 +466,7 @@ private fun UsageBar(row: UsageRow, fraction: Float) {
             ProgressLine(fraction.coerceIn(0.02f, 1f), warm = row.onList)
             if (row.onList) {
                 Spacer(Modifier.height(4.dp))
-                Text("protected", color = colors.dawnText, style = AuroraType.Caption)
+                Text(stringResource(R.string.insights_protected), color = colors.dawnText, style = AuroraType.Caption)
             }
         }
     }

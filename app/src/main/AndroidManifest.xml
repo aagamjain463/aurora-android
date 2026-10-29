@@ -57,15 +57,6 @@
             </intent-filter>
         </activity>
 
-        <!-- The Shield: its own task, out of Recents, so finishing it never reveals the protected app. -->
-        <activity
-            android:name=".protect.ShieldActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:taskAffinity="app.aurora.shield"
-            android:theme="@style/Theme.Aurora.Shield" />
-
         <!-- Only the person can turn this on, in Android's Accessibility settings. It reads the name of
              the app in front and nothing else (res/xml/shield_service.xml). -->
         <service

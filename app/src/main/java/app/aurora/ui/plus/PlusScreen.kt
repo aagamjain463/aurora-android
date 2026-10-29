@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.aurora.R
 import app.aurora.AuroraApplication
 import app.aurora.BuildConfig
 import app.aurora.plan.Allowance
@@ -39,22 +41,11 @@ import app.aurora.ui.components.Notice
 import app.aurora.ui.components.RowDivider
 import app.aurora.ui.components.RowGroup
 import app.aurora.ui.components.SectionLabel
+import app.aurora.ui.components.minutesText
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
 import kotlinx.coroutines.launch
-
-/** (feature, Free, Plus) */
-private val Compare = listOf(
-    Triple("Protected apps and sites", "${FreeLimits.getValue(Allowance.ProtectedItems)}", "Unlimited"),
-    Triple("Always Block time each day", "${FreeLimits.getValue(Allowance.AlwaysBlockMinutesPerDay)} min", "Unlimited"),
-    Triple("Apps with Intentional App Opening", "${FreeLimits.getValue(Allowance.IntentApps)}", "Unlimited"),
-    Triple("Daily limits", "${FreeLimits.getValue(Allowance.DailyLimitRules)}", "Unlimited"),
-    Triple("Schedules", "${FreeLimits.getValue(Allowance.Schedules)}", "Unlimited"),
-    Triple("Focus profiles", "${FreeLimits.getValue(Allowance.FocusProfiles)}", "Unlimited"),
-    Triple("Focus sessions, goals, progress", "Included", "Included"),
-    Triple("Insights", "Today and this week", "Plus 30 days"),
-)
 
 /**
  * aurora plus. Calm and honest: what Free already includes, what Plus adds, prices exactly as Google Play
@@ -68,34 +59,46 @@ fun PlusScreen(onBack: () -> Unit) {
     val plan by app.billing.plan.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val colors = Aurora.colors
+    val compare = listOf(
+    Triple(stringResource(R.string.plus_compare_items), "${FreeLimits.getValue(Allowance.ProtectedItems)}", stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_always), minutesText(FreeLimits.getValue(Allowance.AlwaysBlockMinutesPerDay)), stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_intent), "${FreeLimits.getValue(Allowance.IntentApps)}", stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.limits_name), "${FreeLimits.getValue(Allowance.DailyLimitRules)}", stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.schedules_name), "${FreeLimits.getValue(Allowance.Schedules)}", stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_profiles), "${FreeLimits.getValue(Allowance.FocusProfiles)}", stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_included), stringResource(R.string.plus_included), stringResource(R.string.plus_included)),
+    Triple(stringResource(R.string.tab_insights), stringResource(R.string.plus_period_week), stringResource(R.string.plus_period_month)),
+)
+
+
     LaunchedEffect(Unit) { app.billing.connect() }
 
-    AuroraScreen(title = "aurora plus", onBack = onBack) {
+    AuroraScreen(title = stringResource(R.string.plus_name), onBack = onBack) {
         item(key = "hero") {
             AuroraLight(glow = 0.85f, rise = 0.7f, warmth = 0.6f, modifier = Modifier.fillMaxWidth().height(160.dp))
             Column(Modifier.padding(horizontal = Space.Gutter)) {
                 Text(
-                    if (plan == Plan.Plus) "You have aurora plus." else "More room, for every part of your day.",
+                    if (plan == Plan.Plus) stringResource(R.string.plus_you_have_aurora_plus) else stringResource(R.string.plus_more_room_for_every_part_of_your_day),
                     color = colors.textPrimary,
                     style = AuroraType.Headline,
                 )
                 Spacer(Modifier.height(Space.XS))
                 Text(
-                    "Free protects just as strongly as Plus. Plus removes the limits, so aurora can cover everything you care about.",
+                    stringResource(R.string.plus_free_protects_just_as_strongly_as_plus_plus_removes_the_limits_s),
                     color = colors.textSecondary,
                     style = AuroraType.Body,
                 )
             }
         }
         item(key = "compare") {
-            SectionLabel("Free and plus")
+            SectionLabel(stringResource(R.string.plus_free_and_plus))
             RowGroup {
                 Row(Modifier.fillMaxWidth().padding(horizontal = Space.M, vertical = Space.S)) {
                     Spacer(Modifier.weight(1f))
-                    Text("free", Modifier.width(88.dp), color = colors.textTertiary, style = AuroraType.Eyebrow, textAlign = TextAlign.End)
-                    Text("plus", Modifier.width(96.dp), color = colors.accent, style = AuroraType.Eyebrow, textAlign = TextAlign.End)
+                    Text(stringResource(R.string.plus_free), Modifier.width(88.dp), color = colors.textTertiary, style = AuroraType.Eyebrow, textAlign = TextAlign.End)
+                    Text(stringResource(R.string.settings_plus), Modifier.width(96.dp), color = colors.accent, style = AuroraType.Eyebrow, textAlign = TextAlign.End)
                 }
-                Compare.forEach { (feature, free, plus) ->
+                compare.forEach { (feature, free, plus) ->
                     RowDivider()
                     Row(Modifier.fillMaxWidth().padding(Space.M).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
                         Text(feature, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Secondary)
@@ -105,35 +108,35 @@ fun PlusScreen(onBack: () -> Unit) {
                 }
             }
             Text(
-                "Downgrading never deletes anything. Items past Free's limits are saved and paused, and you choose which ones stay on.",
+                stringResource(R.string.plus_downgrading_never_deletes_anything_items_past_free_s_limits_are),
                 Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S),
                 color = colors.textTertiary,
                 style = AuroraType.Caption,
             )
         }
         item(key = "buy") {
-            SectionLabel(if (plan == Plan.Plus) "Your subscription" else "Choose a plan")
+            SectionLabel(if (plan == Plan.Plus) stringResource(R.string.plus_your_subscription) else stringResource(R.string.plus_choose_a_plan))
             Column(Modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                 when {
-                    plan == Plan.Plus -> AuroraButton("Manage in Google Play", { openSubscriptionSettings(context, BuildConfig.PLUS_PRODUCT_ID) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
-                    billing.connection == BillingState.Connection.Connecting -> Text("Checking Google Play…", color = colors.textSecondary, style = AuroraType.Secondary)
+                    plan == Plan.Plus -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, BuildConfig.PLUS_PRODUCT_ID) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+                    billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = colors.textSecondary, style = AuroraType.Secondary)
                     billing.offers.isEmpty() -> Unit
                     else -> billing.offers.forEach { offer ->
                         AuroraButton(
-                            "${offer.price} ${if (offer.yearly) "a year" else "a month"}",
+                            stringResource(if (offer.yearly) R.string.plus_year_price else R.string.plus_month_price, offer.price),
                             { context.activity()?.let { app.billing.buy(it, offer) } },
                             Modifier.fillMaxWidth(),
                             kind = if (offer.yearly) ButtonKind.Primary else ButtonKind.Secondary,
                         )
                     }
                 }
-                if (billing.pending) Notice("Payment pending", "Google Play is waiting for your payment. Plus starts once it completes; nothing is charged twice.")
-                billing.message?.let { Notice("Google Play", it) }
+                if (billing.pending) Notice(stringResource(R.string.plus_payment_pending), stringResource(R.string.plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp))
+                billing.message?.let { Notice(stringResource(R.string.plus_google_play), it) }
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    AuroraButton("Restore purchases", { scope.launch { runCatching { app.billing.refresh() } } }, kind = ButtonKind.Quiet)
+                    AuroraButton(stringResource(R.string.plus_restore_purchases), { scope.launch { runCatching { app.billing.refresh() } } }, kind = ButtonKind.Quiet)
                 }
                 Text(
-                    "Subscriptions renew until you cancel. Cancel any time in Google Play › Payments & subscriptions; Plus stays until the end of the period you paid for.",
+                    stringResource(R.string.plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p),
                     color = colors.textTertiary,
                     style = AuroraType.Caption,
                 )

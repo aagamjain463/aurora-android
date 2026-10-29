@@ -78,7 +78,10 @@ class Interceptor(
     fun onWindow(packageName: String?, eventUptime: Long, receivedUptime: Long, ownApp: Boolean = false) {
         // A late event from the app the person just left with Return home (one opening sends 2–3, spread
         // over half a second) is not a new opening. Without this the Shield reappeared over the home screen.
-        if (packageName != null && packageName == leftApp && uptime() - leftAt < LeftGraceMs) return
+        if (packageName != null && packageName == leftApp && uptime() - leftAt < LeftGraceMs &&
+            (leftObservedAt == null || eventUptime <= leftObservedAt!!)) return
+        if (leftApp != null && packageName != null && packageName != leftApp && packageName !in overlays &&
+            (packageName != ownPackage || ownApp)) leftObservedAt = eventUptime
         val current = snapshot()
         val decision = decide(packageName, wallClock(), current)
         trace.decided(decision, receivedUptime)
@@ -97,9 +100,10 @@ class Interceptor(
                     presenter.dismiss()
                     leftApp = shownFor
                     leftAt = uptime()
+                    leftObservedAt = eventUptime
                     shownFor = null
-                    lastApp = null
                 }
+                if (ownApp) lastApp = null
             }
             // A real app or the launcher is in front. A Shield started for an earlier app must not
             // appear over it, or stay behind it.
@@ -181,6 +185,7 @@ class Interceptor(
         if (home) {
             leftApp = pkg
             leftAt = uptime()
+            leftObservedAt = null
             lastApp = null
         } else {
             recheck()
@@ -189,6 +194,8 @@ class Interceptor(
 
     private var leftApp: String? = null
     private var leftAt = 0L
+    /** A real window after leaving confirms that a newer protected event is a genuine reopening. */
+    private var leftObservedAt: Long? = null
 
     /** The presenter reports that the Shield left the screen without the person closing it. */
     fun shieldHidden() {

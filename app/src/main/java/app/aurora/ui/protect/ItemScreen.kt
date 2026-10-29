@@ -72,7 +72,7 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
         onBack = onBack,
         header = {
             Row(Modifier.padding(horizontal = Space.Gutter, vertical = Space.S), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M)) {
-                ItemIcon(key, d, 64.dp)
+                ItemIcon(key, d, size = 64.dp)
                 Column {
                     Text(d?.label(key).orEmpty(), color = colors.textPrimary, style = AuroraType.Display)
                     if (website) Text(stringResource(R.string.item_website), color = colors.textSecondary, style = AuroraType.Secondary)

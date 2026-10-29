@@ -7,7 +7,4 @@
         <item name="android:windowSplashScreenIconBackgroundColor">@color/aurora_icon_background</item>
     </style>
 
-    <style name="Theme.Aurora.Shield">
-        <item name="android:windowAnimationStyle">@null</item>
-    </style>
 </resources>

@@ -64,7 +64,7 @@ import app.aurora.reflectionStart
 import app.aurora.startIntent
 import app.aurora.wentBack
 import app.aurora.ui.components.AuroraButton
-import app.aurora.ui.components.AuroraLight
+import app.aurora.ui.components.AuroraLandscape
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
@@ -143,7 +143,7 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
 private fun ShieldFrame(label: String, icon: ImageBitmap?, content: @Composable () -> Unit) {
     val colors = Aurora.colors
     Box(Modifier.fillMaxSize().background(colors.sky)) {
-        AuroraLight(glow = 0.35f, rise = 0.1f, modifier = Modifier.fillMaxWidth().height(260.dp))
+        AuroraLandscape(Modifier.fillMaxWidth().height(260.dp))
         Column(
             Modifier
                 .fillMaxSize()

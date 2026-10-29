@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.aurora.R
 import app.aurora.AuroraApplication
 import app.aurora.auroraViewModel
 import app.aurora.data.FocusLengths
@@ -199,9 +201,9 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
             .imePadding(),
     ) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.XS), verticalAlignment = Alignment.CenterVertically) {
-            AuroraIconButton(AuroraIcons.Close, "Close", onClose)
+            AuroraIconButton(AuroraIcons.Close, stringResource(R.string.action_close), onClose)
             Text(
-                "Focus",
+                stringResource(R.string.focus_name),
                 Modifier.weight(1f).semantics { heading() },
                 color = colors.textPrimary,
                 style = AuroraType.BodyStrong,
@@ -243,12 +245,12 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                 }
                 Column(Modifier.padding(horizontal = Space.Gutter, vertical = Space.M)) {
                     when (p) {
-                        Phase.Setup -> AuroraButton("Begin focus", {
+                        Phase.Setup -> AuroraButton(stringResource(R.string.focus_begin_focus), {
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                             vm.start(minutes, profile, intention)
                         }, Modifier.fillMaxWidth())
-                        Phase.Running -> AuroraButton("End session", { confirmEnd = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
-                        Phase.Complete -> AuroraButton("Done", { vm.done(onClose) }, Modifier.fillMaxWidth())
+                        Phase.Running -> AuroraButton(stringResource(R.string.focus_end_session), { confirmEnd = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+                        Phase.Complete -> AuroraButton(stringResource(R.string.settings_done), { vm.done(onClose) }, Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -259,11 +261,11 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
     LaunchedEffect(phase) { if (phase != Phase.Running) confirmEnd = false }
     if (confirmEnd && phase == Phase.Running && session != null) {
         AuroraDialog(
-            title = "End this session?",
-            body = "You've focused for ${formatDuration(session.elapsed(s.time))}. Stopping early is completely fine; it still counts as time focused.",
-            confirmLabel = "End session",
+            title = stringResource(R.string.focus_end_this_session),
+            body = stringResource(R.string.focus_end_body , formatDuration(session.elapsed(s.time))),
+            confirmLabel = stringResource(R.string.focus_end_session),
             onConfirm = { confirmEnd = false; vm.endEarly(onClose) },
-            dismissLabel = "Keep going",
+            dismissLabel = stringResource(R.string.focus_keep_going),
             onDismiss = { confirmEnd = false },
         )
     }
@@ -274,12 +276,12 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
             onDismiss = { editing = null })
     }
     if (showPlus) AuroraDialog(
-        title = "One Focus profile on Free",
-        body = "aurora plus adds a profile for each kind of focus, like study, reading or deep work, each with its own apps and length. Sessions themselves are unlimited on Free.",
-        confirmLabel = "Got it",
+        title = stringResource(R.string.focus_one_focus_profile_on_free),
+        body = stringResource(R.string.focus_aurora_plus_adds_a_profile_for_each_kind_of_focus_like_study_rea),
+        confirmLabel = stringResource(R.string.settings_got_it),
         onConfirm = { showPlus = false },
         onDismiss = { showPlus = false },
-    ) { AuroraButton("About aurora plus", { showPlus = false; onPlus() }, kind = ButtonKind.Quiet) }
+    ) { AuroraButton(stringResource(R.string.insights_about_aurora_plus), { showPlus = false; onPlus() }, kind = ButtonKind.Quiet) }
 }
 
 /** The arc with the horizon glow rising behind it and a readout under its curve. */
@@ -293,6 +295,7 @@ private fun ArcStage(
     readout: @Composable () -> Unit,
 ) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+        if (Aurora.colors.isDark) app.aurora.ui.components.AuroraLandscape(Modifier.matchParentSize())
         HorizonGlow(glow, Modifier.matchParentSize(), warmth = warmth, breathing = breathing, horizon = true)
         HorizonArc(progress, Modifier.fillMaxWidth().padding(top = Space.XL), complete = complete)
         Column(Modifier.padding(bottom = Space.L), horizontalAlignment = Alignment.CenterHorizontally) { readout() }
@@ -300,14 +303,15 @@ private fun ArcStage(
 }
 
 /** What Focus holds back, in words, and whether Shield can actually do it. */
+@Composable
 private fun holds(s: FocusState, groupId: String?, protection: ProtectionStatus?): String {
     val keys = s.rules.cover(groupId, s.activeKeys)
     val group = groupId?.let { id -> s.rules.groups.find { it.id == id }?.name }
     return when {
-        keys.isEmpty() && s.activeKeys.isEmpty() -> "Protect some apps, and Focus will hold them back while it runs."
-        keys.isEmpty() -> "${group ?: "This group"} has no protected apps yet, so nothing is held back."
-        protection != ProtectionStatus.Active -> "Shield isn't on, so Focus can't hold apps back yet. Turn it on in Protect."
-        else -> "Shield holds back ${group?.let { "$it · " }.orEmpty()}${keys.size} ${if (keys.size == 1) "item" else "items"} until it ends."
+        keys.isEmpty() && s.activeKeys.isEmpty() -> stringResource(R.string.focus_holds_empty)
+        keys.isEmpty() -> stringResource(R.string.focus_group_empty , group ?: stringResource(R.string.focus_this_group))
+        protection != ProtectionStatus.Active -> stringResource(R.string.focus_holds_off)
+        else -> stringResource(R.string.focus_holds_on , group?.let { "$it · " }.orEmpty(), keys.size)
     }
 }
 
@@ -333,8 +337,8 @@ private fun Setup(
     Spacer(Modifier.height(Space.L))
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
         ChoicePills(profiles, profile, onProfile, label = { it.name }, modifier = Modifier.weight(1f, fill = false))
-        AuroraIconButton(AuroraIcons.Edit, "Edit ${profile.name}", { onEdit(profile) })
-        AuroraIconButton(AuroraIcons.Plus, "New profile", onNew)
+        AuroraIconButton(AuroraIcons.Edit, stringResource(R.string.focus_edit_profile_label , profile.name), { onEdit(profile) })
+        AuroraIconButton(AuroraIcons.Plus, stringResource(R.string.focus_new_profile), onNew)
     }
     Spacer(Modifier.height(Space.M))
     app.aurora.ui.components.DurationPicker(
@@ -347,7 +351,7 @@ private fun Setup(
     AuroraTextField(
         value = intention,
         onValueChange = { if (it.length <= 60) onIntention(it) },
-        placeholder = "What's this time for? (optional)",
+        placeholder = stringResource(R.string.focus_what_s_this_time_for_optional),
         capitalization = KeyboardCapitalization.Sentences,
     )
     Spacer(Modifier.height(Space.M))
@@ -358,25 +362,26 @@ private fun Setup(
 private fun Running(session: Session, s: FocusState, protection: ProtectionStatus?) {
     val colors = Aurora.colors
     val remaining = session.remaining(s.time)
-    StatusPill(if (protection == ProtectionStatus.Active) "Shield is holding" else "Timer only · Shield is off", live = protection == ProtectionStatus.Active)
+    val spokenRemaining = stringResource(R.string.focus_spoken_remaining , spokenDuration(remaining))
+    StatusPill(if (protection == ProtectionStatus.Active) stringResource(R.string.focus_shield_is_holding) else stringResource(R.string.focus_timer_only_shield_is_off), live = protection == ProtectionStatus.Active)
     Spacer(Modifier.height(Space.M))
-    Text(session.intention.ifBlank { s.rules.profiles.find { it.id == session.profileId }?.name ?: "Focus session" }, color = colors.textPrimary, style = AuroraType.Title, textAlign = TextAlign.Center)
+    Text(session.intention.ifBlank { s.rules.profiles.find { it.id == session.profileId }?.name ?: stringResource(R.string.focus_focus_session) }, color = colors.textPrimary, style = AuroraType.Title, textAlign = TextAlign.Center)
     Spacer(Modifier.height(Space.XS))
-    Text("Ends at ${clockTime(session.endWall(s.time))}", color = colors.textSecondary, style = AuroraType.Secondary)
+    Text(stringResource(R.string.focus_ends_at , clockTime(session.endWall(s.time))), color = colors.textSecondary, style = AuroraType.Secondary)
     Spacer(Modifier.height(Space.L))
     ArcStage(progress = session.progress(s.time), glow = 1f, warmth = 0.15f, breathing = true) {
         Text(
             formatClock(remaining),
-            Modifier.clearAndSetSemantics { contentDescription = "${spokenDuration(remaining)} remaining" },
+            Modifier.clearAndSetSemantics { contentDescription = spokenRemaining },
             color = colors.textPrimary,
             style = AuroraType.Hero,
         )
-        Text("remaining", color = colors.textSecondary, style = AuroraType.Caption)
+        Text(stringResource(R.string.focus_remaining), color = colors.textSecondary, style = AuroraType.Caption)
     }
     Spacer(Modifier.height(Space.XL))
     Text(holds(s, session.groupId, protection), color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center)
     Spacer(Modifier.height(Space.XS))
-    Text("You can leave this screen. aurora keeps time.", color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center)
+    Text(stringResource(R.string.focus_you_can_leave_this_screen_aurora_keeps_time), color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center)
 }
 
 @Composable
@@ -385,21 +390,21 @@ private fun Complete(session: Session, s: FocusState) {
     val minutes = session.durationMs / 60_000
     ArcStage(progress = 1f, glow = 1f, warmth = 1f, breathing = false, complete = true) {
         Text("$minutes", color = colors.textPrimary, style = AuroraType.Hero)
-        Text("minutes focused", color = colors.textSecondary, style = AuroraType.Caption)
+        Text(stringResource(R.string.focus_minutes_focused), color = colors.textSecondary, style = AuroraType.Caption)
     }
     Spacer(Modifier.height(Space.XL))
-    Text("Time well spent.", Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
+    Text(stringResource(R.string.focus_time_well_spent), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
     Spacer(Modifier.height(Space.XS))
     Text(
-        if (session.intention.isBlank()) "You gave yourself $minutes minutes of focus. It's added to your progress."
-        else "You gave $minutes minutes to “${session.intention}”. It's added to your progress.",
+        if (session.intention.isBlank()) stringResource(R.string.focus_complete_body , app.aurora.ui.components.minutesText(minutes.toInt()))
+        else stringResource(R.string.focus_complete_intention , app.aurora.ui.components.minutesText(minutes.toInt()), session.intention),
         color = colors.textSecondary,
         style = AuroraType.Body,
         textAlign = TextAlign.Center,
     )
     s.rules.motivations.firstOrNull()?.let {
         Spacer(Modifier.height(Space.S))
-        Text("More time for ${it.lowercase()}.", color = colors.dawnText, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+        Text(stringResource(R.string.focus_more_time_for , it.lowercase()), color = colors.dawnText, style = AuroraType.Secondary, textAlign = TextAlign.Center)
     }
 }
 
@@ -416,18 +421,20 @@ private fun ProfileEditor(
     var name by rememberSaveable(profile.id) { mutableStateOf(profile.name) }
     var minutes by rememberSaveable(profile.id) { mutableIntStateOf(profile.minutes) }
     var group by remember(profile.id) { mutableStateOf(profile.groupId) }
+    val defaultName = stringResource(R.string.focus_name)
+    val allProtected = stringResource(R.string.focus_all_protected)
     AuroraDialog(
-        title = if (isNew) "New profile" else "Edit profile",
-        confirmLabel = "Save",
-        onConfirm = { onSave(profile.copy(name = name.trim().ifBlank { "Focus" }, minutes = minutes, groupId = group)) },
-        dismissLabel = "Cancel",
+        title = if (isNew) stringResource(R.string.focus_new_profile) else stringResource(R.string.focus_edit_profile),
+        confirmLabel = stringResource(R.string.action_save),
+        onConfirm = { onSave(profile.copy(name = name.trim().ifBlank { defaultName }, minutes = minutes, groupId = group)) },
+        dismissLabel = stringResource(R.string.action_cancel),
         onDismiss = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
-            AuroraTextField(name, { if (it.length <= 24) name = it }, "Study, Reading, Deep work…", capitalization = KeyboardCapitalization.Words)
+            AuroraTextField(name, { if (it.length <= 24) name = it }, stringResource(R.string.focus_study_reading_deep_work), capitalization = KeyboardCapitalization.Words)
             ChoicePills(FocusLengths, minutes, { minutes = it }, label = { "$it" }, fill = true, spokenLabel = { "$it minutes" })
-            ChoicePills(listOf<String?>(null) + rules.groups.map { it.id }, group, { group = it }, label = { id -> id?.let { g -> rules.groups.find { it.id == g }?.name } ?: "All protected" })
-            if (!isNew && canDelete) AuroraButton("Delete profile", { onDelete(profile) }, kind = ButtonKind.Quiet)
+            ChoicePills(listOf<String?>(null) + rules.groups.map { it.id }, group, { group = it }, label = { id -> id?.let { g -> rules.groups.find { it.id == g }?.name } ?: allProtected })
+            if (!isNew && canDelete) AuroraButton(stringResource(R.string.focus_delete_profile), { onDelete(profile) }, kind = ButtonKind.Quiet)
         }
     }
 }

@@ -134,7 +134,7 @@ fun StartScreen(preselect: String?, onBack: () -> Unit, onDone: () -> Unit, onPl
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(Space.M),
                             ) {
-                                ItemIcon(key, d, 40.dp)
+                                ItemIcon(key, d, size = 40.dp)
                                 Text(d.label(key), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
                                 SelectionMark(on)
                             }

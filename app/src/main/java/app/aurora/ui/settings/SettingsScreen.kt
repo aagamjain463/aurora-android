@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.aurora.R
 import app.aurora.AuroraApplication
 import app.aurora.BuildConfig
 import app.aurora.auroraViewModel
@@ -108,34 +110,34 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
 
     @Composable
     fun Allowed(on: Boolean) {
-        Text(if (on) "Allowed" else "Off", color = if (on) colors.accent else colors.textSecondary, style = AuroraType.Secondary)
+        Text(if (on) stringResource(R.string.settings_allowed) else stringResource(R.string.intent_off), color = if (on) colors.accent else colors.textSecondary, style = AuroraType.Secondary)
         Chevron()
     }
 
-    AuroraScreen(title = "Settings", onBack = onBack) {
+    AuroraScreen(title = stringResource(R.string.settings_title), onBack = onBack) {
         item(key = "plan") {
-            SectionLabel("Plan")
+            SectionLabel(stringResource(R.string.settings_plan))
             RowGroup {
                 AuroraRow(
-                    title = if (plan == Plan.Plus) "aurora plus" else "aurora Free",
-                    subtitle = if (plan == Plan.Plus) "Everything unlocked. Manage or restore your subscription." else "Full-strength protection, with a few limits. See what plus adds.",
+                    title = if (plan == Plan.Plus) stringResource(R.string.plus_name) else stringResource(R.string.settings_aurora_free),
+                    subtitle = if (plan == Plan.Plus) stringResource(R.string.settings_everything_unlocked_manage_or_restore_your_subscription) else stringResource(R.string.settings_full_strength_protection_with_a_few_limits_see_what_plus_adds),
                     icon = AuroraIcons.Spark,
                     onClick = onPlus,
-                    trailing = { if (plan == Plan.Plus) Tag("plus", accent = true); Chevron() },
+                    trailing = { if (plan == Plan.Plus) Tag(stringResource(R.string.settings_plus), accent = true); Chevron() },
                 )
             }
         }
         item(key = "appearance") {
-            SectionLabel("Appearance")
+            SectionLabel(stringResource(R.string.settings_appearance))
             RowGroup {
                 Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                    Text("Theme", color = colors.textPrimary, style = AuroraType.BodyStrong)
+                    Text(stringResource(R.string.settings_theme), color = colors.textPrimary, style = AuroraType.BodyStrong)
                     ChoicePills(ThemeMode.entries, prefs.themeMode, vm::setTheme, fill = true, label = { it.name })
                 }
                 RowDivider()
                 ToggleRow(
-                    title = "Reduce motion",
-                    subtitle = if (systemReduced) "On, because animations are off in Android settings." else "No ambient movement or sliding transitions.",
+                    title = stringResource(R.string.settings_reduce_motion),
+                    subtitle = if (systemReduced) stringResource(R.string.settings_on_because_animations_are_off_in_android_settings) else stringResource(R.string.settings_no_ambient_movement_or_sliding_transitions),
                     checked = prefs.reduceMotion || systemReduced,
                     enabled = !systemReduced,
                     onCheckedChange = vm::setReduceMotion,
@@ -143,10 +145,10 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             }
         }
         item(key = "protection") {
-            SectionLabel("Protection")
+            SectionLabel(stringResource(R.string.today_protection_title))
             RowGroup {
                 AuroraRow(
-                    title = "Preferred mode for new apps",
+                    title = stringResource(R.string.settings_preferred_mode_for_new_apps),
                     subtitle = modeName(rules.defaultRule.mode),
                     icon = AuroraIcons.Protect,
                     onClick = { sheet = Sheet.DefaultMode },
@@ -154,7 +156,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
                 )
                 RowDivider(56.dp)
                 AuroraRow(
-                    title = "Shield",
+                    title = stringResource(R.string.onb_shield_eyebrow),
                     subtitle = when {
                         protection == null -> Access.Accessibility.why
                         protection == ProtectionStatus.Off && shieldAccess != AccessState.Granted -> Access.Accessibility.why
@@ -167,16 +169,16 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
                 )
                 RowDivider(56.dp)
                 AuroraRow(
-                    title = "Web & content Shield",
-                    subtitle = "Optional. Websites and Shorts/Reels.",
+                    title = stringResource(R.string.settings_web_content_shield),
+                    subtitle = stringResource(R.string.settings_optional_websites_and_shorts_reels),
                     icon = AuroraIcons.Globe,
                     onClick = onOpenProtect,
                     trailing = { Allowed(contentAccess == AccessState.Granted) },
                 )
                 RowDivider(56.dp)
                 AuroraRow(
-                    title = "Shield diagnostics",
-                    subtitle = "What aurora can see about Shield on this phone.",
+                    title = stringResource(R.string.diagnostics_title),
+                    subtitle = stringResource(R.string.settings_what_aurora_can_see_about_shield_on_this_phone),
                     icon = AuroraIcons.Insights,
                     onClick = { sheet = Sheet.Diagnostics },
                     trailing = { Chevron() },
@@ -184,19 +186,19 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             }
         }
         item(key = "permissions") {
-            SectionLabel("Permissions")
+            SectionLabel(stringResource(R.string.settings_permissions))
             RowGroup {
                 AuroraRow(
                     title = Access.Usage.title,
-                    subtitle = if (usageAccess == AccessState.Revoked) "Turned off in Android Settings. Insights and daily limits need it." else "Powers Insights, goals and daily limits. Read on this phone only.",
+                    subtitle = if (usageAccess == AccessState.Revoked) stringResource(R.string.settings_turned_off_in_android_settings_insights_and_daily_limits_need_it) else stringResource(R.string.settings_powers_insights_goals_and_daily_limits_read_on_this_phone_only),
                     icon = AuroraIcons.Insights,
                     onClick = { openAccessSettings(context, Access.Usage) },
                     trailing = { Allowed(usageAccess == AccessState.Granted) },
                 )
                 RowDivider(56.dp)
                 AuroraRow(
-                    title = "Notifications",
-                    subtitle = "aurora doesn't send notifications yet.",
+                    title = stringResource(R.string.settings_notifications),
+                    subtitle = stringResource(R.string.settings_aurora_doesn_t_send_notifications_yet),
                     icon = AuroraIcons.Bell,
                     onClick = { sheet = Sheet.Notifications },
                     trailing = { Chevron() },
@@ -204,27 +206,27 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             }
         }
         item(key = "data") {
-            SectionLabel("Privacy & data")
+            SectionLabel(stringResource(R.string.settings_privacy_data))
             RowGroup {
-                AuroraRow("Your data stays yours", subtitle = "Local-first. No account, no tracking, no internet permission.", icon = AuroraIcons.Data, onClick = { sheet = Sheet.Privacy }, trailing = { Chevron() })
+                AuroraRow(stringResource(R.string.settings_your_data_stays_yours), subtitle = stringResource(R.string.settings_local_first_no_account_no_tracking_no_internet_permission), icon = AuroraIcons.Data, onClick = { sheet = Sheet.Privacy }, trailing = { Chevron() })
                 RowDivider(56.dp)
-                AuroraRow("What aurora stores", subtitle = "See everything kept on this phone.", onClick = { sheet = Sheet.Stored }, trailing = { Chevron() }, leading = { Spacer(Modifier.height(1.dp).padding(start = 24.dp)) })
+                AuroraRow(stringResource(R.string.settings_what_aurora_stores), subtitle = stringResource(R.string.settings_see_everything_kept_on_this_phone), onClick = { sheet = Sheet.Stored }, trailing = { Chevron() }, leading = { Spacer(Modifier.height(1.dp).padding(start = 24.dp)) })
                 RowDivider(56.dp)
-                AuroraRow("Clear history", subtitle = "Daily counts, Focus history and XP.", onClick = { sheet = Sheet.ClearHistory }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
+                AuroraRow(stringResource(R.string.settings_clear_history), subtitle = stringResource(R.string.settings_daily_counts_focus_history_and_xp), onClick = { sheet = Sheet.ClearHistory }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
                 RowDivider(56.dp)
-                AuroraRow("Delete all data", subtitle = "Start again from the beginning.", onClick = { sheet = Sheet.DeleteAll }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
+                AuroraRow(stringResource(R.string.settings_delete_all_data), subtitle = stringResource(R.string.settings_start_again_from_the_beginning), onClick = { sheet = Sheet.DeleteAll }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
             }
         }
         item(key = "about") {
-            SectionLabel("Help & about")
+            SectionLabel(stringResource(R.string.settings_help_about))
             RowGroup {
-                AuroraRow("Troubleshooting", subtitle = "If Shield isn't stepping in.", icon = AuroraIcons.Help, onClick = { sheet = Sheet.Help }, trailing = { Chevron() })
+                AuroraRow(stringResource(R.string.settings_troubleshooting), subtitle = stringResource(R.string.settings_if_shield_isn_t_stepping_in), icon = AuroraIcons.Help, onClick = { sheet = Sheet.Help }, trailing = { Chevron() })
                 RowDivider(56.dp)
-                AuroraRow("Replay introduction", onClick = onReplayIntro, trailing = { Chevron() }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
+                AuroraRow(stringResource(R.string.settings_replay_introduction), onClick = onReplayIntro, trailing = { Chevron() }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
                 RowDivider(56.dp)
-                AuroraRow("Open-source licenses", onClick = { sheet = Sheet.Licenses }, trailing = { Chevron() }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
+                AuroraRow(stringResource(R.string.settings_open_source_licenses), onClick = { sheet = Sheet.Licenses }, trailing = { Chevron() }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
                 RowDivider(56.dp)
-                AuroraRow("Version", leading = { Spacer(Modifier.padding(start = 24.dp)) }, trailing = {
+                AuroraRow(stringResource(R.string.settings_version), leading = { Spacer(Modifier.padding(start = 24.dp)) }, trailing = {
                     Text(BuildConfig.VERSION_NAME, color = colors.textSecondary, style = AuroraType.Secondary)
                 })
             }
@@ -233,7 +235,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             Column(Modifier.fillMaxWidth().padding(top = Space.XXL), horizontalAlignment = Alignment.CenterHorizontally) {
                 AuroraMark(28.dp)
                 Spacer(Modifier.height(Space.S))
-                Text("take back your attention", color = colors.textTertiary, style = AuroraType.Caption)
+                Text(stringResource(R.string.settings_take_back_your_attention), color = colors.textTertiary, style = AuroraType.Caption)
             }
         }
     }
@@ -241,9 +243,9 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
     val close = { sheet = null }
     when (sheet) {
         Sheet.DefaultMode -> AuroraDialog(
-            title = "Preferred mode for new apps",
-            body = "The mode suggested when you start protection for an app you add from now on. You can change any app on its own page.",
-            confirmLabel = "Done",
+            title = stringResource(R.string.settings_preferred_mode_for_new_apps),
+            body = stringResource(R.string.settings_the_mode_suggested_when_you_start_protection_for_an_app_you_add),
+            confirmLabel = stringResource(R.string.settings_done),
             onConfirm = close,
             onDismiss = close,
         ) {
@@ -252,72 +254,72 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             }
         }
         Sheet.Privacy -> AuroraDialog(
-            title = "Your data stays yours",
-            body = "Everything aurora keeps is stored only on this phone: your protected apps and sites, rules, sessions, daily counts and preferences. " +
-                "There's no account, no analytics and no ads, and aurora doesn't have internet access.\n\n" +
-                "Screen time is read from Android when you open Insights or Today, and when a daily limit needs it. It isn't copied or shared.\n\n" +
-                "Shield reads only the name of the app in front. The optional Web & content Shield reads the address in supported browsers. Neither stores nor sends what it sees.\n\n" +
-                "Purchases go through Google Play, which aurora asks whether you have plus.",
-            confirmLabel = "Got it",
+            title = stringResource(R.string.settings_your_data_stays_yours),
+            body = stringResource(R.string.settings_everything_aurora_keeps_is_stored_only_on_this_phone_your_protec) +
+                stringResource(R.string.settings_there_s_no_account_no_analytics_and_no_ads_and_aurora_doesn_t_ha) +
+                stringResource(R.string.settings_screen_time_is_read_from_android_when_you_open_insights_or_today) +
+                stringResource(R.string.settings_shield_reads_only_the_name_of_the_app_in_front_the_optional_web) +
+                stringResource(R.string.settings_purchases_go_through_google_play_which_aurora_asks_whether_you_h),
+            confirmLabel = stringResource(R.string.settings_got_it),
             onConfirm = close,
             onDismiss = close,
         )
         Sheet.Stored -> AuroraDialog(
-            title = "What aurora stores",
+            title = stringResource(R.string.settings_what_aurora_stores),
             body = buildString {
-                append("• ${list?.items?.size ?: 0} protected apps and sites\n")
-                append("• ${rules.apps.size} app settings, ${rules.groups.size} groups, ${rules.schedules.size} schedules, ${rules.limits.size} daily limits\n")
-                append("• ${rules.profiles.size} Focus profiles, ${rules.goals.size} goals\n")
-                append("• ${history.days.size} days of counts and ${history.focus.size} Focus sessions\n")
-                if (rules.motivations.isNotEmpty()) append("• What you want more time for: ${rules.motivations.joinToString(", ")}\n")
-                append("• Theme and motion preferences\n\n")
-                append("It's kept in aurora's private storage and isn't included in cloud backups.")
+                append(stringResource(R.string.settings_stored_items , list?.items?.size ?: 0))
+                append(stringResource(R.string.settings_stored_rules , rules.apps.size, rules.groups.size, rules.schedules.size, rules.limits.size))
+                append(stringResource(R.string.settings_stored_profiles , rules.profiles.size, rules.goals.size))
+                append(stringResource(R.string.settings_stored_history , history.days.size, history.focus.size))
+                if (rules.motivations.isNotEmpty()) append(stringResource(R.string.settings_stored_motivations , rules.motivations.joinToString(", ")))
+                append(stringResource(R.string.settings_theme_and_motion_preferences))
+                append(stringResource(R.string.settings_it_s_kept_in_aurora_s_private_storage_and_isn_t_included_in_clou))
             },
-            confirmLabel = "Close",
+            confirmLabel = stringResource(R.string.action_close),
             onConfirm = close,
             onDismiss = close,
         )
         Sheet.ClearHistory -> AuroraDialog(
-            title = "Clear history?",
-            body = "Daily counts, Focus history, XP and Aurora Light start again from today. Your protected apps and rules stay.",
-            confirmLabel = "Clear history",
+            title = stringResource(R.string.settings_clear_history_2),
+            body = stringResource(R.string.settings_daily_counts_focus_history_xp_and_aurora_light_start_again_from),
+            confirmLabel = stringResource(R.string.settings_clear_history),
             onConfirm = { vm.clearHistory(); close() },
-            dismissLabel = "Cancel",
+            dismissLabel = stringResource(R.string.action_cancel),
             onDismiss = close,
         )
         Sheet.DeleteAll -> AuroraDialog(
-            title = "Delete all data?",
-            body = "This removes everything aurora keeps on this phone: protected apps and sites, rules, sessions, history and preferences. It can't be undone. " +
-                "A running Always Block session is kept until it ends. aurora plus stays with your Google account.",
-            confirmLabel = "Delete everything",
+            title = stringResource(R.string.settings_delete_all_data_2),
+            body = stringResource(R.string.settings_this_removes_everything_aurora_keeps_on_this_phone_protected_app) +
+                stringResource(R.string.settings_a_running_always_block_session_is_kept_until_it_ends_aurora_plus),
+            confirmLabel = stringResource(R.string.settings_delete_everything),
             onConfirm = { close(); vm.deleteAll(onReplayIntro) },
-            dismissLabel = "Cancel",
+            dismissLabel = stringResource(R.string.action_cancel),
             onDismiss = close,
         )
         Sheet.Help -> AuroraDialog(
-            title = "If Shield isn't stepping in",
-            body = "1. Open Protect and check the status at the top. It says exactly what's missing.\n\n" +
-                "2. If it says Shield isn't running, turn aurora Shield off and on again in Settings › Accessibility.\n\n" +
-                "3. Some phones stop background apps to save battery. Allow aurora to run without battery restrictions in its Android app info.\n\n" +
-                "4. On Android 13 and later, apps installed outside the Play Store may show “Restricted setting”. Open aurora's app info, tap ⋮, then “Allow restricted settings”.\n\n" +
-                "5. After a restart, Android starts Shield a few moments after you unlock.\n\n" +
-                "Shield diagnostics shows what aurora can see on this phone.",
-            confirmLabel = "Close",
+            title = stringResource(R.string.settings_if_shield_isn_t_stepping_in_2),
+            body = stringResource(R.string.settings_1_open_protect_and_check_the_status_at_the_top_it_says_exactly_w) +
+                stringResource(R.string.settings_2_if_it_says_shield_isn_t_running_turn_aurora_shield_off_and_on) +
+                stringResource(R.string.settings_3_some_phones_stop_background_apps_to_save_battery_allow_aurora) +
+                stringResource(R.string.settings_4_on_android_13_and_later_apps_installed_outside_the_play_store) +
+                stringResource(R.string.settings_5_after_a_restart_android_starts_shield_a_few_moments_after_you) +
+                stringResource(R.string.settings_shield_diagnostics_shows_what_aurora_can_see_on_this_phone),
+            confirmLabel = stringResource(R.string.action_close),
             onConfirm = close,
             onDismiss = close,
         )
         Sheet.Notifications -> AuroraDialog(
-            title = "Notifications",
-            body = "aurora doesn't send any notifications yet, so there's nothing to allow. Focus and protection sessions keep time on their own and show their result the next time you open aurora.",
-            confirmLabel = "Got it",
+            title = stringResource(R.string.settings_notifications),
+            body = stringResource(R.string.settings_aurora_doesn_t_send_any_notifications_yet_so_there_s_nothing_to),
+            confirmLabel = stringResource(R.string.settings_got_it),
             onConfirm = close,
             onDismiss = close,
         )
         Sheet.Licenses -> AuroraDialog(
-            title = "Open-source licenses",
-            body = "Manrope typeface, © The Manrope Project Authors. SIL Open Font License 1.1.\n\n" +
-                "Jetpack Compose, AndroidX, Kotlin, kotlinx.serialization and Google Play Billing Library. Apache License 2.0 and the Android SDK License.",
-            confirmLabel = "Close",
+            title = stringResource(R.string.settings_open_source_licenses),
+            body = stringResource(R.string.settings_manrope_typeface_the_manrope_project_authors_sil_open_font_licen) +
+                stringResource(R.string.settings_jetpack_compose_androidx_kotlin_kotlinx_serialization_and_google),
+            confirmLabel = stringResource(R.string.action_close),
             onConfirm = close,
             onDismiss = close,
         )

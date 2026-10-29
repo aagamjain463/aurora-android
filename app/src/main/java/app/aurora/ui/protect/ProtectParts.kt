@@ -99,7 +99,7 @@ fun taskDescription(task: FrictionTask): String = stringResource(
 
 /** An app's real icon, or a site's globe, at a consistent size and corner. */
 @Composable
-fun ItemIcon(key: String, data: ProtectData?, size: Dp = 40.dp, modifier: Modifier = Modifier) {
+fun ItemIcon(key: String, data: ProtectData?, modifier: Modifier = Modifier, size: Dp = 40.dp) {
     val colors = Aurora.colors
     val app = LocalContext.current.applicationContext as AuroraApplication
     val shape = RoundedCornerShape(size * 0.28f)
@@ -123,7 +123,7 @@ fun IconStack(keys: List<String>, data: ProtectData?, max: Int = 5, size: Dp = 3
     val colors = Aurora.colors
     Row {
         keys.take(max).forEachIndexed { i, key ->
-            Box(Modifier.offset(x = (-8).dp * i).border(2.dp, colors.surface, RoundedCornerShape(size * 0.3f))) { ItemIcon(key, data, size) }
+            Box(Modifier.offset(x = (-8).dp * i).border(2.dp, colors.surface, RoundedCornerShape(size * 0.3f))) { ItemIcon(key, data, size = size) }
         }
         if (keys.size > max) {
             Text("+${keys.size - max}", Modifier.offset(x = (-8).dp * max + 12.dp).align(Alignment.CenterVertically), color = colors.textSecondary, style = AuroraType.Caption)

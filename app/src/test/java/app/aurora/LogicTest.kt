@@ -6,6 +6,8 @@ import app.aurora.data.UsageSignal.Kind.Start
 import app.aurora.data.UsageSignal.Kind.Stop
 import app.aurora.data.UsageSignal.Kind.StopAll
 import app.aurora.data.foregroundTime
+import app.aurora.data.foregroundIntervals
+import app.aurora.data.UsageInterval
 import app.aurora.data.formatClock
 import app.aurora.data.formatDuration
 import app.aurora.data.spokenDuration
@@ -15,6 +17,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LogicTest {
+    @Test
+    fun foregroundIntervalsSeedAnAlreadyOpenAppAndClipBothEdges() {
+        val signals = listOf(
+            UsageSignal(Start, "old", 0), UsageSignal(Stop, "old", 20),
+            UsageSignal(Start, "youtube", 50), UsageSignal(Stop, "youtube", 150),
+            UsageSignal(Start, "other", 180), UsageSignal(Stop, "other", 300),
+        )
+        assertEquals(
+            listOf(UsageInterval("youtube", 100, 150), UsageInterval("other", 180, 200)),
+            foregroundIntervals(signals, 100, 200),
+        )
+        assertEquals(listOf(UsageInterval("youtube", 100, 200)), foregroundIntervals(signals.take(3), 100, 200))
+    }
+
 
     @Test
     fun foregroundTimeSumsSequentialApps() {

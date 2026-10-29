@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -68,6 +69,7 @@ import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIconButton
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraLight
+import app.aurora.ui.components.AuroraLandscape
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ModeGlyph
 import app.aurora.ui.components.PillarHeading
@@ -98,6 +100,7 @@ import java.time.ZoneId
 sealed interface AwayState {
     data object Loading : AwayState
     data object NoUsageAccess : AwayState
+    data object Unavailable : AwayState
     data object NoProtection : AwayState
     data class Measured(val away: TimeAway) : AwayState
 }
@@ -134,7 +137,7 @@ class TodayModel(val app: AuroraApplication) : ViewModel() {
             _away.value = when {
                 spans.none { it.end > from && it.start < now } -> AwayState.NoProtection
                 !app.access.isGranted(Access.Usage) -> AwayState.NoUsageAccess
-                else -> app.screenTime.intervals(from, now)?.let { AwayState.Measured(timeAway(spans, it, from, now)) } ?: AwayState.NoUsageAccess
+                else -> app.screenTime.intervals(from, now)?.let { AwayState.Measured(timeAway(spans, it, from, now)) } ?: AwayState.Unavailable
             }
         }
     }
@@ -182,27 +185,31 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
             CompositionLocalProvider(LocalAuroraColors provides DarkColors) {
                 val night = Aurora.colors
                 Box(
-                    Modifier.fillMaxWidth().height(440.dp)
+                    Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp))
                         .background(Brush.verticalGradient(listOf(night.sky, night.background))),
                 ) {
-                    AuroraLight(light.glow, light.rise, Modifier.fillMaxWidth().height(330.dp), description = stringResource(R.string.today_light_description))
+                    AuroraLandscape(Modifier.matchParentSize())
+                    Column {
                     Row(Modifier.statusBarsPadding().padding(horizontal = Space.Gutter, vertical = Space.S).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Wordmark(Modifier.weight(1f))
                         AuroraIconButton(AuroraIcons.Settings, stringResource(R.string.settings_title), onOpenSettings)
                     }
+                    Spacer(Modifier.height(100.dp))
                     Text(
                         stringResource(R.string.today_headline),
-                        Modifier.align(Alignment.BottomStart).padding(horizontal = Space.Gutter, vertical = Space.L).semantics { heading() },
+                        Modifier.padding(horizontal = Space.Gutter, vertical = Space.L).semantics { heading() },
                         color = night.textPrimary,
                         style = AuroraType.Display,
                     )
+                    }
                 }
             }
         }
         // 2. Time away from protected apps.
         item(key = "metric") {
-            Column(Modifier.padding(horizontal = Space.Gutter, vertical = Space.L)) {
+            Column(Modifier.padding(horizontal = Space.M, vertical = Space.M).fillMaxWidth().clip(Radius.L)
+                .background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L)) {
                 Text(stringResource(R.string.today_metric_label), color = colors.textSecondary, style = AuroraType.BodyStrong)
                 when (val a = away) {
                     is AwayState.Measured -> {
@@ -217,6 +224,10 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
                         Text(stringResource(R.string.today_metric_not_measured), Modifier.padding(vertical = Space.XS), color = colors.textPrimary, style = AuroraType.Headline)
                         Text(stringResource(R.string.today_metric_no_access), color = colors.textSecondary, style = AuroraType.Secondary)
                         AuroraButton(stringResource(R.string.today_metric_allow), { openAccessSettings(context, Access.Usage) }, Modifier.padding(top = Space.S), kind = ButtonKind.Secondary)
+                    }
+                    AwayState.Unavailable -> {
+                        Text("—", color = colors.textPrimary, style = AuroraType.Metric)
+                        Text(stringResource(R.string.usage_records_unavailable_body), color = colors.textSecondary, style = AuroraType.Secondary)
                     }
                     AwayState.NoProtection -> {
                         Text("0m", color = colors.textTertiary, style = AuroraType.Metric)
@@ -281,6 +292,7 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
                 verticalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
                 Text(stringResource(R.string.today_light_level, level.number, level.name), color = colors.dawnText, style = AuroraType.Eyebrow)
+                AuroraLight(light.glow, light.rise, Modifier.fillMaxWidth().height(120.dp), description = stringResource(R.string.today_light_description))
                 Text(stringResource(R.string.today_xp_today, h.day(date).xp()), color = colors.textPrimary, style = AuroraType.Headline)
                 ProgressLine(level.progress, Modifier.padding(vertical = Space.XS), warm = true)
                 Text(stringResource(R.string.today_xp_next, level.levelSize - level.intoLevel, light.activeDays), color = colors.textSecondary, style = AuroraType.Secondary)
@@ -342,7 +354,7 @@ private fun nextScheduleText(d: ProtectData): String {
 /** Light status-bar icons over the night hero, the theme's own once it scrolls away. */
 @Composable
 private fun NightStatusBar(overHero: Boolean) {
-    val activity = androidx.compose.ui.platform.LocalContext.current as? androidx.activity.ComponentActivity ?: return
+    val activity = androidx.activity.compose.LocalActivity.current as? androidx.activity.ComponentActivity ?: return
     val dark = Aurora.colors.isDark
     androidx.compose.runtime.DisposableEffect(overHero, dark) {
         val transparent = android.graphics.Color.TRANSPARENT

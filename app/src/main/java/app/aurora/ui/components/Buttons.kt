@@ -22,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -66,12 +68,15 @@ fun AuroraButton(
         ButtonKind.Secondary -> colors.elevated to colors.textPrimary
         ButtonKind.Quiet -> Color.Transparent to colors.textPrimary
     }
+    val fill = if (kind == ButtonKind.Primary && colors.isDark) {
+        Brush.horizontalGradient(0f to colors.accent, 0.65f to colors.accent, 1f to colors.light)
+    } else SolidColor(container)
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else 0.4f }
             .heightIn(min = if (kind == ButtonKind.Quiet) 48.dp else 58.dp)
             .clip(Radius.Pill)
-            .background(container)
+            .background(fill)
             .then(if (kind == ButtonKind.Secondary) Modifier.border(1.dp, colors.hairline, Radius.Pill) else Modifier)
             .clickable(
                 interactionSource = interaction,

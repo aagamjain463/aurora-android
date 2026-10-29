@@ -199,4 +199,37 @@ class InterceptorTest {
         window("com.social", after = 100) // a real reopening later is shielded
         assertEquals(2, presenter.shown.size)
     }
+
+    @Test
+    fun aRapidReopeningAfterTheLauncherIsShielded() {
+        window("com.social")
+        interceptor.closedByPerson(home = true)
+        window("com.launcher", after = 100)
+        val launcherAt = now
+        // Delivery after the launcher does not make an older event a new opening.
+        interceptor.onWindow("com.social", launcherAt - 50, now + 20)
+        assertEquals(1, presenter.shown.size)
+        window("com.social", after = 200)
+        assertEquals(2, presenter.shown.size)
+    }
+
+    @Test
+    fun reopeningFromAuroraInsideTheGracePeriodIsShielded() {
+        window("com.social")
+        now += 100
+        interceptor.onWindow("app.aurora", now, now, ownApp = true)
+        window("com.social", after = 100)
+        assertEquals(2, presenter.shown.size)
+    }
+
+    @Test
+    fun startingProtectionInAuroraDoesNotShieldTheAppPreviouslyAllowed() {
+        val protected = interceptor.state
+        interceptor.state = protected!!.copy(restrictions = emptyList())
+        window("com.social")
+        interceptor.onWindow("app.aurora", now, now, ownApp = true)
+        interceptor.state = protected
+        interceptor.recheck()
+        assertEquals(emptyList<String>(), presenter.shown)
+    }
 }

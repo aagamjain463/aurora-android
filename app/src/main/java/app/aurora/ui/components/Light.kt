@@ -2,10 +2,16 @@ package app.aurora.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -19,6 +25,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.tween
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.Motion
+import app.aurora.ui.theme.DarkColors
+import app.aurora.R
+
+/** Decorative art only. The separate Aurora Light below represents recorded progress. */
+@Composable
+fun AuroraLandscape(modifier: Modifier = Modifier) {
+    Box(modifier) {
+        Image(painterResource(R.drawable.aurora_landscape), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            0f to DarkColors.sky,
+            0.18f to DarkColors.sky.copy(alpha = 0.1f),
+            0.48f to Color.Transparent,
+            1f to DarkColors.sky,
+        )))
+    }
+}
 
 /**
  * Aurora Light, the signature visual: the curve of a horizon seen from above, its rim lit by the first

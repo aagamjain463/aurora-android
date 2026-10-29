@@ -282,7 +282,7 @@ private fun Intent(vm: ProtectModel) {
                 .padding(Space.S),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
         ) {
-            ItemIcon(key, d, 36.dp)
+            ItemIcon(key, d, size = 36.dp)
             Text(d.label(key), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
             SelectionMark(enabled)
         }

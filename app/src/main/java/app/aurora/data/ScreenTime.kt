@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BadParcelableException
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
@@ -60,46 +61,51 @@ class ScreenTimeRepository(private val context: Context) {
      */
     suspend fun intervals(from: Long, to: Long): List<UsageInterval>? = withContext(Dispatchers.IO) {
         if (!hasAccess() || from >= to) return@withContext null
-        foregroundIntervals(signals(from, to), from, to)
+        // Shield doesn't pause the app beneath it, so seed its earlier resume before clipping.
+        // shortcut: one prior day seeds foreground; extend for uninterrupted multi-day app use.
+        records((from - 86_400_000L).coerceAtLeast(0), to)?.let { foregroundIntervals(it.signals, from, to) }
     }
 
-    private fun signals(from: Long, to: Long): List<UsageSignal> {
-        val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(from, to)
+    private data class Records(val signals: List<UsageSignal>, val any: Boolean)
+
+    /** Hour-sized reads avoid Android 16's large UsageEvents Binder transfer failure. */
+    private fun records(from: Long, to: Long): Records? {
+        val manager = context.getSystemService(UsageStatsManager::class.java)
         val event = UsageEvents.Event()
         val signals = ArrayList<UsageSignal>()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            val kind = when (event.eventType) {
-                RESUMED -> UsageSignal.Kind.Start
-                PAUSED -> UsageSignal.Kind.Stop
-                SCREEN_OFF, SHUTDOWN -> UsageSignal.Kind.StopAll
-                else -> null
-            } ?: continue
-            signals += UsageSignal(kind, event.packageName, event.timeStamp)
+        var any = false
+        var cursor = from
+        try {
+            while (cursor < to) {
+                val end = minOf(cursor + 3_600_000L, to)
+                val events = manager.queryEvents(cursor, end) ?: return null
+                while (events.hasNextEvent()) {
+                    events.getNextEvent(event)
+                    any = true
+                    val kind = when (event.eventType) {
+                        RESUMED -> UsageSignal.Kind.Start
+                        PAUSED -> UsageSignal.Kind.Stop
+                        SCREEN_OFF, SHUTDOWN -> UsageSignal.Kind.StopAll
+                        else -> null
+                    } ?: continue
+                    signals += UsageSignal(kind, event.packageName, event.timeStamp)
+                }
+                cursor = end
+            }
+        } catch (_: BadParcelableException) {
+            return null
+        } catch (_: SecurityException) {
+            return null
         }
-        return signals
+        return Records(signals, any)
     }
 
     private suspend fun between(from: Long, to: Long): Map<String, Long>? = withContext(Dispatchers.IO) {
         if (!hasAccess()) return@withContext null
-        val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(from, to)
-        val event = UsageEvents.Event()
-        val signals = ArrayList<UsageSignal>()
-        var any = false
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            any = true
-            val kind = when (event.eventType) {
-                RESUMED -> UsageSignal.Kind.Start
-                PAUSED -> UsageSignal.Kind.Stop
-                SCREEN_OFF, SHUTDOWN -> UsageSignal.Kind.StopAll
-                else -> null
-            } ?: continue
-            signals += UsageSignal(kind, event.packageName, event.timeStamp)
-        }
+        val records = records(from, to) ?: return@withContext null
         // No events at all: Android has nothing for this window. Today counts as zero (a quiet morning).
-        if (!any && to - from > 86_000_000L) return@withContext null
-        foregroundTime(signals, from, to) - setOfNotNull(homePackage(), context.packageName)
+        if (!records.any && to - from > 86_000_000L) return@withContext null
+        foregroundTime(records.signals, from, to) - setOfNotNull(homePackage(), context.packageName)
     }
 
     private fun homePackage(): String? {
@@ -139,7 +145,9 @@ fun foregroundIntervals(signals: List<UsageSignal>, from: Long, to: Long): List<
     var sawStart = false
 
     fun add(pkg: String, ms: Long, end: Long) {
-        if (ms > 0) totals += UsageInterval(pkg, end - ms, end)
+        val start = (end - ms).coerceAtLeast(from)
+        val clippedEnd = end.coerceAtMost(to)
+        if (clippedEnd > start) totals += UsageInterval(pkg, start, clippedEnd)
     }
 
     fun close(at: Long) {

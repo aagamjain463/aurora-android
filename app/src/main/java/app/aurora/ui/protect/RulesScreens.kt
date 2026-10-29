@@ -207,6 +207,7 @@ fun ScheduleEditorScreen(id: String?, onBack: () -> Unit) {
     val data by vm.data.collectAsStateWithLifecycle()
     val d = data ?: return
     val colors = Aurora.colors
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     val original = d.rules.schedules.find { it.id == id }
     val base = original ?: Schedule(UUID.randomUUID().toString(), "", Weekdays, 9 * 60, 17 * 60, keys = d.activeKeys.toList())
     // A Phase 3 schedule covered everything or a group: show what it covers as explicit choices.
@@ -261,7 +262,7 @@ fun ScheduleEditorScreen(id: String?, onBack: () -> Unit) {
                     ScheduleStep.Days -> {
                         Title(stringResource(R.string.schedule_step_days), null)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                            Week.forEach { day -> Chip(dayShort(day), day in days, spoken = DayOfWeek.of(day).getDisplayName(TextStyle.FULL, Locale.getDefault())) { days = if (day in days) days - day else (days + day).sorted() } }
+                            Week.forEach { day -> Chip(dayShort(day), day in days, spoken = DayOfWeek.of(day).getDisplayName(TextStyle.FULL, locale)) { days = if (day in days) days - day else (days + day).sorted() } }
                         }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                             AuroraButton(stringResource(R.string.schedule_weekdays), { days = Weekdays.toList() }, kind = ButtonKind.Quiet)
@@ -289,7 +290,7 @@ fun ScheduleEditorScreen(id: String?, onBack: () -> Unit) {
                                     .clickable(role = Role.Checkbox) { keys = if (on) keys - key else keys + key }.padding(Space.S),
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
                             ) {
-                                ItemIcon(key, d, 36.dp)
+                                ItemIcon(key, d, size = 36.dp)
                                 Text(d.label(key), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
                                 SelectionMark(on)
                             }

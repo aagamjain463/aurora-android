@@ -51,11 +51,9 @@ class OverlayShieldPresenter(
 ) : ShieldPresenter {
     private val windows = service.getSystemService(WindowManager::class.java)
     private val audio = service.getSystemService(AudioManager::class.java)
-    private val focus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+    private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).build())
             .build()
-    } else null
 
     private var host: Host? = null
     private val request = mutableStateOf<ShieldRequest?>(null)
@@ -95,7 +93,7 @@ class OverlayShieldPresenter(
             windows.addView(h.view, params)
             h.start()
             host = h
-            if (focus != null) audio.requestAudioFocus(focus)
+            audio.requestAudioFocus(focus)
             if (request.fresh) timeFirstFrame(h, request)
             true
         } catch (_: RuntimeException) {
@@ -114,7 +112,7 @@ class OverlayShieldPresenter(
         } catch (_: RuntimeException) {
             // Already gone with the service.
         }
-        if (focus != null) audio.abandonAudioFocusRequest(focus)
+        audio.abandonAudioFocusRequest(focus)
     }
 
     /** Records when the Shield's next frame is drawn: the end of "app opened → Shield on screen". */
