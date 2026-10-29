@@ -99,7 +99,7 @@ class ScreenTimeRepository(private val context: Context) {
         }
         // No events at all: Android has nothing for this window. Today counts as zero (a quiet morning).
         if (!any && to - from > 86_000_000L) return@withContext null
-        foregroundTime(signals, from, to) - setOfNotNull(homePackage())
+        foregroundTime(signals, from, to) - setOfNotNull(homePackage(), context.packageName)
     }
 
     private fun homePackage(): String? {
