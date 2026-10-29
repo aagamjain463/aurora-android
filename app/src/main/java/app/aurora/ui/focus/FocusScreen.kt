@@ -74,10 +74,10 @@ import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ChoicePills
+import app.aurora.ui.components.clockTime
 import app.aurora.ui.components.HorizonArc
 import app.aurora.ui.components.HorizonGlow
 import app.aurora.ui.components.StatusPill
-import app.aurora.ui.home.clockTime
 import app.aurora.ui.protect.rememberProtectionStatus
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
@@ -327,8 +327,8 @@ private fun Setup(
 ) {
     val colors = Aurora.colors
     ArcStage(progress = 0f, glow = 0.45f, warmth = 0.5f, breathing = false) {
-        Text("$minutes", color = colors.textPrimary, style = AuroraType.Hero)
-        Text("minutes", color = colors.textSecondary, style = AuroraType.Caption)
+        Text(app.aurora.ui.components.minutesText(minutes), color = colors.textPrimary, style = AuroraType.Hero)
+        Text(androidx.compose.ui.res.stringResource(app.aurora.R.string.focus_length_caption), color = colors.textSecondary, style = AuroraType.Caption)
     }
     Spacer(Modifier.height(Space.L))
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
@@ -337,13 +337,11 @@ private fun Setup(
         AuroraIconButton(AuroraIcons.Plus, "New profile", onNew)
     }
     Spacer(Modifier.height(Space.M))
-    ChoicePills(
-        options = (FocusLengths + profile.minutes).distinct().sorted(),
-        selected = minutes,
-        onSelect = onMinutes,
-        fill = true,
-        label = { "$it" },
-        spokenLabel = { "$it minutes" },
+    app.aurora.ui.components.DurationPicker(
+        minutes, { it?.let(onMinutes) }, FocusLengths,
+        Modifier.fillMaxWidth(),
+        title = androidx.compose.ui.res.stringResource(app.aurora.R.string.focus_length_prompt),
+        max = 8 * 60,
     )
     Spacer(Modifier.height(Space.L))
     AuroraTextField(

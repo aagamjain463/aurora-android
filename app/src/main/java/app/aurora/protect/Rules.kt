@@ -1,11 +1,14 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package app.aurora.protect
 
+import app.aurora.plan.AlwaysBlockReservation
 import app.aurora.plan.Allowance
-import app.aurora.plan.LockdownReservation
 import app.aurora.plan.Plan
 import app.aurora.plan.ProtectedItem
 import app.aurora.plan.keepActive
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -15,48 +18,98 @@ import java.time.ZoneId
 /*
  * What the person configured (Rules) and what is happening now (Runtime), plus the pure function that
  * turns both into the decision snapshot. No Android here: everything is unit tested with fixed times
- * and zones (RulesTest).
+ * and zones (RulesTest, ModesTest, IntentTest).
+ *
+ * Product model (docs/PRODUCT.md):
+ * - A protected item has saved preferences ([AppRule]). Saving preferences never starts protection.
+ * - A protection session ([ProtectionSession]) has items, one of four modes, a start and a duration.
+ * - A schedule creates recurring protection windows, each with its own mode.
+ * - Focus enforces a full block on its items for its length.
+ * - Intentional App Opening ([IntentConfig]) is not a mode: it asks before an app opens, outside any
+ *   stronger restriction, and measures the time the person chose.
  */
 
 /**
- * How aurora protects one app or site outside any timed rule.
+ * The four Shield modes.
  *
- * - [Flexible]: a moment of awareness. The Shield appears and the person may continue at once.
- * - [Friction]: a pause of [AppRule.waitSeconds] before the person may continue. Leaving and coming back
- *   continues the same pause; it doesn't skip or restart it.
- * - [Cooldown]: the person may continue, but after each session the item is closed for
- *   [AppRule.cooldownMinutes]. Friction spaces out every opening; Cooldown spaces out sessions.
- * - [Block]: always shielded, no way through.
- * - [RulesOnly]: no everyday Shield. Only schedules, Focus, Lockdown and daily limits apply.
+ * - [Flexible]: fully blocked while active, no way through from the Shield. Turned off from aurora.
+ * - [Friction]: a real task (math, a written intention, a reflection) before a timed access grant.
+ * - [Cooldown]: a wait *before* access. When it ends, a timed access grant.
+ * - [AlwaysBlock]: fully blocked, and no in-app way to end it early. It ends when its timer does.
+ *
+ * Phase 3 stored "Block" (always shielded) and "RulesOnly" (no everyday Shield). Neither exists now:
+ * protection only runs inside a session or window, so both read as the safe, cancellable [Flexible].
  */
 @Serializable
-enum class Mode { Flexible, Friction, Cooldown, Block, RulesOnly }
+enum class Mode {
+    @JsonNames("Block", "RulesOnly")
+    Flexible,
+    Friction,
+    Cooldown,
+    AlwaysBlock,
+}
 
-/** The person's own words, shown when the app opens (aurora Intent). */
 @Serializable
-data class IntentNote(
-    val reason: String,
+enum class FrictionTask { Math, Intention, Reflection }
+
+@Serializable
+enum class Difficulty { Easy, Medium, Hard }
+
+@Serializable
+data class FrictionSettings(
+    val task: FrictionTask = FrictionTask.Math,
+    val difficulty: Difficulty = Difficulty.Medium,
+    /** The waiting part of the reflection task. */
+    val reflectionSeconds: Int = 20,
+)
+
+/** What happens when the time chosen at an intentional opening is used up. */
+@Serializable
+enum class IntentExpiry { Reminder, Cooldown }
+
+/**
+ * Intentional App Opening for one app. Field names before [defaultUsageMinutes] are Phase 3's
+ * IntentNote, so saved notes read back unchanged.
+ */
+@Serializable
+data class IntentConfig(
+    val reason: String = "",
     val alternative: String = "",
+    /** The pause before "Continue intentionally" is available. 0 = no pause. */
     val reflectionSeconds: Int = 10,
     val enabled: Boolean = true,
+    /** Preselected in the usage picker; the person can change it every time. Null = no default. */
+    val defaultUsageMinutes: Int? = null,
+    val expiry: IntentExpiry = IntentExpiry.Reminder,
+    /** For [IntentExpiry.Cooldown]: how long the app stays closed after the chosen time is used. */
+    val cooldownMinutes: Int = 30,
+    /** True: leaving the app ends the session, so every opening is a fresh decision. */
+    val freshEachOpen: Boolean = false,
 )
 
+/**
+ * Saved preferences for one app or site: how a session starts when the person picks it. Nothing here
+ * protects anything on its own. Older fields (waitSeconds, cooldownMinutes) are ignored on read.
+ */
 @Serializable
 data class AppRule(
-    val mode: Mode = Mode.Friction,
-    val waitSeconds: Int = 10,
-    val cooldownMinutes: Int = 30,
-    val intent: IntentNote? = null,
+    val mode: Mode = Mode.Flexible,
+    val friction: FrictionSettings = FrictionSettings(),
+    /** Shield Cooldown: how long to wait after trying to open the app. */
+    val cooldownWaitMinutes: Int = 15,
+    val intent: IntentConfig? = null,
 )
 
-/** A named set of protected items, e.g. "Social". Rules that target a group cover its active items. */
+/** A named set of protected items, e.g. "Social". */
 @Serializable
 data class Group(val id: String, val name: String, val keys: List<String> = emptyList())
 
 /**
  * A weekly window, in local time wherever the phone is. [days] are ISO days (1 = Monday). A window whose
- * end is at or before its start runs past midnight and belongs to the day it starts. [groupId] null
- * covers every protected item.
+ * end is at or before its start runs past midnight and belongs to the day it starts.
+ *
+ * It covers [keys] plus every item in [groupIds]. A Phase 3 schedule has neither and covered every
+ * protected item ([groupId] null) or one group; [covers] keeps that meaning.
  */
 @Serializable
 data class Schedule(
@@ -67,7 +120,14 @@ data class Schedule(
     val endMinute: Int,
     val groupId: String? = null,
     val enabled: Boolean = true,
-)
+    val keys: List<String> = emptyList(),
+    val groupIds: List<String> = emptyList(),
+    val mode: Mode = Mode.Flexible,
+    val friction: FrictionSettings = FrictionSettings(),
+    val cooldownWaitMinutes: Int = 15,
+) {
+    val legacy: Boolean get() = keys.isEmpty() && groupIds.isEmpty()
+}
 
 @Serializable
 data class DailyLimit(val key: String, val minutes: Int, val enabled: Boolean = true)
@@ -104,6 +164,8 @@ data class Rules(
     fun activeIntents(plan: Plan): Set<String> =
         keepActive(plan, Allowance.IntentApps, apps.filterValues { it.intent?.enabled == true }.keys.toList()).toSet()
     fun activeProfiles(plan: Plan) = keepActive(plan, Allowance.FocusProfiles, profiles)
+
+    fun intentFor(key: String, plan: Plan): IntentConfig? = apps[key]?.intent?.takeIf { key in activeIntents(plan) }
 }
 
 val DefaultProfile = FocusProfile("focus", "Deep work", 25)
@@ -127,8 +189,9 @@ const val WebPrefix = "web:"
 data class DeviceTime(val wall: Long, val elapsed: Long, val boot: Int)
 
 /**
- * A Focus session or a Lockdown. Time is counted on the monotonic clock while the phone stays on, so
- * changing the wall clock neither ends nor extends it. After a restart only the wall clock is left.
+ * A timed span: Focus, a protection session. Time is counted on the monotonic clock while the phone
+ * stays on, so changing the wall clock neither ends nor extends it. After a restart only the wall clock
+ * is left, so a reboot neither cancels nor pauses a committed session.
  */
 @Serializable
 data class Session(
@@ -148,6 +211,7 @@ data class Session(
     fun progress(t: DeviceTime): Float = if (durationMs <= 0L) 1f else 1f - remaining(t).toFloat() / durationMs
     fun isOver(t: DeviceTime): Boolean = remaining(t) == 0L
     fun endWall(t: DeviceTime): Long = t.wall + remaining(t)
+    fun startedWall(t: DeviceTime): Long = t.wall - elapsed(t).coerceAtMost(durationMs)
 
     companion object {
         fun start(t: DeviceTime, minutes: Int, groupId: String? = null, profileId: String? = null, intention: String = "") =
@@ -155,52 +219,110 @@ data class Session(
     }
 }
 
+/**
+ * One activated protection: [keys] are fixed when it starts, so editing a rule, a group or the protected
+ * list never changes what a running session covers. [scheduleId] is set for an Always Block window that
+ * was committed from a schedule.
+ */
 @Serializable
-data class LedgerEntry(val day: String, val start: Long, val end: Long) {
-    fun toReservation() = LockdownReservation(LocalDate.parse(day), Instant.ofEpochMilli(start), Instant.ofEpochMilli(end))
+data class ProtectionSession(
+    val id: String,
+    val keys: Set<String>,
+    val mode: Mode,
+    val time: Session,
+    val friction: FrictionSettings = FrictionSettings(),
+    val cooldownWaitMinutes: Int = 15,
+    val scheduleId: String? = null,
+) {
+    /** Only Always Block can't be turned off in aurora. */
+    val cancellable: Boolean get() = mode != Mode.AlwaysBlock
 }
 
-fun LockdownReservation.toEntry() = LedgerEntry(day.toString(), start.toEpochMilli(), end.toEpochMilli())
+@Serializable
+data class LedgerEntry(val day: String, val start: Long, val end: Long) {
+    fun toReservation() = AlwaysBlockReservation(LocalDate.parse(day), Instant.ofEpochMilli(start), Instant.ofEpochMilli(end))
+}
+
+fun AlwaysBlockReservation.toEntry() = LedgerEntry(day.toString(), start.toEpochMilli(), end.toEpochMilli())
+
+/** Timed access from a completed Friction task or a finished Cooldown wait. It lifts [level] and weaker. */
+@Serializable
+data class Grant(val until: Long, val level: Mode)
+
+/** A Shield Cooldown wait for one key. It belongs to one restriction ([restrictionId]) only. */
+@Serializable
+data class CooldownWait(val readyAt: Long, val restrictionId: String)
+
+/**
+ * An intentional opening in progress. [usedMs] is measured foreground time; while the app is in front,
+ * [runningSince] is when it came to the front (wall clock).
+ */
+@Serializable
+data class IntentUse(
+    val allowanceMs: Long,
+    val usedMs: Long = 0,
+    val runningSince: Long? = null,
+    val expiry: IntentExpiry = IntentExpiry.Reminder,
+    val cooldownMinutes: Int = 30,
+    val freshEachOpen: Boolean = false,
+    val startedAt: Long = 0,
+) {
+    fun used(now: Long): Long = usedMs + (runningSince?.let { (now - it).coerceAtLeast(0) } ?: 0)
+    fun left(now: Long): Long = (allowanceMs - used(now)).coerceAtLeast(0)
+    fun spent(now: Long): Boolean = left(now) == 0L
+}
 
 /** What is happening now. Kept apart from [Rules] because it changes often. */
 @Serializable
 data class Runtime(
-    val grants: Map<String, Long> = emptyMap(),
-    /** When the current Friction or reflection pause for a key began (wall clock). */
-    val waits: Map<String, Long> = emptyMap(),
-    val cooldowns: Map<String, Long> = emptyMap(),
+    val sessions: List<ProtectionSession> = emptyList(),
+    /** Friction and Cooldown access grants. Phase 3 stored plain end times under "grants"; those are dropped. */
+    val access: Map<String, Grant> = emptyMap(),
+    val cooldownWaits: Map<String, CooldownWait> = emptyMap(),
+    /** When a reflection pause for a key began (Intent, or the Friction reflection task). */
+    val reflections: Map<String, Long> = emptyMap(),
+    val intentUses: Map<String, IntentUse> = emptyMap(),
+    /** Post-usage cooldowns from Intentional App Opening: closed until the wall-clock value. */
+    val intentCooldowns: Map<String, Long> = emptyMap(),
+    /** Flexible schedule windows the person turned off: schedule id to that window's start. */
+    val skipped: Map<String, Long> = emptyMap(),
     val focus: Session? = null,
+    /** A Phase 3 Lockdown, read once and migrated into an Always Block session ([migrated]). */
     val lockdown: Session? = null,
     val ledger: List<LedgerEntry> = emptyList(),
 ) {
-    /** The pause for [key], continuing one that began within [WaitReuseMs]. Returns the new runtime and its start. */
-    fun waitFor(key: String, now: Long): Pair<Runtime, Long> {
-        val existing = waits[key]?.takeIf { now - it in 0 until WaitReuseMs }
-        return if (existing != null) this to existing else copy(waits = waits + (key to now)) to now
+    /** The reflection pause for [key], continuing one that began within [ReflectionReuseMs]. */
+    fun reflectionFor(key: String, now: Long): Pair<Runtime, Long> {
+        val existing = reflections[key]?.takeIf { now - it in 0 until ReflectionReuseMs }
+        return if (existing != null) this to existing else copy(reflections = reflections + (key to now)) to now
     }
 
-    /** Time the person chose with [key]. A Cooldown item closes for its cooldown once the time ends. */
-    fun granted(key: String, minutes: Int, rule: AppRule, now: Long): Runtime {
-        val until = now + minutes * 60_000L
+    /** Drops what has ended, and Always Block reservations older than a week. */
+    fun pruned(t: DeviceTime): Runtime {
+        val now = t.wall
         return copy(
-            grants = grants + (key to until),
-            waits = waits - key,
-            cooldowns = if (rule.mode == Mode.Cooldown) cooldowns + (key to until + rule.cooldownMinutes * 60_000L) else cooldowns,
-        ).pruned(now)
+            sessions = sessions.filterNot { it.time.isOver(t) },
+            access = access.filterValues { it.until > now },
+            reflections = reflections.filterValues { now - it in 0 until ReflectionReuseMs },
+            intentCooldowns = intentCooldowns.filterValues { it > now },
+            ledger = ledger.filter { now - it.end < 7 * 86_400_000L },
+        )
     }
-
-    /** Drops what has ended, and Lockdown reservations older than a week. */
-    fun pruned(now: Long): Runtime = copy(
-        grants = grants.filterValues { it > now },
-        waits = waits.filterValues { now - it in 0 until WaitReuseMs },
-        cooldowns = cooldowns.filterValues { it > now },
-        ledger = ledger.filter { now - it.end < 7 * 86_400_000L },
-    )
 
     companion object {
         /** A pause that began more than this long ago starts again: the decision should be fresh. */
-        const val WaitReuseMs = 5 * 60_000L
+        const val ReflectionReuseMs = 5 * 60_000L
     }
+}
+
+/**
+ * A Phase 3 Lockdown becomes an Always Block session over the same items, keeping its start and length,
+ * so a running commitment neither disappears nor becomes cancellable when aurora updates.
+ */
+fun Runtime.migrated(rules: Rules, active: Set<String>): Runtime {
+    val old = lockdown ?: return this
+    val session = ProtectionSession("lockdown-${old.startWall}", rules.cover(old.groupId, active), Mode.AlwaysBlock, old)
+    return copy(lockdown = null, sessions = sessions + session)
 }
 
 /** The window of [this] schedule that contains [now], as wall-clock start and end, or null. */
@@ -215,6 +337,14 @@ fun Schedule.windowAt(now: Long, zone: ZoneId): Pair<Long, Long>? {
 fun Schedule.nextStart(now: Long, zone: ZoneId): Long? {
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     return (0L..7L).firstNotNullOfOrNull { d -> window(today.plusDays(d), zone)?.first?.takeIf { it > now } }
+}
+
+/** Every window that overlaps [from, to), for time-away and history. */
+fun Schedule.windowsBetween(from: Long, to: Long, zone: ZoneId): List<Pair<Long, Long>> {
+    val first = Instant.ofEpochMilli(from).atZone(zone).toLocalDate().minusDays(1)
+    val last = Instant.ofEpochMilli(to).atZone(zone).toLocalDate()
+    return generateSequence(first) { it.plusDays(1) }.takeWhile { !it.isAfter(last) }
+        .mapNotNull { window(it, zone) }.filter { (s, e) -> s < to && e > from }.toList()
 }
 
 /**
@@ -239,9 +369,22 @@ fun nextMidnight(now: Long, zone: ZoneId): Long =
 fun Rules.cover(groupId: String?, active: Set<String>): Set<String> =
     if (groupId == null) active else groups.find { it.id == groupId }?.keys.orEmpty().filterTo(mutableSetOf()) { it in active }
 
+/** The active items [schedule] covers: its own items and groups, or (Phase 3) every item or one group. */
+fun Rules.covers(schedule: Schedule, active: Set<String>): Set<String> =
+    if (schedule.legacy) cover(schedule.groupId, active)
+    else (schedule.keys + schedule.groupIds.flatMap { id -> groups.find { it.id == id }?.keys.orEmpty() }).filterTo(mutableSetOf()) { it in active }
+
+/** The restriction id of one schedule window: a Cooldown wait or a skip belongs to that window only. */
+fun windowId(scheduleId: String, start: Long) = "schedule:$scheduleId:$start"
+
 /**
  * The decision snapshot. Null when the protected list can't be read: [Decision.Unavailable]. Only what
- * [plan] allows is enforced; the rest stays saved and paused.
+ * [plan] allows is enforced; the rest stays saved and paused. Running sessions are the exception: their
+ * items were fixed when they started, and a downgrade never cancels a commitment.
+ *
+ * On Free, a scheduled Always Block window is enforced as a full block that can be turned off; its
+ * committed part comes from the daily Always Block allowance, reserved when the window starts
+ * (Actions.kt commitScheduleWindows). On aurora plus the whole window is committed.
  */
 fun policyState(
     list: ProtectedList,
@@ -256,30 +399,51 @@ fun policyState(
     if (!list.readable) return null
     val now = time.wall
     val active = list.active(plan).map { it.key }.toSet()
-    val blocks = buildList {
+    val restrictions = buildList {
         runtime.lockdown?.takeUnless { it.isOver(time) }?.let {
-            add(TimedBlock(ShieldReason.Lockdown, rules.cover(it.groupId, active), now - it.elapsed(time), it.endWall(time)))
+            add(Restriction(ShieldReason.AlwaysBlock, rules.cover(it.groupId, active), it.startedWall(time), it.endWall(time), "lockdown-${it.startWall}"))
+        }
+        for (s in runtime.sessions) {
+            if (s.time.isOver(time)) continue
+            add(
+                Restriction(
+                    s.mode.reason, s.keys, s.time.startedWall(time), s.time.endWall(time), s.id,
+                    friction = s.friction, cooldownWaitMs = s.cooldownWaitMinutes * 60_000L, sessionId = s.id,
+                ),
+            )
         }
         runtime.focus?.takeUnless { it.isOver(time) }?.let {
-            add(TimedBlock(ShieldReason.Focus, rules.cover(it.groupId, active), now - it.elapsed(time), it.endWall(time)))
+            add(Restriction(ShieldReason.Focus, rules.cover(it.groupId, active), it.startedWall(time), it.endWall(time), "focus-${it.startWall}"))
         }
         for (schedule in rules.activeSchedules(plan)) {
-            val keys = rules.cover(schedule.groupId, active)
-            schedule.windowAt(now, zone)?.let { (start, end) -> add(TimedBlock(ShieldReason.Schedule, keys, start, end)) }
-            schedule.nextStart(now, zone)?.let { start ->
-                schedule.windowAt(start, zone)?.let { (s, end) -> add(TimedBlock(ShieldReason.Schedule, keys, s, end)) }
+            val keys = rules.covers(schedule, active)
+            val windows = listOfNotNull(schedule.windowAt(now, zone), schedule.nextStart(now, zone)?.let { schedule.windowAt(it, zone) })
+            for ((start, end) in windows) {
+                if (runtime.skipped[schedule.id] == start && schedule.mode != Mode.AlwaysBlock) continue
+                val reason = if (schedule.mode == Mode.AlwaysBlock && plan != Plan.Plus) ShieldReason.Flexible else schedule.mode.reason
+                add(
+                    Restriction(
+                        reason, keys, start, end, windowId(schedule.id, start),
+                        friction = schedule.friction, cooldownWaitMs = schedule.cooldownWaitMinutes * 60_000L,
+                        scheduleId = schedule.id, label = schedule.name,
+                    ),
+                )
             }
         }
     }
+    val intents = rules.activeIntents(plan).filter { it in active }.associateWith { rules.apps.getValue(it).intent!! }
+    val limits = rules.activeLimits(plan).filter { it.key in active }.associate { it.key to it.minutes * 60_000L }
     return PolicyState(
-        protectedPackages = active,
+        protectedPackages = active + restrictions.flatMap { it.keys },
         exempt = exempt,
-        grants = runtime.grants,
-        modes = active.associateWith { rules.rule(it).mode },
-        blocks = blocks,
-        limits = rules.activeLimits(plan).filter { it.key in active }.associate { it.key to it.minutes * 60_000L },
+        restrictions = restrictions,
+        access = runtime.access,
+        cooldownWaits = runtime.cooldownWaits,
+        limits = limits,
         usedToday = usedToday,
-        cooldowns = runtime.cooldowns,
+        intents = intents,
+        intentUses = runtime.intentUses,
+        intentCooldowns = runtime.intentCooldowns,
         midnight = nextMidnight(now, zone),
     )
 }

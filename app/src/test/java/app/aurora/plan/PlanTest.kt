@@ -3,7 +3,7 @@ package app.aurora.plan
 import app.aurora.plan.Allowance.DailyLimitRules
 import app.aurora.plan.Allowance.FocusProfiles
 import app.aurora.plan.Allowance.IntentApps
-import app.aurora.plan.Allowance.LockdownMinutesPerDay
+import app.aurora.plan.Allowance.AlwaysBlockMinutesPerDay
 import app.aurora.plan.Allowance.ProtectedItems
 import app.aurora.plan.Allowance.Schedules
 import app.aurora.plan.Plan.Free
@@ -28,7 +28,7 @@ class PlanTest {
     @Test
     fun freeLimitsMatchTheBusinessModel() {
         assertEquals(
-            mapOf(ProtectedItems to 5, IntentApps to 3, DailyLimitRules to 3, Schedules to 1, FocusProfiles to 1, LockdownMinutesPerDay to 120),
+            mapOf(ProtectedItems to 5, IntentApps to 3, DailyLimitRules to 3, Schedules to 1, FocusProfiles to 1, AlwaysBlockMinutesPerDay to 120),
             Allowance.entries.associateWith { limit(Free, it) },
         )
     }
@@ -165,59 +165,59 @@ class PlanTest {
     private fun at(hhmm: String, date: LocalDate = day, zone: ZoneId = india): Instant =
         java.time.LocalTime.parse(hhmm).atDate(date).atZone(zone).toInstant()
 
-    private fun reserveAll(plan: Plan, vararg starts: Pair<String, Int>): List<LockdownReservation> =
+    private fun reserveAll(plan: Plan, vararg starts: Pair<String, Int>): List<AlwaysBlockReservation> =
         starts.fold(emptyList()) { ledger, (time, minutes) ->
-            ledger + checkNotNull(reserveLockdown(plan, ledger, at(time), minutes, india)) { "$time for $minutes" }
+            ledger + checkNotNull(reserveAlwaysBlock(plan, ledger, at(time), minutes, india)) { "$time for $minutes" }
         }
 
     @Test
     fun freeLockdownsMayTotalExactly120Minutes() {
         val ledger = reserveAll(Free, "09:00" to 60, "13:00" to 45, "18:00" to 15)
-        assertEquals(120, lockdownMinutesUsed(ledger, day))
-        assertEquals(0, lockdownMinutesLeft(Free, ledger, day))
+        assertEquals(120, alwaysBlockMinutesUsed(ledger, day))
+        assertEquals(0, alwaysBlockMinutesLeft(Free, ledger, day))
     }
 
     @Test
     fun freeLockdownCannotExceedTheBudget() {
-        assertNull(reserveLockdown(Free, emptyList(), at("09:00"), 121, india))
+        assertNull(reserveAlwaysBlock(Free, emptyList(), at("09:00"), 121, india))
         val ledger = reserveAll(Free, "09:00" to 90)
-        assertEquals(30, lockdownMinutesLeft(Free, ledger, day))
-        assertNull(reserveLockdown(Free, ledger, at("12:00"), 31, india))
-        assertNotNull(reserveLockdown(Free, ledger, at("12:00"), 30, india))
-        assertNull(reserveLockdown(Free, ledger, at("12:00"), 0, india))
-        assertNull(reserveLockdown(Free, ledger, at("12:00"), -5, india))
+        assertEquals(30, alwaysBlockMinutesLeft(Free, ledger, day))
+        assertNull(reserveAlwaysBlock(Free, ledger, at("12:00"), 31, india))
+        assertNotNull(reserveAlwaysBlock(Free, ledger, at("12:00"), 30, india))
+        assertNull(reserveAlwaysBlock(Free, ledger, at("12:00"), 0, india))
+        assertNull(reserveAlwaysBlock(Free, ledger, at("12:00"), -5, india))
     }
 
     @Test
     fun sequentialLockdownsShareOneBudget() {
         val ledger = reserveAll(Free, "08:00" to 30, "10:00" to 30, "12:00" to 30)
-        assertEquals(30, lockdownMinutesLeft(Free, ledger, day))
-        assertNull(reserveLockdown(Free, ledger, at("15:00"), 45, india))
+        assertEquals(30, alwaysBlockMinutesLeft(Free, ledger, day))
+        assertNull(reserveAlwaysBlock(Free, ledger, at("15:00"), 45, india))
     }
 
     @Test
     fun overlappingLockdownsAreChargedOnce() {
         // A second Lockdown inside a running one costs only the time it adds.
         val ledger = reserveAll(Free, "09:00" to 60, "09:30" to 60)
-        assertEquals(90, lockdownMinutesUsed(ledger, day))
+        assertEquals(90, alwaysBlockMinutesUsed(ledger, day))
         // Restarting the same Lockdown costs nothing and doesn't reset the budget.
-        val again = ledger + reserveLockdown(Free, ledger, at("09:00"), 60, india)!!
-        assertEquals(90, lockdownMinutesUsed(again, day))
-        assertEquals(30, lockdownMinutesLeft(Free, again, day))
+        val again = ledger + reserveAlwaysBlock(Free, ledger, at("09:00"), 60, india)!!
+        assertEquals(90, alwaysBlockMinutesUsed(again, day))
+        assertEquals(30, alwaysBlockMinutesLeft(Free, again, day))
     }
 
     @Test
     fun aLockdownAcrossMidnightCountsTowardItsStartingDay() {
         val ledger = reserveAll(Free, "23:30" to 90)
         val next = day.plusDays(1)
-        assertEquals(90, lockdownMinutesUsed(ledger, day))
-        assertEquals(0, lockdownMinutesUsed(ledger, next))
-        assertEquals(120, lockdownMinutesLeft(Free, ledger, next))
+        assertEquals(90, alwaysBlockMinutesUsed(ledger, day))
+        assertEquals(0, alwaysBlockMinutesUsed(ledger, next))
+        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, next))
         // Just after midnight a new Lockdown starts on the new day. Its first half hour is
         // already covered by last night's Lockdown, so the new day pays only for the rest.
-        val after = ledger + reserveLockdown(Free, ledger, at("00:30", next), 120, india)!!
-        assertEquals(90, lockdownMinutesUsed(after, day))
-        assertEquals(90, lockdownMinutesUsed(after, next))
+        val after = ledger + reserveAlwaysBlock(Free, ledger, at("00:30", next), 120, india)!!
+        assertEquals(90, alwaysBlockMinutesUsed(after, day))
+        assertEquals(90, alwaysBlockMinutesUsed(after, next))
     }
 
     @Test
@@ -227,10 +227,10 @@ class PlanTest {
         val now = at("23:30")
         val london = now.atZone(ZoneId.of("Europe/London")).toLocalDate()
         val tokyo = now.atZone(ZoneId.of("Asia/Tokyo")).toLocalDate()
-        assertEquals(20, lockdownMinutesLeft(Free, ledger, london))
-        assertEquals(120, lockdownMinutesLeft(Free, ledger, tokyo))
+        assertEquals(20, alwaysBlockMinutesLeft(Free, ledger, london))
+        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, tokyo))
         // A Lockdown started after the move is charged to the local day where it starts.
-        val inTokyo = reserveLockdown(Free, ledger, at("23:45"), 120, ZoneId.of("Asia/Tokyo"))!!
+        val inTokyo = reserveAlwaysBlock(Free, ledger, at("23:45"), 120, ZoneId.of("Asia/Tokyo"))!!
         assertEquals(day.plusDays(1), inTokyo.day)
     }
 
@@ -238,35 +238,35 @@ class PlanTest {
     fun aClockSetBackDoesNotRefundOrDoubleCharge() {
         val ledger = reserveAll(Free, "10:00" to 60)
         // The clock moves back to 09:30 and a Lockdown starts: 09:30 to 11:00 is charged once, as 90 minutes.
-        val back = reserveLockdown(Free, ledger, at("09:30"), 60, india)
+        val back = reserveAlwaysBlock(Free, ledger, at("09:30"), 60, india)
         assertNotNull(back)
-        assertEquals(90, lockdownMinutesUsed(ledger + back!!, day))
+        assertEquals(90, alwaysBlockMinutesUsed(ledger + back!!, day))
         // Moving the clock to tomorrow gives tomorrow's budget, an accepted limitation (BUSINESS_MODEL.md 7).
-        assertEquals(120, lockdownMinutesLeft(Free, ledger, day.plusDays(1)))
+        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, day.plusDays(1)))
     }
 
     @Test
     fun earlyEndsOutsideAurorasControlAreRefunded() {
         val ledger = reserveAll(Free, "09:00" to 120)
-        assertEquals(0, lockdownMinutesLeft(Free, ledger, day))
+        assertEquals(0, alwaysBlockMinutesLeft(Free, ledger, day))
         // The accessibility service is turned off 40 minutes and 10 seconds in.
         val ended = listOf(ledger.single().endedEarlyAt(at("09:40").plusSeconds(10)))
-        assertEquals(41, lockdownMinutesUsed(ended, day))
-        assertEquals(79, lockdownMinutesLeft(Free, ended, day))
+        assertEquals(41, alwaysBlockMinutesUsed(ended, day))
+        assertEquals(79, alwaysBlockMinutesLeft(Free, ended, day))
         // An end time outside the reservation can't refund more than it reserved, or extend it.
-        assertEquals(0, lockdownMinutesUsed(listOf(ledger.single().endedEarlyAt(at("08:00"))), day))
-        assertEquals(120, lockdownMinutesUsed(listOf(ledger.single().endedEarlyAt(at("23:00"))), day))
+        assertEquals(0, alwaysBlockMinutesUsed(listOf(ledger.single().endedEarlyAt(at("08:00"))), day))
+        assertEquals(120, alwaysBlockMinutesUsed(listOf(ledger.single().endedEarlyAt(at("23:00"))), day))
     }
 
     @Test
     fun plusLockdownIsUnlimitedAndADowngradeNeverEndsOne() {
         val ledger = reserveAll(Plus, "08:00" to 300)
-        assertNull(lockdownMinutesLeft(Plus, ledger, day))
+        assertNull(alwaysBlockMinutesLeft(Plus, ledger, day))
         // The subscription ends during the Lockdown. The reservation stands as promised; Free's
         // limit applies from the next Lockdown, and the minutes left never go negative.
         assertEquals(at("13:00"), ledger.single().end)
-        assertEquals(0, lockdownMinutesLeft(Free, ledger, day))
-        assertNull(reserveLockdown(Free, ledger, at("14:00"), 10, india))
-        assertEquals(120, lockdownMinutesLeft(Free, ledger, day.plusDays(1)))
+        assertEquals(0, alwaysBlockMinutesLeft(Free, ledger, day))
+        assertNull(reserveAlwaysBlock(Free, ledger, at("14:00"), 10, india))
+        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, day.plusDays(1)))
     }
 }

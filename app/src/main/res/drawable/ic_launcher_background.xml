@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Polar night with a faint horizon glow rising from below. -->
+<!-- Night sky with first light on the horizon: a cool aurora glow and a warm dawn core, both from below. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -13,12 +13,24 @@
         <aapt:attr name="android:fillColor">
             <gradient
                 android:centerX="54"
-                android:centerY="100"
-                android:gradientRadius="70"
+                android:centerY="104"
+                android:gradientRadius="72"
                 android:type="radial">
-                <item android:color="#4D3FC495" android:offset="0" />
-                <item android:color="#1A3FC495" android:offset="0.5" />
+                <item android:color="#593FC495" android:offset="0" />
+                <item android:color="#173FC495" android:offset="0.55" />
                 <item android:color="#003FC495" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="100"
+                android:gradientRadius="30"
+                android:type="radial">
+                <item android:color="#40F0B48A" android:offset="0" />
+                <item android:color="#00F0B48A" android:offset="1" />
             </gradient>
         </aapt:attr>
     </path>

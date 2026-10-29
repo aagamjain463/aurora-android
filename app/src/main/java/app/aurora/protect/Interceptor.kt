@@ -23,11 +23,13 @@ data class ShieldRequest(
      * not timed, because its first frame may come much later or not at all.
      */
     val fresh: Boolean = true,
+    /** The full decision, for the Shield's content (the restriction, a Cooldown wait, Intent's time-up). */
+    val decision: Decision.Shield? = null,
 )
 
 /**
- * How a Shield is shown. Phase 3 ships one implementation, a full-screen activity in its own task
- * (ActivityShieldPresenter). Another mechanism, if G1 on real phones calls for one, replaces only this.
+ * How a Shield is shown: an accessibility overlay over the protected app (OverlayShieldPresenter).
+ * Phase 3 used a full-screen activity, which Xiaomi HyperOS refused to start from the background.
  */
 interface ShieldPresenter {
     /** Shows, or re-asserts, the Shield for [request]. False if the platform refused. */
@@ -49,6 +51,11 @@ class Interceptor(
     private val schedule: (delayMs: Long, block: () -> Unit) -> Unit,
     /** A protected app is in front and allowed for now; the service re-measures its daily use. */
     private val onAllowed: (String) -> Unit = {},
+    /**
+     * Which app the person is actually using: a package, or null while a Shield or aurora covers it.
+     * Intentional App Opening counts foreground time from this (UsageMeter).
+     */
+    private val onForeground: (String?) -> Unit = {},
 ) {
     @Volatile var state: PolicyState? = null
 
@@ -70,7 +77,7 @@ class Interceptor(
     fun onWindow(packageName: String?, eventUptime: Long, receivedUptime: Long) {
         val current = snapshot()
         val decision = decide(packageName, wallClock(), current)
-        trace.decided(decision)
+        trace.decided(decision, receivedUptime)
         if (packageName != null && packageName !in overlays) {
             windows++
             if (packageName != ownPackage) lastApp = packageName
@@ -78,7 +85,11 @@ class Interceptor(
         when {
             decision is Decision.Shield -> shield(decision, eventUptime, receivedUptime)
             packageName == null -> Unit
-            packageName == ownPackage || packageName in overlays -> interrupted = true
+            packageName in overlays -> interrupted = true
+            packageName == ownPackage -> {
+                interrupted = true
+                onForeground(null)
+            }
             // A real app or the launcher is in front. A Shield started for an earlier app must not
             // appear over it, or stay behind it.
             shownFor != null -> {
@@ -86,7 +97,10 @@ class Interceptor(
                 shownFor = null
             }
         }
-        if (packageName != null && packageName !in overlays && packageName != ownPackage) watchToken++
+        if (packageName != null && packageName !in overlays && packageName != ownPackage) {
+            watchToken++
+            if (decision !is Decision.Shield) onForeground(packageName)
+        }
         if (decision is Decision.TemporarilyAllowed || decision == Decision.Allow && current != null && packageName in current.protectedPackages) {
             watch(packageName!!)
             onAllowed(packageName)
@@ -127,6 +141,7 @@ class Interceptor(
     private fun shield(decision: Decision.Shield, eventUptime: Long, receivedUptime: Long) {
         val pkg = decision.packageName
         val now = uptime()
+        onForeground(null)
         // Every protected event re-asserts the Shield, because any of them can mean the app is in front
         // again. Dropping repeats left Clock in front on the emulator when opens came 0.3 s apart. The
         // presenter makes a repeat cheap (singleTask: onNewIntent). One opening sends 2–3 events; those
@@ -135,7 +150,7 @@ class Interceptor(
         if (repeat) trace.repeat()
         watchToken++
         val ok = presenter.present(
-            ShieldRequest(pkg, decision.reason, decision.until, eventUptime, receivedUptime, decidedUptime = now, fresh = !repeat),
+            ShieldRequest(pkg, decision.reason, decision.until, eventUptime, receivedUptime, decidedUptime = now, fresh = !repeat, decision = decision),
         )
         trace.presented(ok)
         shownFor = pkg
@@ -163,7 +178,7 @@ class Interceptor(
             val decision = decide(pkg, wallClock(), snapshot()) as? Decision.Shield ?: return@schedule
             val now = uptime()
             trace.recovered()
-            trace.presented(presenter.present(ShieldRequest(pkg, decision.reason, decision.until, now, now, now, fresh = false)))
+            trace.presented(presenter.present(ShieldRequest(pkg, decision.reason, decision.until, now, now, now, fresh = false, decision = decision)))
             confirm(pkg, attempt + 1)
         }
     }

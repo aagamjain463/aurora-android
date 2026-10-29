@@ -143,6 +143,8 @@ fun AuroraTextField(
     imeAction: ImeAction = ImeAction.Done,
     capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
     onDone: () -> Unit = {},
+    keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = imeAction, capitalization = capitalization),
+    singleLine: Boolean = true,
 ) {
     val colors = Aurora.colors
     val focus = LocalFocusManager.current
@@ -150,17 +152,17 @@ fun AuroraTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
-        singleLine = true,
+        singleLine = singleLine,
         textStyle = AuroraType.Body.copy(color = colors.textPrimary),
         cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(imeAction = imeAction, capitalization = capitalization),
+        keyboardOptions = keyboardOptions,
         keyboardActions = KeyboardActions(onAny = { focus.clearFocus(); onDone() }),
         decorationBox = { inner ->
             Row(
                 Modifier
                     .heightIn(min = 52.dp)
                     .clip(Radius.Pill)
-                    .background(colors.surface)
+                    .background(colors.elevated)
                     .border(1.dp, colors.hairline, Radius.Pill)
                     .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,

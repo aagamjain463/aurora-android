@@ -10,11 +10,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
-import app.aurora.protect.IntentNote
-import app.aurora.protect.Mode
-import app.aurora.protect.ShieldInfo
+import app.aurora.protect.Decision
+import app.aurora.protect.FrictionSettings
+import app.aurora.protect.Restriction
+import app.aurora.protect.ShieldContent
 import app.aurora.protect.ShieldReason
-import app.aurora.protect.ShieldScreen
+import app.aurora.protect.ShieldRequest
 import app.aurora.ui.focus.FocusScreen
 import app.aurora.ui.home.HomeScreen
 import app.aurora.ui.insights.InsightsScreen
@@ -62,7 +63,7 @@ class ScreenshotTest(private val variant: Variant) {
 
     private var zone: TimeZone? = null
 
-    /** Today greets by the hour, so pin local time near 10:30 for a stable "Good morning." */
+    /** Clock times on screen are pinned near 10:30 local, so baselines stay stable. */
     @Before
     fun pinMorning() {
         zone = TimeZone.getDefault()
@@ -90,9 +91,9 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun onboarding() = capture("onboarding") { OnboardingScreen(onFinish = {}) }
 
-    @Test fun today() = capture("today") { HomeScreen(onStartFocus = {}, onOpenProtect = {}, onOpenInsights = {}, onOpenSettings = {}) }
+    @Test fun today() = capture("today") { HomeScreen(onStartFocus = {}, onOpenProtect = {}, onStartProtection = {}, onOpenInsights = {}, onOpenSettings = {}) }
 
-    @Test fun protect() = capture("protect") { ProtectScreen() }
+    @Test fun protect() = capture("protect") { ProtectScreen(onOpen = {}, onOpenItem = {}) }
 
     @Test fun insights() = capture("insights") { InsightsScreen() }
 
@@ -100,22 +101,21 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun focus() = capture("focus") { FocusScreen(onClose = {}) }
 
-    @Test fun shield() = capture("shield") { ShieldScreen("Photos", null, ShieldInfo(ShieldReason.Blocked), now = 0, onClose = {}) }
+    private fun shield(reason: ShieldReason, until: Long? = System.currentTimeMillis() + 5_400_000) = ShieldRequest(
+        "com.example.photos", reason, until, 0, 0, 0,
+        decision = Decision.Shield(
+            "com.example.photos", reason, until,
+            Restriction(reason, setOf("com.example.photos"), 0, until ?: Long.MAX_VALUE, "r", FrictionSettings(), 45 * 60_000L),
+        ),
+    )
 
-    @Test fun shieldIntent() = capture("shield_intent") {
-        ShieldScreen(
-            "Photos", null,
-            ShieldInfo(
-                ShieldReason.Choice, mode = Mode.Friction, pauseMs = 10_000, pauseStart = 0,
-                intent = IntentNote("I want to spend more time building my future.", "Work on my project"),
-            ),
-            now = 4_000, onClose = {},
-        )
-    }
+    @Test fun shieldAlwaysBlock() = capture("shield_always_block") { ShieldContent(shield(ShieldReason.AlwaysBlock)) { } }
 
-    @Test fun shieldLockdown() = capture("shield_lockdown") {
-        ShieldScreen("Photos", null, ShieldInfo(ShieldReason.Lockdown, until = 0), now = 0, onClose = {})
-    }
+    @Test fun shieldFlexible() = capture("shield_flexible") { ShieldContent(shield(ShieldReason.Flexible)) { } }
+
+    @Test fun shieldFriction() = capture("shield_friction") { ShieldContent(shield(ShieldReason.Friction)) { } }
+
+    @Test fun shieldIntent() = capture("shield_intent") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
 
     companion object {
         @JvmStatic

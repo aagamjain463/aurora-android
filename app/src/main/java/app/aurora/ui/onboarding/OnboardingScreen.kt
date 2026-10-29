@@ -8,41 +8,42 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -50,37 +51,38 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.AuroraApplication
+import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
 import app.aurora.data.AccessState
 import app.aurora.data.openAccessSettings
-import app.aurora.data.openUsageAccessSettings
 import app.aurora.plan.Allowance
 import app.aurora.plan.ProtectedItem
+import app.aurora.protect.IntentConfig
 import app.aurora.protect.Mode
+import app.aurora.protect.ShieldService
 import app.aurora.protect.key
 import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
-import app.aurora.ui.components.AuroraIcons
+import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.AuroraLight
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
-import app.aurora.ui.components.ChipFlow
-import app.aurora.ui.components.HorizonGlow
-import app.aurora.ui.components.RadioRow
-import app.aurora.ui.components.RowDivider
-import app.aurora.ui.components.RowGroup
-import app.aurora.ui.components.SkeletonRows
+import app.aurora.ui.components.Chip
+import app.aurora.ui.components.ChoiceCard
+import app.aurora.ui.components.SelectionMark
 import app.aurora.ui.components.Wordmark
-import app.aurora.ui.components.allowanceText
-import app.aurora.ui.components.bleed
-import app.aurora.ui.protect.AppRow
-import app.aurora.ui.protect.LimitDialog
+import app.aurora.ui.protect.ItemIcon
 import app.aurora.ui.protect.ProtectModel
 import app.aurora.ui.protect.ShieldDisclosure
-import app.aurora.ui.protect.explain
-import app.aurora.ui.protect.title
+import app.aurora.ui.protect.appList
+import app.aurora.ui.protect.isXiaomi
+import app.aurora.ui.protect.modeColor
+import app.aurora.ui.protect.modeDescription
+import app.aurora.ui.protect.modeName
+import app.aurora.ui.protect.openAppInfo
+import app.aurora.ui.protect.openAutostart
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Motion
@@ -90,13 +92,11 @@ import kotlinx.coroutines.launch
 
 private const val PageCount = 8
 
-private val Motivations = listOf("Studying", "Deep work", "Reading", "Fitness", "Relationships", "Rest", "Personal projects")
-
 /**
- * Eight quiet steps: the idea, the problem, how aurora helps, what you want time for, what pulls you away,
- * how aurora should step in, the permissions that make it work, and first light. The horizon brightens as
- * you go. Every choice is saved as it's made, and the step is remembered, so leaving and coming back
- * continues where you were. No account; nothing is required.
+ * Eight steps, each one decision: welcome, what matters, the apps that pull you away (every launchable
+ * app, searchable), how Shield works (the four modes), Intentional App Opening, turning Shield on,
+ * keeping it running, and first light. The person can leave and come back; onboarding resumes where
+ * they were. Nothing here starts protection by itself.
  */
 @Composable
 fun OnboardingScreen(onFinish: () -> Unit) {
@@ -106,7 +106,6 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val reduced = Aurora.reducedMotion
     val prefs by app.preferences.preferences.collectAsStateWithLifecycle(initialValue = null)
     var page by rememberSaveable { mutableIntStateOf(-1) }
-    // Continue where the person left off, once preferences are known.
     LaunchedEffect(prefs != null) { if (page < 0 && prefs != null) page = prefs!!.onboardingStep.coerceIn(0, PageCount - 1) }
     LaunchedEffect(page) { if (page >= 0) runCatching { app.preferences.setOnboardingStep(page) } }
     val notice by vm.notice.collectAsStateWithLifecycle()
@@ -114,60 +113,40 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val p = page.coerceAtLeast(0)
 
     Box(Modifier.fillMaxSize().background(colors.background)) {
-        HorizonGlow(
-            intensity = 0.3f + 0.7f * p / (PageCount - 1),
-            warmth = 0.75f - 0.45f * p / (PageCount - 1),
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.55f).align(Alignment.BottomCenter),
-        )
+        if (p == 0 || p == PageCount - 1) {
+            AuroraLight(glow = if (p == 0) 0.25f else 0.8f, rise = if (p == 0) 0.05f else 0.6f, modifier = Modifier.fillMaxWidth().height(380.dp).background(colors.sky))
+        }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-            Row(
-                Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
                 Wordmark(Modifier.weight(1f))
                 PageDots(p)
             }
-            BoxWithConstraints(Modifier.weight(1f)) {
-                Column(
-                    Modifier
-                        .verticalScroll(rememberScrollState())
-                        .heightIn(min = maxHeight)
-                        .padding(horizontal = Space.Gutter),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    AnimatedContent(
-                        targetState = p,
-                        transitionSpec = {
-                            val enter = if (reduced) fadeIn(tween(Motion.Standard)) else
-                                fadeIn(tween(Motion.Gentle)) + slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) {
-                                    if (targetState > initialState) it / 10 else -it / 10
-                                }
-                            enter togetherWith fadeOut(tween(Motion.Quick))
-                        },
-                        label = "page",
-                    ) { step ->
-                        when (step) {
-                            0 -> Welcome()
-                            1 -> Problem()
-                            2 -> Solution()
-                            3 -> Motivation(vm)
-                            4 -> Distractions(vm)
-                            5 -> HowToProtect(vm)
-                            6 -> Permissions()
-                            else -> FirstLight(vm)
-                        }
-                    }
+            AnimatedContent(
+                targetState = p,
+                modifier = Modifier.weight(1f),
+                transitionSpec = {
+                    val enter = if (reduced) fadeIn(tween(Motion.Standard)) else
+                        fadeIn(tween(Motion.Gentle)) + slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (targetState > initialState) it / 10 else -it / 10 }
+                    enter togetherWith fadeOut(tween(Motion.Quick))
+                },
+                label = "page",
+            ) { step ->
+                when (step) {
+                    0 -> Page { Welcome() }
+                    1 -> Page { Motivation(vm) }
+                    2 -> Apps(vm)
+                    3 -> Page { Modes(vm) }
+                    4 -> Page { Intent(vm) }
+                    5 -> Page { TurnOnShield() }
+                    6 -> Page { KeepRunning() }
+                    else -> Page { FirstLight(vm) }
                 }
             }
-            Column(
-                Modifier.padding(horizontal = Space.Gutter, vertical = Space.M).animateContentSize(),
-                verticalArrangement = Arrangement.spacedBy(Space.XS),
-            ) {
+            Column(Modifier.padding(horizontal = Space.Gutter, vertical = Space.M).animateContentSize(), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                 val label = when (p) {
-                    0 -> "Begin"
-                    4 -> "Continue"
-                    PageCount - 1 -> "Go to Today"
-                    else -> "Continue"
+                    0 -> stringResource(R.string.onb_begin)
+                    PageCount - 1 -> stringResource(R.string.onb_finish)
+                    else -> stringResource(R.string.action_continue)
                 }
                 AuroraButton(label, {
                     if (p == PageCount - 1) {
@@ -175,238 +154,192 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         onFinish()
                     } else page = p + 1
                 }, Modifier.fillMaxWidth())
-                if (p in 3..6) AuroraButton("Skip for now", { page = p + 1 }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                if (p in 1..6) AuroraButton(stringResource(R.string.onb_skip), { page = p + 1 }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
             }
         }
     }
-    LimitDialog(notice, vm::dismissNotice) {}
+    notice?.let { n -> AuroraDialog(n.title, vm::dismissNotice, stringResource(R.string.action_ok), vm::dismissNotice, n.body) }
+}
+
+@Composable
+private fun Page(content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+        content()
+    }
 }
 
 @Composable
 private fun PageDots(page: Int) {
     val colors = Aurora.colors
-    Row(
-        Modifier.semantics { contentDescription = "Step ${page + 1} of $PageCount" },
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
+    val spoken = stringResource(R.string.onb_step, page + 1, PageCount)
+    Row(Modifier.semantics { contentDescription = spoken }, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         repeat(PageCount) { i ->
-            Box(
-                Modifier
-                    .animateContentSize(tween(Motion.Standard, easing = Motion.Ease))
-                    .height(4.dp)
-                    .width(if (i == page) 16.dp else 5.dp)
-                    .clip(Radius.Pill)
-                    .background(if (i <= page) colors.accent else colors.hairline),
-            )
+            Box(Modifier.height(4.dp).width(if (i == page) 18.dp else 6.dp).clip(Radius.Pill).background(if (i <= page) colors.accent else colors.hairline))
         }
     }
 }
 
 @Composable
-private fun Title(eyebrow: String?, title: String, body: String? = null) {
+private fun Title(eyebrow: String, title: String, body: String?) {
     val colors = Aurora.colors
-    Column {
-        if (eyebrow != null) {
-            Text(eyebrow, color = colors.textTertiary, style = AuroraType.Eyebrow)
-            Spacer(Modifier.height(Space.S))
-        }
-        Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-        if (body != null) {
-            Spacer(Modifier.height(Space.M))
-            Text(body, color = colors.textSecondary, style = AuroraType.Body)
-        }
-    }
+    Spacer(Modifier.height(Space.M))
+    Text(eyebrow, color = colors.accent, style = AuroraType.Eyebrow)
+    Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
+    if (body != null) Text(body, color = colors.textSecondary, style = AuroraType.Body)
+    Spacer(Modifier.height(Space.S))
 }
 
 @Composable
 private fun Welcome() {
-    Column {
-        AuroraMark(72.dp)
-        Spacer(Modifier.height(Space.XL))
-        Title(null, "Make room for\nwhat matters.", "aurora helps you take back control of your attention, one intentional choice at a time.")
-    }
+    val colors = Aurora.colors
+    Spacer(Modifier.height(250.dp))
+    AuroraMark(56.dp)
+    Text(stringResource(R.string.today_headline), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
+    Text(stringResource(R.string.onb_welcome_body), color = colors.textSecondary, style = AuroraType.Body)
 }
 
-@Composable
-private fun Problem() {
-    Title(
-        "the problem",
-        "Most phone time\nisn't a decision.",
-        "You unlock for one thing and look up twenty minutes later. That's how many apps are designed to work. It isn't a failing of yours.\n\n" +
-            "aurora doesn't scold or count your mistakes. It gives you back the moment where you choose.",
-    )
-}
-
-@Composable
-private fun Solution() {
-    Column {
-        Title("how aurora helps", "A moment to choose,\nand time to focus.")
-        Spacer(Modifier.height(Space.XL))
-        Column(verticalArrangement = Arrangement.spacedBy(Space.L)) {
-            Point(AuroraIcons.Protect, "Shield", "A calm pause when an app you chose opens. Flexible, with a short wait, or firmly closed: you decide.")
-            Point(AuroraIcons.Quote, "Intent", "Your own reason, shown at the moment you need it, before an app opens.")
-            Point(AuroraIcons.Focus, "Focus", "Protected time for what matters. Shield holds your distractions back until it ends.")
-        }
-    }
-}
-
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Motivation(vm: ProtectModel) {
     val data by vm.data.collectAsStateWithLifecycle()
     val chosen = data?.rules?.motivations.orEmpty()
     var custom by rememberSaveable { mutableStateOf("") }
-    val options = (Motivations + chosen).distinct()
-    Column {
-        Title("for you", "What do you want\nmore time for?", "aurora reminds you of this when it matters. It stays on this phone.")
-        Spacer(Modifier.height(Space.L))
-        ChipFlow(options, chosen.toSet(), { m ->
-            vm.edit { r -> r.copy(motivations = if (m in r.motivations) r.motivations - m else r.motivations + m) }
-        }, label = { it })
-        Spacer(Modifier.height(Space.M))
-        AuroraTextField(
-            custom,
-            { if (it.length <= 30) custom = it },
-            "Something else…",
-            capitalization = KeyboardCapitalization.Sentences,
-            onDone = {
-                val m = custom.trim()
-                if (m.isNotEmpty()) vm.edit { r -> if (m in r.motivations) r else r.copy(motivations = r.motivations + m) }
-                custom = ""
-            },
-        )
+    Title(stringResource(R.string.onb_motivation_eyebrow), stringResource(R.string.onb_motivation_title), stringResource(R.string.onb_motivation_body))
+    val options = listOf(R.string.onb_m_deep_work, R.string.onb_m_study, R.string.onb_m_people, R.string.onb_m_sleep, R.string.onb_m_reading, R.string.onb_m_health, R.string.onb_m_creating).map { stringResource(it) }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        (options + chosen.filterNot { it in options }).forEach { m ->
+            Chip(m, m in chosen) { vm.edit { r -> r.copy(motivations = if (m in r.motivations) r.motivations - m else r.motivations + m) } }
+        }
     }
+    AuroraTextField(custom, { if (it.length <= 40) custom = it }, stringResource(R.string.onb_motivation_custom), capitalization = KeyboardCapitalization.Sentences, onDone = {
+        val m = custom.trim()
+        if (m.isNotEmpty()) vm.edit { r -> if (m in r.motivations) r else r.copy(motivations = r.motivations + m) }
+        custom = ""
+    })
 }
 
+/** Every launchable app, searchable, nothing cut off. */
 @Composable
-private fun Distractions(vm: ProtectModel) {
+private fun Apps(vm: ProtectModel) {
     val apps by vm.apps.collectAsStateWithLifecycle()
     val data by vm.data.collectAsStateWithLifecycle()
     val exempt by vm.exempt.collectAsStateWithLifecycle()
-    val chosen = data?.list?.apps.orEmpty().toSet()
-    // Chosen apps lead, fixed when the list loads, so ticking never moves a row.
-    val ordered = remember(apps) { apps?.filter { it.packageName !in exempt }?.sortedByDescending { it.packageName in chosen } }
-    Column {
-        Title(
-            "what pulls you away",
-            "Choose your\ndistractions.",
-            "Tick the apps that pull you in. You've chosen ${allowanceText(data?.active?.size ?: 0, data?.max(Allowance.ProtectedItems))} on aurora Free, and you can change them anytime.",
-        )
-        Spacer(Modifier.height(Space.L))
-        if (ordered == null) SkeletonRows(4)
-        else RowGroup(Modifier.bleed(Space.Gutter)) {
-            ordered.take(30).forEachIndexed { i, app ->
-                if (i > 0) RowDivider(72.dp)
-                AppRow(app, app.packageName in chosen, null, enabled = true) { ProtectedItem.App.of(app.packageName)?.let { vm.toggle(it) } }
+    var query by rememberSaveable { mutableStateOf("") }
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            Column(Modifier.padding(horizontal = Space.Gutter)) {
+                Title(stringResource(R.string.onb_apps_eyebrow), stringResource(R.string.onb_apps_title), stringResource(R.string.onb_apps_body))
             }
         }
+        item {
+            AuroraTextField(query, { query = it }, stringResource(R.string.picker_search), Modifier.padding(horizontal = Space.M, vertical = Space.XS), icon = app.aurora.ui.components.AuroraIcons.Search)
+        }
+        appList(apps, data, exempt, query) { pkg -> ProtectedItem.App.of(pkg)?.let { vm.toggle(it) } }
     }
 }
 
-private val StarterModes = listOf(Mode.Flexible, Mode.Friction, Mode.Block)
-
 @Composable
-private fun HowToProtect(vm: ProtectModel) {
+private fun Modes(vm: ProtectModel) {
     val data by vm.data.collectAsStateWithLifecycle()
-    val current = data?.rules?.defaultRule?.mode ?: Mode.Friction
-    Column {
-        Title("how aurora steps in", "Choose how firm\nto be.", "This applies to the apps you chose. Each app can be different later, and there's more in Protect: Cooldown, schedules, limits and Lockdown.")
-        Spacer(Modifier.height(Space.L))
-        RowGroup(Modifier.bleed(Space.Gutter)) {
-            StarterModes.forEachIndexed { i, mode ->
-                if (i > 0) RowDivider()
-                RadioRow(mode.title(), mode.explain(), current == mode, onClick = {
-                    vm.edit { r ->
-                        val chosen = data?.list?.items.orEmpty().map { it.key }
-                        r.copy(
-                            defaultRule = r.defaultRule.copy(mode = mode),
-                            apps = r.apps + chosen.associateWith { r.rule(it).copy(mode = mode) },
-                        )
-                    }
-                }, badge = if (mode == Mode.Friction) "suggested" else null)
+    val current = data?.rules?.defaultRule?.mode ?: Mode.Flexible
+    Title(stringResource(R.string.onb_modes_eyebrow), stringResource(R.string.onb_modes_title), stringResource(R.string.onb_modes_body))
+    Mode.entries.forEach { m ->
+        ChoiceCard(modeName(m), modeDescription(m), current == m, {
+            vm.edit { r ->
+                val chosen = data?.list?.items.orEmpty().map { it.key }
+                r.copy(defaultRule = r.defaultRule.copy(mode = m), apps = r.apps + chosen.associateWith { r.rule(it).copy(mode = m) })
             }
-        }
+        }, swatch = modeColor(m))
     }
+    Text(stringResource(R.string.onb_modes_note), color = Aurora.colors.textTertiary, style = AuroraType.Caption)
 }
 
 @Composable
-private fun Permissions() {
-    val context = LocalContext.current
-    val shield = rememberAccess(Access.Accessibility) == AccessState.Granted
-    val usage = rememberAccess(Access.Usage) == AccessState.Granted
-    var disclosure by rememberSaveable { mutableStateOf(false) }
-    Column {
-        Title("permissions", "Two switches,\nboth yours.", "Android asks you to turn these on yourself. aurora explains each one first and never turns anything on for you.")
-        Spacer(Modifier.height(Space.L))
-        Column(verticalArrangement = Arrangement.spacedBy(Space.L)) {
-            Permission(
-                AuroraIcons.Lock, "Shield", "Accessibility",
-                "Lets aurora notice which app is in front, so it can pause you. It reads only the app's name, never your screen.",
-                shield,
-            ) { disclosure = true }
-            Permission(
-                AuroraIcons.Insights, "Screen time", "Usage access",
-                "Powers Insights, goals and daily limits. Read on this phone only.",
-                usage,
-            ) { openUsageAccessSettings(context) }
-        }
-    }
-    if (disclosure) ShieldDisclosure(
-        onContinue = {
-            disclosure = false
-            openAccessSettings(context, Access.Accessibility)
-        },
-        onDismiss = { disclosure = false },
-    )
-}
-
-@Composable
-private fun Permission(icon: ImageVector, title: String, android: String, body: String, on: Boolean, onAllow: () -> Unit) {
+private fun Intent(vm: ProtectModel) {
+    val data by vm.data.collectAsStateWithLifecycle()
     val colors = Aurora.colors
-    Row(horizontalArrangement = Arrangement.spacedBy(Space.M)) {
-        Box(Modifier.size(40.dp).clip(Radius.Pill).background(colors.accentSoft), contentAlignment = Alignment.Center) {
-            Icon(if (on) AuroraIcons.Check else icon, null, tint = colors.accent, modifier = Modifier.size(20.dp))
+    Title(stringResource(R.string.intent_card_eyebrow), stringResource(R.string.intent_name), stringResource(R.string.onb_intent_body))
+    val d = data ?: return
+    val apps = d.list.items.filterIsInstance<ProtectedItem.App>().map { it.packageName }
+    if (apps.isEmpty()) {
+        Text(stringResource(R.string.onb_intent_no_apps), color = colors.textSecondary, style = AuroraType.Secondary)
+        return
+    }
+    Text(stringResource(R.string.onb_intent_choose), color = colors.textPrimary, style = AuroraType.Title)
+    val on = d.rules.activeIntents(d.plan)
+    val reasonFor = d.rules.motivations.firstOrNull()?.let { stringResource(R.string.onb_intent_default_reason, it.lowercase()) }.orEmpty()
+    apps.forEach { key ->
+        val enabled = key in on
+        Row(
+            Modifier.fillMaxWidth().clip(Radius.M).background(if (enabled) colors.elevated else colors.surface)
+                .border(1.dp, if (enabled) colors.accent else colors.hairline, Radius.M)
+                .clickable(role = Role.Checkbox) {
+                    if (enabled) vm.edit { r -> r.copy(apps = r.apps + (key to r.rule(key).copy(intent = r.rule(key).intent?.copy(enabled = false)))) }
+                    else vm.enableWithin(Allowance.IntentApps, on.size) { r ->
+                        r.copy(apps = r.apps + (key to r.rule(key).copy(intent = (r.rule(key).intent ?: IntentConfig(reason = reasonFor)).copy(enabled = true))))
+                    }
+                }
+                .padding(Space.S),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
+        ) {
+            ItemIcon(key, d, 36.dp)
+            Text(d.label(key), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
+            SelectionMark(enabled)
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong)
-            Text("Android calls it $android", color = colors.textTertiary, style = AuroraType.Caption)
-            Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
-            if (on) Text("Allowed", color = colors.accent, style = AuroraType.Label)
-            else AuroraButton("Allow", onAllow, Modifier.padding(top = Space.XS), kind = ButtonKind.Secondary)
-        }
+    }
+    Text(stringResource(R.string.onb_intent_note), color = colors.textTertiary, style = AuroraType.Caption)
+}
+
+@Composable
+private fun TurnOnShield() {
+    val context = LocalContext.current
+    val colors = Aurora.colors
+    val access = rememberAccess(Access.Accessibility)
+    val connected by ShieldService.connected.collectAsStateWithLifecycle()
+    var disclosure by rememberSaveable { mutableStateOf(false) }
+    Title(stringResource(R.string.onb_shield_eyebrow), stringResource(R.string.onb_shield_title), stringResource(R.string.onb_shield_body))
+    StatusLine(stringResource(R.string.onb_shield_permission), access == AccessState.Granted)
+    StatusLine(stringResource(R.string.onb_shield_running), connected)
+    if (access != AccessState.Granted) AuroraButton(stringResource(R.string.status_turn_on), { disclosure = true }, Modifier.fillMaxWidth())
+    Text(stringResource(R.string.onb_shield_privacy), color = colors.textTertiary, style = AuroraType.Caption)
+    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
+}
+
+@Composable
+private fun KeepRunning() {
+    val context = LocalContext.current
+    val usage = rememberAccess(Access.Usage)
+    Title(stringResource(R.string.onb_keep_eyebrow), stringResource(R.string.onb_keep_title), stringResource(R.string.onb_keep_body))
+    StatusLine(stringResource(R.string.onb_keep_usage), usage == AccessState.Granted)
+    if (usage != AccessState.Granted) AuroraButton(stringResource(R.string.today_metric_allow), { openAccessSettings(context, Access.Usage) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+    if (isXiaomi) {
+        Text(stringResource(R.string.onb_keep_xiaomi), color = Aurora.colors.textSecondary, style = AuroraType.Body)
+        AuroraButton(stringResource(R.string.keep_running_autostart), { openAutostart(context) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+    } else {
+        Text(stringResource(R.string.onb_keep_other), color = Aurora.colors.textSecondary, style = AuroraType.Body)
+    }
+    AuroraButton(stringResource(R.string.keep_running_battery), { openAppInfo(context) }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+}
+
+@Composable
+private fun StatusLine(text: String, ok: Boolean) {
+    val colors = Aurora.colors
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+        SelectionMark(ok)
+        Text(text, color = if (ok) colors.textPrimary else colors.textSecondary, style = AuroraType.BodyStrong)
     }
 }
 
 @Composable
 private fun FirstLight(vm: ProtectModel) {
     val data by vm.data.collectAsStateWithLifecycle()
-    val count = data?.active?.size ?: 0
-    val motivation = data?.rules?.motivations?.firstOrNull()?.lowercase()
-    Column {
-        // A first day starts dark: the light grows only from real progress.
-        AuroraLight(glow = 0f, rise = 0f, modifier = Modifier.fillMaxWidth().height(180.dp), warmth = 0.6f)
-        Spacer(Modifier.height(Space.L))
-        Title(
-            "first light",
-            "This is where\nit begins.",
-            buildString {
-                append(if (count == 0) "Nothing is protected yet, and that's fine. " else "$count ${if (count == 1) "app is" else "apps are"} in your care. ")
-                append("Your light grows with every intentional choice")
-                append(if (motivation != null) ", and with more time for $motivation." else ".")
-            },
-        )
-    }
-}
-
-@Composable
-private fun Point(icon: ImageVector, title: String, body: String) {
     val colors = Aurora.colors
-    Row(horizontalArrangement = Arrangement.spacedBy(Space.M), modifier = Modifier.semantics(mergeDescendants = true) { }) {
-        Box(Modifier.size(40.dp).clip(Radius.Pill).background(colors.accentSoft), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = colors.accent, modifier = Modifier.size(20.dp))
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong)
-            Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
-        }
-    }
+    Spacer(Modifier.height(260.dp))
+    Text(stringResource(R.string.onb_first_light_eyebrow), color = colors.dawnText, style = AuroraType.Eyebrow)
+    Text(stringResource(R.string.onb_first_light_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
+    val count = data?.list?.items?.size ?: 0
+    Text(
+        if (count == 0) stringResource(R.string.onb_first_light_none) else stringResource(R.string.onb_first_light_body, count),
+        color = colors.textSecondary, style = AuroraType.Body,
+    )
 }

@@ -8,31 +8,37 @@ import androidx.compose.ui.graphics.Color
 
 /** Raw palette. Screens never use these directly; they read semantic [AuroraColors]. See docs/BRAND.md. */
 object Palette {
-    // Polar: neutrals with a faint green-teal undertone, like a northern night.
-    val Polar950 = Color(0xFF0A0F0E)
-    val Polar900 = Color(0xFF111816)
-    val Polar850 = Color(0xFF18211E)
-    val Polar400 = Color(0xFF8D9894)
-    val Polar450 = Color(0xFF717E7A)
-    val Frost = Color(0xFFECEFEC)
+    // Night: rich green-tinted near-blacks, the sky an hour before dawn.
+    val Night1000 = Color(0xFF050B09)
+    val Night950 = Color(0xFF08110E)
+    val Night900 = Color(0xFF0E1915)
+    val Night850 = Color(0xFF14221D)
+    val Night800 = Color(0xFF1B2C26)
+    val Mist300 = Color(0xFFB4C2BC)
+    val Mist400 = Color(0xFF8A9993)
+    val Frost = Color(0xFFF1F6F3)
 
-    // Mist: warm, paper-like light neutrals.
-    val Mist = Color(0xFFF3F4EF)
-    val Paper = Color(0xFFFBFBF8)
-    val Ink = Color(0xFF0F1715)
-    val Ink70 = Color(0xFF45504C)
-    val Ink55 = Color(0xFF646F6B)
+    // Day: warm off-whites, like paper in early light.
+    val Linen = Color(0xFFF5F1E8)
+    val Paper = Color(0xFFFFFCF6)
+    val Shell = Color(0xFFEDE7DA)
+    val Ink = Color(0xFF0B1411)
+    val Ink75 = Color(0xFF39453F)
+    val Ink60 = Color(0xFF5B6761)
 
-    // Aurora: the signature luminous green. 400 for dark surfaces, 700 for light ones.
+    // Aurora: the signature luminous green. 400 on night, 700 on day.
+    val Aurora300 = Color(0xFFA6F0CF)
     val Aurora400 = Color(0xFF7BE3B6)
     val Aurora500 = Color(0xFF3FC495)
     val Aurora700 = Color(0xFF137A57)
+    val Aurora900 = Color(0xFF0A3D2C)
 
-    // Dawn: the warm secondary, reserved for completion and human moments.
+    // Dawn: the warm counterpart, for completion, commitment and human moments.
+    val Dawn300 = Color(0xFFF7CFAF)
     val Dawn400 = Color(0xFFF0B48A)
-    val Dawn700 = Color(0xFFA64B22)
+    val Dawn700 = Color(0xFF9C4A20)
 
-    val Starlight = Color(0xFFF6F1E7)
+    val Starlight = Color(0xFFFFF6E6)
     val Coral400 = Color(0xFFF2877E)
     val Coral700 = Color(0xFFB3261E)
 }
@@ -41,7 +47,11 @@ object Palette {
 data class AuroraColors(
     val isDark: Boolean,
     val background: Color,
+    /** The deepest tone: behind the hero and the Shield. */
+    val sky: Color,
     val surface: Color,
+    /** A surface raised above [surface]: selected cards, sheets. */
+    val elevated: Color,
     val hairline: Color,
     val textPrimary: Color,
     val textSecondary: Color,
@@ -51,6 +61,7 @@ data class AuroraColors(
     val accentSoft: Color,
     val dawn: Color,
     val dawnText: Color,
+    val dawnSoft: Color,
     val glowCool: Color,
     val glowWarm: Color,
     /** The rising point of light in the mark and the focus arc. */
@@ -60,17 +71,20 @@ data class AuroraColors(
 
 val LightColors = AuroraColors(
     isDark = false,
-    background = Palette.Mist,
+    background = Palette.Linen,
+    sky = Palette.Shell,
     surface = Palette.Paper,
-    hairline = Palette.Ink.copy(alpha = 0.08f),
+    elevated = Color.White,
+    hairline = Palette.Ink.copy(alpha = 0.09f),
     textPrimary = Palette.Ink,
-    textSecondary = Palette.Ink70,
-    textTertiary = Palette.Ink55,
+    textSecondary = Palette.Ink75,
+    textTertiary = Palette.Ink60,
     accent = Palette.Aurora700,
     onAccent = Color.White,
     accentSoft = Palette.Aurora700.copy(alpha = 0.10f),
     dawn = Palette.Dawn400,
     dawnText = Palette.Dawn700,
+    dawnSoft = Palette.Dawn400.copy(alpha = 0.20f),
     glowCool = Palette.Aurora500,
     glowWarm = Palette.Dawn400,
     light = Palette.Aurora700,
@@ -79,17 +93,20 @@ val LightColors = AuroraColors(
 
 val DarkColors = AuroraColors(
     isDark = true,
-    background = Palette.Polar950,
-    surface = Palette.Polar900,
-    hairline = Color.White.copy(alpha = 0.08f),
+    background = Palette.Night950,
+    sky = Palette.Night1000,
+    surface = Palette.Night900,
+    elevated = Palette.Night850,
+    hairline = Color.White.copy(alpha = 0.09f),
     textPrimary = Palette.Frost,
-    textSecondary = Palette.Polar400,
-    textTertiary = Palette.Polar450,
+    textSecondary = Palette.Mist300,
+    textTertiary = Palette.Mist400,
     accent = Palette.Aurora400,
-    onAccent = Palette.Polar950,
-    accentSoft = Palette.Aurora400.copy(alpha = 0.12f),
+    onAccent = Palette.Night950,
+    accentSoft = Palette.Aurora400.copy(alpha = 0.13f),
     dawn = Palette.Dawn400,
-    dawnText = Palette.Dawn400,
+    dawnText = Palette.Dawn300,
+    dawnSoft = Palette.Dawn400.copy(alpha = 0.14f),
     glowCool = Palette.Aurora500,
     glowWarm = Palette.Dawn400,
     light = Palette.Starlight,
@@ -105,7 +122,7 @@ fun AuroraColors.toMaterial(): ColorScheme {
         primaryContainer = accentSoft,
         onPrimaryContainer = accent,
         secondary = dawn,
-        onSecondary = Palette.Polar950,
+        onSecondary = Palette.Night950,
         background = background,
         onBackground = textPrimary,
         surface = surface,
@@ -115,8 +132,8 @@ fun AuroraColors.toMaterial(): ColorScheme {
         surfaceContainerLowest = surface,
         surfaceContainerLow = surface,
         surfaceContainer = surface,
-        surfaceContainerHigh = surface,
-        surfaceContainerHighest = surface,
+        surfaceContainerHigh = elevated,
+        surfaceContainerHighest = elevated,
         outline = textTertiary,
         outlineVariant = hairline,
         error = danger,

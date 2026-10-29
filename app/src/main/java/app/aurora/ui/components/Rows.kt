@@ -2,6 +2,8 @@ package app.aurora.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,15 +36,15 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 
-/** Lowercase, tracked section label. Marked as a heading for screen readers. */
+/** Sentence-case, tracked section label. Marked as a heading for screen readers. */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.lowercase(),
+        text.replaceFirstChar { it.uppercase() },
         modifier
             .padding(start = Space.Gutter, end = Space.Gutter, top = Space.XL, bottom = Space.S)
             .semantics { heading() },
-        color = Aurora.colors.textTertiary,
+        color = Aurora.colors.textSecondary,
         style = AuroraType.Eyebrow,
     )
 }
@@ -55,7 +57,8 @@ fun RowGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
             .padding(horizontal = Space.M)
             .fillMaxWidth()
             .clip(Radius.L)
-            .background(Aurora.colors.surface),
+            .background(Aurora.colors.surface)
+            .border(1.dp, Aurora.colors.hairline, Radius.L),
         content = content,
     )
 }
@@ -133,7 +136,7 @@ fun ToggleRow(
 /** An installed app's icon at a consistent size and shape. */
 @Composable
 fun AppIcon(app: InstalledApp, modifier: Modifier = Modifier, size: Dp = 40.dp) {
-    Image(app.icon, contentDescription = null, modifier = modifier.size(size))
+    Image(app.icon, contentDescription = null, modifier = modifier.size(size).clip(RoundedCornerShape(size * 0.28f)))
 }
 
 /** Not-yet-available feature, shown honestly: dimmed, non-interactive, labelled "soon". */

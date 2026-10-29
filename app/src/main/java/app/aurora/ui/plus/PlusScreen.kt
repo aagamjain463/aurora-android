@@ -47,8 +47,8 @@ import kotlinx.coroutines.launch
 /** (feature, Free, Plus) */
 private val Compare = listOf(
     Triple("Protected apps and sites", "${FreeLimits.getValue(Allowance.ProtectedItems)}", "Unlimited"),
-    Triple("Lockdown time each day", "${FreeLimits.getValue(Allowance.LockdownMinutesPerDay)} min", "Unlimited"),
-    Triple("Apps with Intent", "${FreeLimits.getValue(Allowance.IntentApps)}", "Unlimited"),
+    Triple("Always Block time each day", "${FreeLimits.getValue(Allowance.AlwaysBlockMinutesPerDay)} min", "Unlimited"),
+    Triple("Apps with Intentional App Opening", "${FreeLimits.getValue(Allowance.IntentApps)}", "Unlimited"),
     Triple("Daily limits", "${FreeLimits.getValue(Allowance.DailyLimitRules)}", "Unlimited"),
     Triple("Schedules", "${FreeLimits.getValue(Allowance.Schedules)}", "Unlimited"),
     Triple("Focus profiles", "${FreeLimits.getValue(Allowance.FocusProfiles)}", "Unlimited"),

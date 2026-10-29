@@ -29,6 +29,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import app.aurora.AuroraApplication
+import app.aurora.R
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraNavBar
 import app.aurora.ui.components.NavItem
@@ -42,7 +43,10 @@ import app.aurora.ui.protect.AppPickerScreen
 import app.aurora.ui.protect.GroupsScreen
 import app.aurora.ui.protect.ItemScreen
 import app.aurora.ui.protect.LimitsScreen
-import app.aurora.ui.protect.LockdownScreen
+import app.aurora.ui.protect.IntentAppScreen
+import app.aurora.ui.protect.IntentScreen
+import app.aurora.ui.protect.ScheduleEditorScreen
+import app.aurora.ui.protect.StartScreen
 import app.aurora.ui.protect.ProtectRoutes
 import app.aurora.ui.protect.ProtectScreen
 import app.aurora.ui.protect.SchedulesScreen
@@ -63,9 +67,9 @@ object Routes {
 
 /** Three tabs, by design: what's happening now, what you protect, what you've learned. */
 private val Tabs = listOf(
-    NavItem(Routes.Today, "Today", AuroraIcons.Today),
-    NavItem(Routes.Protect, "Protect", AuroraIcons.Protect),
-    NavItem(Routes.Insights, "Insights", AuroraIcons.Insights),
+    NavItem(Routes.Today, R.string.tab_today, AuroraIcons.Today),
+    NavItem(Routes.Protect, R.string.tab_protect, AuroraIcons.Protect),
+    NavItem(Routes.Insights, R.string.tab_insights, AuroraIcons.Insights),
 )
 private val TabRoutes = Tabs.map { it.route }.toSet()
 
@@ -128,19 +132,28 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onOpenProtect = { nav.selectTab(Routes.Protect) },
                     onOpenInsights = { nav.selectTab(Routes.Insights) },
                     onOpenSettings = { nav.navigate(Routes.Settings) },
-                    onOpenLockdown = { nav.navigate(ProtectRoutes.Lockdown) },
+                    onStartProtection = { nav.navigate(ProtectRoutes.Start) },
                 )
             }
             val back: () -> Unit = { nav.popBackStack() }
             val plus: () -> Unit = { nav.navigate(ProtectRoutes.Plus) }
             val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
+            val startFor: (String?) -> Unit = { key -> nav.navigate(if (key == null) ProtectRoutes.Start else "${ProtectRoutes.Start}?key=${Uri.encode(key)}") }
+            val intentApp: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.IntentApp}/${Uri.encode(key)}") }
             composable(Routes.Protect) { ProtectScreen(onOpen = { nav.navigate(it) }, onOpenItem = openItem) }
             composable(ProtectRoutes.Apps) { AppPickerScreen(back, plus) }
-            composable("${ProtectRoutes.Item}/{key}") { entry -> ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, plus) }
-            composable(ProtectRoutes.Schedules) { SchedulesScreen(back, plus) }
+            composable("${ProtectRoutes.Item}/{key}") { entry ->
+                ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, onStart = { startFor(it) }, onIntent = intentApp, onPlus = plus)
+            }
+            composable("${ProtectRoutes.Start}?key={key}") { entry ->
+                StartScreen(entry.arguments?.getString("key")?.let(Uri::decode), back, onDone = { nav.selectTab(Routes.Protect) }, onPlus = plus)
+            }
+            composable(ProtectRoutes.Schedules) { SchedulesScreen(back, onEdit = { id -> nav.navigate(if (id == null) ProtectRoutes.ScheduleEdit else "${ProtectRoutes.ScheduleEdit}?id=$id") }, onPlus = plus) }
+            composable("${ProtectRoutes.ScheduleEdit}?id={id}") { entry -> ScheduleEditorScreen(entry.arguments?.getString("id"), back) }
+            composable(ProtectRoutes.Intent) { IntentScreen(back, onOpenApp = intentApp, onAddApps = { nav.navigate(ProtectRoutes.Apps) }, onPlus = plus) }
+            composable("${ProtectRoutes.IntentApp}/{key}") { entry -> IntentAppScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, plus) }
             composable(ProtectRoutes.Limits) { LimitsScreen(back, openItem) { nav.navigate(ProtectRoutes.Apps) } }
             composable(ProtectRoutes.Groups) { GroupsScreen(back) }
-            composable(ProtectRoutes.Lockdown) { LockdownScreen(back, plus) }
             composable(ProtectRoutes.Web) { WebScreen(back, openItem, plus) }
             composable(ProtectRoutes.Plus) { PlusScreen(back) }
             composable(Routes.Insights) { InsightsScreen(onPlus = plus) }

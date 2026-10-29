@@ -9,9 +9,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -19,96 +19,74 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.tween
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.Motion
-import kotlin.math.PI
-import kotlin.math.sin
 
 /**
- * Aurora Light, the signature visual: curtains of light over a still horizon, and one rising point.
- * It is drawn from real progress only (progress/Progress.kt `light()`):
+ * Aurora Light, the signature visual: the curve of a horizon seen from above, its rim lit by the first
+ * light of day, and one point of light rising over it. It is drawn from real progress only
+ * (progress/Progress.kt `light()`):
  *
- * - [glow] 0..1, the last seven days of verified progress: how tall and bright the curtains are.
- * - [rise] 0..1, today's progress: how high the point of light has risen above the horizon.
- * - [warmth] 0..1 moves the light from aurora green toward dawn (completion, evening).
+ * - [glow] 0..1, the last seven days of verified progress: how wide and bright the dawn spreads.
+ * - [rise] 0..1, today's progress: how high the point of light has risen above the rim.
+ * - [warmth] 0..1 moves the light from aurora green toward dawn.
  *
- * With no progress it is a dark horizon with the point resting on it: a first day starts at first light.
- * It doesn't loop. It rises into place once when shown (instantly with reduced motion) and costs one
- * Canvas draw per change.
+ * With no progress it is a thin, cool rim and a point resting on it: a first day starts at first light.
+ * It rises into place once when shown (instantly with reduced motion), then holds still.
  */
 @Composable
-fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth: Float = 0.3f, description: String? = null) {
+fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth: Float = 0.45f, description: String? = null) {
     val colors = Aurora.colors
     val reduced = Aurora.reducedMotion
     val shown = remember { Animatable(if (reduced) 1f else 0f) }
-    LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, tween(1600, easing = Motion.Ease)) }
+    LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, tween(1800, easing = Motion.Ease)) }
     Canvas(modifier.semantics { if (description != null) contentDescription = description }) {
         val k = shown.value
-        val g = (0.18f + 0.82f * glow.coerceIn(0f, 1f)) * k
-        val horizon = size.height * 0.80f
-        // Light reads weaker on mist, so the light theme draws it a little stronger.
-        val strength = if (colors.isDark) 1f else 1.25f
+        val g = (0.22f + 0.78f * glow.coerceIn(0f, 1f)) * k
+        val w = size.width
+        val h = size.height
+        val rim = h * 0.80f
+        val radius = w * 1.35f
+        val center = Offset(w / 2f, rim + radius)
+        val strength = if (colors.isDark) 1f else 1.3f
 
-        // Sky glow rising from the horizon.
-        scale(scaleX = 1.8f, scaleY = 1f, pivot = Offset(size.width / 2, horizon)) {
+        // The dawn: light spreading up from the rim, wider and warmer with more progress.
+        scale(scaleX = 2.2f, scaleY = 1f, pivot = Offset(w / 2f, rim)) {
+            val r = h * (0.55f + 0.45f * g)
             drawCircle(
                 Brush.radialGradient(
-                    0f to colors.glowCool.copy(alpha = 0.26f * g * strength * (1 - 0.5f * warmth)),
-                    0.6f to colors.glowCool.copy(alpha = 0.07f * g * strength),
+                    0f to colors.glowWarm.copy(alpha = 0.34f * g * strength * (0.45f + 0.55f * warmth)),
+                    0.35f to colors.glowCool.copy(alpha = 0.20f * g * strength),
                     1f to Color.Transparent,
-                    center = Offset(size.width / 2, horizon),
-                    radius = size.height * 0.95f,
+                    center = Offset(w / 2f, rim),
+                    radius = r,
                 ),
-                radius = size.height * 0.95f,
-                center = Offset(size.width / 2, horizon),
+                radius = r,
+                center = Offset(w / 2f, rim),
             )
         }
 
-        // Curtains: three soft ribbons, taller with more progress, fading upward like a real aurora.
-        clipRect(bottom = horizon) {
-            curtain(horizon, height = size.height * (0.30f + 0.40f * g), phase = 0.0f, waves = 1.4f, color = colors.glowCool, alpha = 0.34f * g * strength)
-            curtain(horizon, height = size.height * (0.22f + 0.34f * g), phase = 1.7f, waves = 2.1f, color = colors.accent, alpha = 0.22f * g * strength)
-            curtain(horizon, height = size.height * (0.14f + 0.22f * g), phase = 3.1f, waves = 1.1f, color = colors.glowWarm, alpha = 0.30f * g * strength * (0.4f + 0.6f * warmth))
-        }
-
-        // The horizon line, fading at both ends.
-        drawLine(
-            Brush.horizontalGradient(0f to Color.Transparent, 0.15f to colors.hairline.copy(alpha = colors.hairline.alpha * 2), 0.85f to colors.hairline.copy(alpha = colors.hairline.alpha * 2), 1f to Color.Transparent),
-            Offset(0f, horizon), Offset(size.width, horizon), strokeWidth = 1.dp.toPx(),
+        // The body of the horizon: the sky colour, so the light sits on a real edge.
+        drawCircle(colors.sky, radius, center)
+        // Atmosphere: a soft band of light hugging the rim, then the rim itself.
+        val span = Math.toDegrees(kotlin.math.asin((w / 2f / radius).toDouble())).toFloat() + 2f
+        val rimBrush = Brush.horizontalGradient(
+            0f to Color.Transparent,
+            0.22f to colors.glowCool.copy(alpha = 0.55f * strength),
+            0.5f to colors.glowWarm.copy(alpha = (0.6f + 0.4f * warmth).coerceAtMost(1f)),
+            0.78f to colors.glowCool.copy(alpha = 0.55f * strength),
+            1f to Color.Transparent,
         )
+        val topLeft = Offset(center.x - radius, center.y - radius)
+        val arcSize = Size(2 * radius, 2 * radius)
+        for ((width, alpha) in listOf(26f to 0.07f, 12f to 0.14f, 5f to 0.32f)) {
+            drawArc(rimBrush, 270f - span, 2 * span, false, topLeft, arcSize, alpha = alpha * (0.4f + 0.6f * g), style = Stroke(width.dp.toPx()))
+        }
+        drawArc(rimBrush, 270f - span, 2 * span, false, topLeft, arcSize, style = Stroke(1.6.dp.toPx(), cap = StrokeCap.Round))
 
         // The rising point: you.
-        val lift = (horizon - size.height * 0.16f) * (0.06f + 0.94f * rise.coerceIn(0f, 1f) * k)
-        val point = Offset(size.width / 2, horizon - lift)
-        val halo = 28.dp.toPx()
-        drawCircle(Brush.radialGradient(listOf(colors.glowCool.copy(alpha = 0.35f + 0.2f * g), Color.Transparent), point, halo), halo, point)
-        drawCircle(colors.light, 5.5.dp.toPx(), point)
+        val lift = (rim - h * 0.14f) * (0.04f + 0.96f * rise.coerceIn(0f, 1f) * k)
+        val point = Offset(w / 2f, rim - lift)
+        val halo = 34.dp.toPx()
+        drawCircle(Brush.radialGradient(listOf(colors.glowWarm.copy(alpha = 0.30f + 0.25f * g), colors.glowCool.copy(alpha = 0.10f), Color.Transparent), point, halo), halo, point)
+        drawCircle(colors.light, 5.dp.toPx(), point)
     }
-}
-
-private fun DrawScope.curtain(horizon: Float, height: Float, phase: Float, waves: Float, color: Color, alpha: Float) {
-    if (alpha <= 0.002f) return
-    val w = size.width
-    val path = Path().apply {
-        moveTo(0f, horizon)
-        val steps = 48
-        for (i in 0..steps) {
-            val x = w * i / steps
-            val t = i.toFloat() / steps
-            // Taller toward the middle, rippled along its top edge.
-            val envelope = sin(PI * t).toFloat()
-            val ripple = 0.72f + 0.28f * sin(2 * PI * waves * t + phase).toFloat()
-            lineTo(x, horizon - height * envelope * ripple)
-        }
-        lineTo(w, horizon)
-        close()
-    }
-    drawPath(
-        path,
-        Brush.verticalGradient(
-            0f to Color.Transparent,
-            0.55f to color.copy(alpha = alpha * 0.55f),
-            1f to color.copy(alpha = alpha),
-            startY = horizon - height,
-            endY = horizon,
-        ),
-    )
 }

@@ -25,25 +25,33 @@ class ContentService : AccessibilityService() {
     private var lastKey: String? = null
     private var lastAt = 0L
     private var lastCheck = HashMap<String, Long>()
+    private var presenter: OverlayShieldPresenter? = null
+    /** The browser a site Shield is showing over, so leaving it takes the Shield away. */
+    private var shownOver: String? = null
 
     override fun onServiceConnected() {
+        presenter = OverlayShieldPresenter(this) { request, close -> ShieldContent(request, close) }
         connectedState.value = true
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
         val now = SystemClock.uptimeMillis()
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && shownOver != null && pkg != shownOver && pkg != packageName && pkg != "com.android.systemui") {
+            presenter?.dismiss()
+            shownOver = null
+        }
         // Content changes arrive in floods; one look per app every 300 ms is plenty.
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && now - (lastCheck[pkg] ?: 0L) < CheckEveryMs) return
         lastCheck[pkg] = now
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != pkg) return
         val app = application as AuroraApplication
-        BrowserAddressBars[pkg]?.let { checkSite(app, root, it, now) }
+        BrowserAddressBars[pkg]?.let { checkSite(app, pkg, root, it, now) }
         checkContent(app, pkg, root, now)
     }
 
-    private fun checkSite(app: AuroraApplication, root: AccessibilityNodeInfo, barId: String, now: Long) {
+    private fun checkSite(app: AuroraApplication, browser: String, root: AccessibilityNodeInfo, barId: String, now: Long) {
         val bar = root.findAccessibilityNodeInfosByViewId(barId).firstOrNull() ?: return
         // While the person is typing in the address bar, the text isn't a page they're on.
         if (bar.isFocused) return
@@ -54,7 +62,7 @@ class ContentService : AccessibilityService() {
         if (key == lastKey && now - lastAt < RepeatMs) return
         lastKey = key
         lastAt = now
-        ShieldActivity.show(this, ShieldRequest(key, decision.reason, decision.until, now, now, now), null)
+        if (presenter?.present(ShieldRequest(key, decision.reason, decision.until, now, now, now, decision = decision)) == true) shownOver = browser
     }
 
     private fun checkContent(app: AuroraApplication, pkg: String, root: AccessibilityNodeInfo, now: Long) {
@@ -75,6 +83,7 @@ class ContentService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        presenter?.dismiss()
         connectedState.value = false
         super.onDestroy()
     }

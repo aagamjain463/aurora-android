@@ -52,10 +52,10 @@ import app.aurora.ui.components.Tag
 import app.aurora.ui.components.ToggleRow
 import app.aurora.ui.protect.ShieldDiagnostics
 import app.aurora.ui.protect.ShieldDisclosure
-import app.aurora.ui.protect.explain
+import app.aurora.ui.protect.modeDescription
 import app.aurora.ui.protect.rememberProtectionStatus
 import app.aurora.ui.protect.summary
-import app.aurora.ui.protect.title
+import app.aurora.ui.protect.modeName
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
@@ -146,8 +146,8 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             SectionLabel("Protection")
             RowGroup {
                 AuroraRow(
-                    title = "Default for new apps",
-                    subtitle = rules.defaultRule.mode.title(),
+                    title = "Preferred mode for new apps",
+                    subtitle = modeName(rules.defaultRule.mode),
                     icon = AuroraIcons.Protect,
                     onClick = { sheet = Sheet.DefaultMode },
                     trailing = { Chevron() },
@@ -241,14 +241,14 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
     val close = { sheet = null }
     when (sheet) {
         Sheet.DefaultMode -> AuroraDialog(
-            title = "Default for new apps",
-            body = "How aurora protects an app you add from now on. You can change any app on its own page.",
+            title = "Preferred mode for new apps",
+            body = "The mode suggested when you start protection for an app you add from now on. You can change any app on its own page.",
             confirmLabel = "Done",
             onConfirm = close,
             onDismiss = close,
         ) {
             Column {
-                for (mode in Mode.entries) RadioRow(mode.title(), mode.explain(), rules.defaultRule.mode == mode, onClick = { vm.setDefaultMode(mode) })
+                for (mode in Mode.entries) RadioRow(modeName(mode), modeDescription(mode), rules.defaultRule.mode == mode, onClick = { vm.setDefaultMode(mode) })
             }
         }
         Sheet.Privacy -> AuroraDialog(
@@ -288,7 +288,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
         Sheet.DeleteAll -> AuroraDialog(
             title = "Delete all data?",
             body = "This removes everything aurora keeps on this phone: protected apps and sites, rules, sessions, history and preferences. It can't be undone. " +
-                "A running Lockdown ends too. aurora plus stays with your Google account.",
+                "A running Always Block session is kept until it ends. aurora plus stays with your Google account.",
             confirmLabel = "Delete everything",
             onConfirm = { close(); vm.deleteAll(onReplayIntro) },
             dismissLabel = "Cancel",
@@ -308,7 +308,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
         )
         Sheet.Notifications -> AuroraDialog(
             title = "Notifications",
-            body = "aurora doesn't send any notifications yet, so there's nothing to allow. Focus and Lockdown keep time on their own and show their result the next time you open aurora.",
+            body = "aurora doesn't send any notifications yet, so there's nothing to allow. Focus and protection sessions keep time on their own and show their result the next time you open aurora.",
             confirmLabel = "Got it",
             onConfirm = close,
             onDismiss = close,

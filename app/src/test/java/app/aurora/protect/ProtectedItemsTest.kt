@@ -62,14 +62,14 @@ class ProtectedItemsTest {
         assertEquals(seven.items, seven.active(Plan.Plus))
         assertTrue(seven.paused(Plan.Plus).isEmpty())
         // Only active apps are enforced.
-        assertEquals(five.map { it.packageName }.toSet(), seven.toPolicyState(Plan.Free, emptySet())!!.protectedPackages)
+        assertEquals(five.map { it.packageName }.toSet(), seven.enforced(Plan.Free)!!)
     }
 
     @Test
     fun websitesShareTheFiveItemPool() {
         val mixed = ProtectedList(five.take(3) + ProtectedItem.Website.of("a.com")!! + ProtectedItem.Website.of("b.com")!! + app("com.late"))
         assertEquals(listOf(app("com.late")), mixed.paused(Plan.Free))
-        assertEquals(setOf("com.app1", "com.app2", "com.app3"), mixed.toPolicyState(Plan.Free, emptySet())!!.protectedPackages)
+        assertEquals(setOf("com.app1", "com.app2", "com.app3"), mixed.enforced(Plan.Free)!!)
     }
 
     // ---- repository ----
@@ -176,6 +176,10 @@ class ProtectedItemsTest {
         val broken = PreferenceDataStoreFactory.create(scope = scope) { file }
         val list = ProtectionRepository(broken).list.first()
         assertFalse(list.readable)
-        assertNull(list.toPolicyState(Plan.Free, emptySet()))
+        assertNull(list.enforced(Plan.Free))
     }
 }
+
+/** The apps a list enforces under [plan], or null when it can't be read. */
+private fun ProtectedList.enforced(plan: Plan): Set<String>? =
+    if (!readable) null else active(plan).filterIsInstance<ProtectedItem.App>().map { it.packageName }.toSet()

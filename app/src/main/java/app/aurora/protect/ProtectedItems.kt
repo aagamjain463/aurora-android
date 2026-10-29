@@ -46,11 +46,6 @@ data class ProtectedList(
     fun paused(plan: Plan): List<ProtectedItem> = active(plan).toSet().let { kept -> items.filterNot { it in kept } }
 }
 
-/** The decision snapshot for this list. A list that couldn't be read gives null: [Decision.Unavailable]. */
-fun ProtectedList.toPolicyState(plan: Plan, exempt: Set<String>, grants: Map<String, Long> = emptyMap()): PolicyState? =
-    if (!readable) null
-    else PolicyState(active(plan).mapNotNull { (it as? ProtectedItem.App)?.packageName }.toSet(), exempt, grants)
-
 enum class AddResult { Added, AlreadyProtected, AtLimit }
 
 /*

@@ -1,8 +1,11 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package app.aurora.progress
 
 import app.aurora.protect.Goal
 import app.aurora.protect.GoalKind
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 import java.time.LocalDate
 import kotlin.math.min
 
@@ -28,8 +31,28 @@ data class DayStats(
     /** Minutes of Focus sessions that ran to the end. Only these earn XP. */
     val completedFocusMinutes: Int = 0,
     val focusSessions: Int = 0,
-    val lockdownMinutes: Int = 0,
+    /** Committed Always Block minutes (Phase 3: Lockdown minutes, migrated unchanged). */
+    @JsonNames("lockdownMinutes") val alwaysBlockMinutes: Int = 0,
+    /** Friction tasks completed, and wrong answers given. */
+    val frictionDone: Int = 0,
+    val frictionMissed: Int = 0,
+    /** Intentional App Opening: prompts shown, openings the person let go, sessions started. */
+    val intentPrompts: Int = 0,
+    val intentLetGo: Int = 0,
+    val intentSessions: Int = 0,
+    /** Minutes chosen at intentional openings, and foreground minutes actually measured. */
+    val intentChosenMinutes: Int = 0,
+    val intentUsedMinutes: Int = 0,
+    /** Sessions that ended within the chosen time (the person left before it ran out, or finished at the reminder). */
+    val intentWithin: Int = 0,
+    val remindersShown: Int = 0,
+    val intentCooldowns: Int = 0,
+    val intentCooldownMinutes: Int = 0,
 )
+
+/** A span of protection, recorded when it starts and corrected if it ends early. For time away. */
+@Serializable
+data class ProtectionRecord(val id: String, val start: Long, val end: Long, val keys: Set<String>)
 
 @Serializable
 data class FocusRecord(
@@ -47,9 +70,19 @@ data class History(
     val days: Map<String, DayStats> = emptyMap(),
     /** Newest first. */
     val focus: List<FocusRecord> = emptyList(),
-    /** Starts of Lockdowns already counted, so counting is idempotent. */
-    val lockdowns: List<Long> = emptyList(),
+    /** Starts of Always Block sessions already counted (Phase 3: Lockdowns), so counting is idempotent. */
+    @JsonNames("lockdowns") val committed: List<Long> = emptyList(),
+    /** Newest last. Kept for [KeepDays]; time away is computed from these. */
+    val protection: List<ProtectionRecord> = emptyList(),
 ) {
+    /** Adds or replaces the record with [record]'s id. */
+    fun withProtection(record: ProtectionRecord): History =
+        copy(protection = (protection.filterNot { it.id == record.id } + record).filter { record.start - it.end < KeepDays * 86_400_000L }.takeLast(KeepSessions))
+
+    /** Ends the record [id] at [at], if it was planned to run longer (turned off early). */
+    fun endProtection(id: String, at: Long): History =
+        copy(protection = protection.map { if (it.id == id && it.end > at) it.copy(end = maxOf(it.start, at)) else it })
+
     fun day(date: LocalDate): DayStats = days[date.toString()] ?: DayStats()
 
     fun record(date: LocalDate, change: (DayStats) -> DayStats): History =
@@ -68,10 +101,10 @@ data class History(
         }
     }
 
-    fun withLockdown(date: LocalDate, start: Long, minutes: Int): History {
-        if (start in lockdowns) return this
-        return copy(lockdowns = (listOf(start) + lockdowns).take(KeepSessions)).record(date) {
-            it.copy(lockdownMinutes = it.lockdownMinutes + minutes)
+    fun withAlwaysBlock(date: LocalDate, start: Long, minutes: Int): History {
+        if (start in committed) return this
+        return copy(committed = (listOf(start) + committed).take(KeepSessions)).record(date) {
+            it.copy(alwaysBlockMinutes = it.alwaysBlockMinutes + minutes)
         }
     }
 
@@ -85,10 +118,11 @@ data class History(
 
 /**
  * XP for one day, from verified behaviour only: completed Focus (1 per 5 minutes, at most 24), going back
- * at a Shield (2 each, at most 5 times), and Lockdown time (1 per 10 minutes, at most 12). Opening aurora,
+ * at a Shield or an intentional opening (2 each, at most 5 times), and committed Always Block time
+ * (1 per 10 minutes, at most 12). Opening aurora,
  * adding apps or tapping around earns nothing. The caps keep XP from becoming the reason to do anything.
  */
-fun DayStats.xp(): Int = min(completedFocusMinutes / 5, 24) + min(wentBack, 5) * 2 + min(lockdownMinutes / 10, 12)
+fun DayStats.xp(): Int = min(completedFocusMinutes / 5, 24) + min(wentBack + intentLetGo, 5) * 2 + min(alwaysBlockMinutes / 10, 12)
 
 const val DailyXpCap = 24 + 10 + 12
 
@@ -154,7 +188,7 @@ fun Goal.on(stats: DayStats, screenMinutes: Int?, protectedMinutes: Int?, dayOve
         GoalKind.ScreenTimeUnder -> screenMinutes
         GoalKind.ProtectedTimeUnder -> protectedMinutes
         GoalKind.FocusAtLeast -> stats.focusMinutes
-        GoalKind.OpensUnder -> stats.continued
+        GoalKind.OpensUnder -> stats.continued + stats.intentSessions
     } ?: return GoalDay(null, null)
     val met = when (kind) {
         GoalKind.FocusAtLeast -> if (value >= target) true else if (dayOver) false else null

@@ -125,14 +125,14 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
                 AuroraButton("Add", { add(domain, sites, vm) { e -> error = e; if (e == null) domain = "" } }, kind = ButtonKind.Secondary)
             }
             error?.let { Text(it, Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS), color = colors.dawnText, style = AuroraType.Caption) }
-            Hint("A site covers its subdomains too: reddit.com includes old.reddit.com. Apps and sites share your protected items.")
+            WebHint("A site covers its subdomains too: reddit.com includes old.reddit.com. Apps and sites share your protected items.")
             if (sites.isNotEmpty()) {
                 RowGroup(Modifier.padding(top = Space.M)) {
                     sites.forEachIndexed { i, site ->
                         if (i > 0) RowDivider(72.dp)
                         AuroraRow(
                             title = site.domain,
-                            subtitle = if (site in d.paused) "Paused" else d.rules.summary(site.key, d.plan, website = true),
+                            subtitle = if (site in d.paused) "Paused" else d.rules.summary(site.key, d.plan, website = true) { modeNameText(context, it) },
                             leading = { IconBadge(AuroraIcons.Globe) },
                             onClick = { onOpenItem(site.key) },
                             trailing = { Chevron() },
@@ -178,7 +178,9 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
         dismissLabel = "Not now",
         onDismiss = { disclosure = false },
     )
-    LimitDialog(notice, vm::dismissNotice, onPlus)
+    notice?.let { n ->
+        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) "See aurora plus" else "OK", { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) "Not now" else null)
+    }
 }
 
 private fun add(text: String, sites: List<ProtectedItem.Website>, vm: ProtectModel, done: (String?) -> Unit) {
@@ -192,4 +194,9 @@ private fun add(text: String, sites: List<ProtectedItem.Website>, vm: ProtectMod
             done(null)
         }
     }
+}
+
+@Composable
+private fun WebHint(text: String) {
+    Text(text, Modifier.padding(horizontal = Space.Gutter, vertical = Space.S), color = Aurora.colors.textTertiary, style = AuroraType.Caption)
 }

@@ -1,0 +1,41 @@
+package app.aurora.ui
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.aurora.R
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** The founder-approved wording, exactly, from the one place copy lives. */
+@RunWith(AndroidJUnit4::class)
+class CopyTest {
+    private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @Test
+    fun approvedStringsAreExact() {
+        val approved = mapOf(
+            R.string.today_headline to "Make room for what matters.",
+            R.string.today_metric_label to "Time away from protected apps",
+            R.string.protect_headline to "Never get distracted from what matters.",
+            R.string.mode_flexible_desc to "Blocked until your timer ends, or you turn it off.",
+            R.string.mode_friction_desc to "Complete a challenge before getting access.",
+            R.string.mode_cooldown_desc to "Wait before you can open this app.",
+            R.string.mode_always_block_desc to "No in-app early exit. Protection ends when your timer does.",
+            R.string.always_block_confirm to "I'm ready to commit",
+        )
+        approved.forEach { (id, text) -> assertEquals(text, context.getString(id)) }
+    }
+
+    @Test
+    fun lockdownIsGoneFromUserFacingCopy() {
+        val fields = R.string::class.java.fields
+        for (f in fields) {
+            val text = context.getString(f.getInt(null))
+            assertFalse("${f.name}: $text", text.contains("Lockdown", ignoreCase = true))
+            assertFalse("${f.name}: $text", text.contains("moment of awareness", ignoreCase = true))
+        }
+    }
+}

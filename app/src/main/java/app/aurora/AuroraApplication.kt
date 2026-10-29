@@ -35,6 +35,8 @@ import app.aurora.protect.Rules
 import app.aurora.protect.Runtime
 import app.aurora.protect.policyState
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -54,7 +56,7 @@ class AuroraApplication : Application() {
     /** What the person configured. Strict: if it can't be read, nothing overwrites it and Shield says so. */
     val rules by lazy { JsonValue(dataStore, "rules", Rules.serializer(), Rules(), scope, strict = true) }
 
-    /** Grants, pauses, cooldowns, Focus and Lockdown. */
+    /** Sessions, grants, waits, Intent sessions and Focus. */
     val runtime by lazy { JsonValue(dataStore, "runtime", Runtime.serializer(), Runtime(), scope, strict = false) }
 
     /** Daily counts, Focus history. Local only. */
@@ -82,6 +84,15 @@ class AuroraApplication : Application() {
         rules
         runtime
         billing.connect()
+        scope.launch {
+            // Once everything is loaded: a Phase 3 Lockdown becomes Always Block, and a scheduled
+            // Always Block window already running is committed.
+            protectedList.first { it != null }
+            rules.state.first { it != null }
+            runtime.state.first { it != null }
+            runCatching { migrateRuntime() }
+            runCatching { commitScheduleWindows() }
+        }
     }
 
     /** The decision snapshot, from memory only. Null while anything is still loading or unreadable. */

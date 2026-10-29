@@ -54,6 +54,32 @@ class ScreenTimeRepository(private val context: Context) {
         return if (from >= to) null else between(from, to)
     }
 
+    /**
+     * Foreground spans per app within [from, to): what Time away subtracts. Null without usage access, so
+     * callers show "unavailable" instead of a made-up number.
+     */
+    suspend fun intervals(from: Long, to: Long): List<UsageInterval>? = withContext(Dispatchers.IO) {
+        if (!hasAccess() || from >= to) return@withContext null
+        foregroundIntervals(signals(from, to), from, to)
+    }
+
+    private fun signals(from: Long, to: Long): List<UsageSignal> {
+        val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(from, to)
+        val event = UsageEvents.Event()
+        val signals = ArrayList<UsageSignal>()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val kind = when (event.eventType) {
+                RESUMED -> UsageSignal.Kind.Start
+                PAUSED -> UsageSignal.Kind.Stop
+                SCREEN_OFF, SHUTDOWN -> UsageSignal.Kind.StopAll
+                else -> null
+            } ?: continue
+            signals += UsageSignal(kind, event.packageName, event.timeStamp)
+        }
+        return signals
+    }
+
     private suspend fun between(from: Long, to: Long): Map<String, Long>? = withContext(Dispatchers.IO) {
         if (!hasAccess()) return@withContext null
         val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(from, to)
@@ -95,22 +121,29 @@ data class UsageSignal(val kind: Kind, val packageName: String, val at: Long) {
     enum class Kind { Start, Stop, StopAll }
 }
 
+/** One app in front from [start] to [end] (wall clock). */
+data class UsageInterval(val packageName: String, val start: Long, val end: Long)
+
 /**
  * Sums foreground time per package within [from, to]. One app is in the foreground at a time;
  * an app already open when the window starts is counted from [from], one still open from [to].
  */
-fun foregroundTime(signals: List<UsageSignal>, from: Long, to: Long): Map<String, Long> {
-    val totals = HashMap<String, Long>()
+fun foregroundTime(signals: List<UsageSignal>, from: Long, to: Long): Map<String, Long> =
+    foregroundIntervals(signals, from, to).groupBy { it.packageName }.mapValues { (_, spans) -> spans.sumOf { it.end - it.start } }
+
+/** The spans behind [foregroundTime]. */
+fun foregroundIntervals(signals: List<UsageSignal>, from: Long, to: Long): List<UsageInterval> {
+    val totals = ArrayList<UsageInterval>()
     var current: String? = null
     var since = from
     var sawStart = false
 
-    fun add(pkg: String, ms: Long) {
-        if (ms > 0) totals[pkg] = (totals[pkg] ?: 0L) + ms
+    fun add(pkg: String, ms: Long, end: Long) {
+        if (ms > 0) totals += UsageInterval(pkg, end - ms, end)
     }
 
     fun close(at: Long) {
-        current?.let { add(it, at - since) }
+        current?.let { add(it, at - since, at) }
         current = null
     }
 
@@ -126,7 +159,7 @@ fun foregroundTime(signals: List<UsageSignal>, from: Long, to: Long): Map<String
             }
             UsageSignal.Kind.Stop -> when {
                 s.packageName == current -> close(s.at)
-                !sawStart -> add(s.packageName, s.at - from)
+                !sawStart -> add(s.packageName, s.at - from, s.at)
             }
             UsageSignal.Kind.StopAll -> close(s.at)
         }

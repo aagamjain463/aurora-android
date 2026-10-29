@@ -1,16 +1,11 @@
 package app.aurora.ui.home
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,34 +14,33 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.aurora.AuroraApplication
+import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
-import app.aurora.data.InstalledApp
-import app.aurora.data.ProtectionStatus
+import app.aurora.data.ProtectedSpan
+import app.aurora.data.TimeAway
 import app.aurora.data.clockTicks
-import app.aurora.data.formatClock
 import app.aurora.data.formatDuration
-import app.aurora.data.spokenDuration
+import app.aurora.data.openAccessSettings
+import app.aurora.data.timeAway
 import app.aurora.plan.Plan
-import app.aurora.progress.DayStats
 import app.aurora.progress.History
 import app.aurora.progress.levelFor
 import app.aurora.progress.light
@@ -54,375 +48,275 @@ import app.aurora.progress.on
 import app.aurora.progress.steadyDays
 import app.aurora.progress.title
 import app.aurora.progress.totalXp
-import app.aurora.protect.DeviceTime
+import app.aurora.progress.xp
+import app.aurora.protect.Mode
 import app.aurora.protect.ProtectedList
 import app.aurora.protect.Rules
 import app.aurora.protect.Runtime
+import app.aurora.protect.covers
+import app.aurora.protect.windowsBetween
+import app.aurora.protect.nextStart
 import app.aurora.protect.key
 import app.aurora.settleFocus
-import app.aurora.settleLockdown
-import app.aurora.ui.components.AppIcon
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIconButton
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraLight
-import app.aurora.ui.components.AuroraRow
 import app.aurora.ui.components.ButtonKind
-import app.aurora.ui.components.Chevron
-import app.aurora.ui.components.MetricGrid
+import app.aurora.ui.components.ModeGlyph
+import app.aurora.ui.components.PillarHeading
 import app.aurora.ui.components.ProgressLine
-import app.aurora.ui.components.RowDivider
-import app.aurora.ui.components.RowGroup
-import app.aurora.ui.components.SectionLabel
-import app.aurora.ui.components.StatusPill
 import app.aurora.ui.components.TabBarHeight
 import app.aurora.ui.components.Wordmark
+import app.aurora.ui.components.clockTime
+import app.aurora.ui.components.minutesText
+import app.aurora.ui.protect.ProtectData
+import app.aurora.ui.protect.ProtectModel
+import app.aurora.ui.protect.SessionCard
+import app.aurora.ui.protect.modeColor
+import app.aurora.ui.protect.modeName
 import app.aurora.ui.protect.rememberProtectionStatus
+import app.aurora.ui.protect.runningWindows
 import app.aurora.ui.protect.summary
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
-import app.aurora.ui.theme.Motion
+import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
-/** Today's usage, measured on the phone. Null fields mean usage access isn't granted. */
-data class UsageToday(val total: Long?, val protected: Long?)
-
-data class HomeState(
-    val time: DeviceTime,
-    val runtime: Runtime,
-    val rules: Rules,
-    val list: ProtectedList,
-    val plan: Plan,
-    val history: History,
-    val usage: UsageToday,
-    val apps: List<InstalledApp>,
-    val defaultMinutes: Int,
-) {
-    val today: LocalDate get() = Instant.ofEpochMilli(time.wall).atZone(ZoneId.systemDefault()).toLocalDate()
-    val stats: DayStats get() = history.day(today)
+/** Time away today, or why it can't be shown. */
+sealed interface AwayState {
+    data object Loading : AwayState
+    data object NoUsageAccess : AwayState
+    data object NoProtection : AwayState
+    data class Measured(val away: TimeAway) : AwayState
 }
 
-class HomeViewModel(private val app: AuroraApplication) : ViewModel() {
-    private val installed = MutableStateFlow<List<InstalledApp>>(emptyList())
-    private val usage = MutableStateFlow(UsageToday(null, null))
-
-    init {
-        viewModelScope.launch { installed.value = app.catalog.launchableApps() }
+/** The protection spans that overlap today: recorded sessions and Focus, and today's schedule windows. */
+fun protectionToday(history: History, rules: Rules, runtime: Runtime, list: ProtectedList, plan: Plan, from: Long, to: Long, zone: ZoneId): List<ProtectedSpan> {
+    val active = list.active(plan).map { it.key }.toSet()
+    val recorded = history.protection.filter { it.end > from && it.start < to }.map { ProtectedSpan(it.start, it.end, it.keys) }
+    val windows = rules.activeSchedules(plan).flatMap { s ->
+        val keys = rules.covers(s, active)
+        s.windowsBetween(from, to, zone).filterNot { (start, _) -> runtime.skipped[s.id] == start && s.mode != Mode.AlwaysBlock }
+            .map { (start, end) -> ProtectedSpan(start, end, keys) }
     }
+    val migrated = runtime.sessions.filter { s -> history.protection.none { it.id == s.id } }
+        .map { ProtectedSpan(it.time.startWall, it.time.startWall + it.time.durationMs, it.keys) }
+    return recorded + windows + migrated
+}
 
+class TodayModel(val app: AuroraApplication) : ViewModel() {
+    private val _away = MutableStateFlow<AwayState>(AwayState.Loading)
+    val away: StateFlow<AwayState> = _away
+
+    /** Measures time away now. Called on resume and every minute while Today is open. */
     fun refresh() {
         viewModelScope.launch {
-            usage.value = if (!app.access.isGranted(Access.Usage)) UsageToday(null, null) else {
-                val today = app.screenTime.today()
-                val protectedKeys = app.protectedList.value?.active(app.plan)?.map { it.key }?.toSet().orEmpty()
-                UsageToday(today.values.sum(), today.filterKeys { it in protectedKeys }.values.sum())
+            val zone = ZoneId.systemDefault()
+            val now = System.currentTimeMillis()
+            val from = LocalDate.now().atStartOfDay(zone).toInstant().toEpochMilli()
+            val history = app.history.value ?: return@launch
+            val rules = app.rules.value ?: return@launch
+            val runtime = app.runtime.value ?: return@launch
+            val list = app.protectedList.value ?: return@launch
+            val spans = protectionToday(history, rules, runtime, list, app.plan, from, now, zone)
+            _away.value = when {
+                spans.none { it.end > from && it.start < now } -> AwayState.NoProtection
+                !app.access.isGranted(Access.Usage) -> AwayState.NoUsageAccess
+                else -> app.screenTime.intervals(from, now)?.let { AwayState.Measured(timeAway(spans, it, from, now)) } ?: AwayState.NoUsageAccess
             }
         }
     }
 
     /** Records sessions that ended while aurora was closed. Idempotent. */
     fun settle() {
-        viewModelScope.launch {
-            runCatching {
-                app.settleFocus(endNow = false)
-                app.settleLockdown()
-            }
-        }
+        viewModelScope.launch { runCatching { app.settleFocus(endNow = false) } }
     }
-
-    val state: StateFlow<HomeState?> = combine(
-        combine(app.runtime.state, app.rules.state, app.protectedList, app.history.state) { r, rules, list, h -> listOf(r, rules, list, h) },
-        app.billing.plan,
-        usage,
-        combine(installed, app.preferences.preferences) { a, p -> a to p.defaultFocusMinutes },
-        clockTicks(),
-    ) { parts, plan, usage, (apps, minutes), _ ->
-        @Suppress("UNCHECKED_CAST")
-        val runtime = parts[0] as app.aurora.data.Loaded<Runtime>?
-        @Suppress("UNCHECKED_CAST")
-        val rules = parts[1] as app.aurora.data.Loaded<Rules>?
-        val list = parts[2] as ProtectedList?
-        @Suppress("UNCHECKED_CAST")
-        val history = parts[3] as app.aurora.data.Loaded<History>?
-        if (runtime == null || rules == null || list == null || history == null) null
-        else HomeState(app.now(), runtime.value, rules.value, list, plan, history.value, usage, apps, minutes)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 }
 
-private enum class Phase { Idle, Running, Complete }
-
 /**
- * Today, the emotional centre: Aurora Light drawn from real progress, whether you're protected, how the
- * day is going, and one thing to do next. A first day is beautiful and empty, never filled in.
+ * Today. One hero, one number, one action, then two separate pillars: Protection (what is protected
+ * right now) and Progress (how things are changing over time). The main number is real time away from
+ * protected apps, measured from Android's usage records, never the time someone set on a timer.
  */
 @Composable
-fun HomeScreen(
-    onStartFocus: () -> Unit,
-    onOpenProtect: () -> Unit,
-    onOpenInsights: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenLockdown: () -> Unit = {},
-) {
-    val vm = auroraViewModel { HomeViewModel(it) }
-    val state by vm.state.collectAsStateWithLifecycle()
-    LifecycleResumeEffect(Unit) {
-        vm.refresh()
-        vm.settle()
+fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProtection: () -> Unit, onOpenInsights: () -> Unit, onOpenSettings: () -> Unit) {
+    val today = auroraViewModel { TodayModel(it) }
+    val protect = auroraViewModel { ProtectModel(it) }
+    val data by protect.data.collectAsStateWithLifecycle()
+    val away by today.away.collectAsStateWithLifecycle()
+    val history by today.app.history.state.collectAsStateWithLifecycle()
+    val minute by clockTicks(60_000).collectAsStateWithLifecycle(0L)
+    val prefs by today.app.preferences.preferences.collectAsStateWithLifecycle(null)
+    val status = rememberProtectionStatus(data?.list)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LifecycleResumeEffect(minute) {
+        today.refresh()
+        today.settle()
         onPauseOrDispose { }
     }
-    val s = state
-    if (s == null) {
-        app.aurora.ui.components.LoadingSurface()
-        return
-    }
-
     val colors = Aurora.colors
-    val session = s.runtime.focus
-    val phase = when {
-        session == null -> Phase.Idle
-        session.isOver(s.time) -> Phase.Complete
-        else -> Phase.Running
-    }
-    LaunchedEffect(phase) { if (phase == Phase.Complete) vm.settle() }
-    val lockdown = s.runtime.lockdown?.takeUnless { it.isOver(s.time) }
-    val protection = rememberProtectionStatus(s.list)
-    val light = s.history.light(s.today)
-    val level = levelFor(s.history.totalXp())
+    val h = history?.value ?: History()
+    val date = LocalDate.now()
+    val light = h.light(date)
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + TabBarHeight + Space.XXL
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = bottom),
-    ) {
-        Column(Modifier.statusBarsPadding()) {
-            Row(
-                Modifier.fillMaxWidth().height(56.dp).padding(start = Space.Gutter, end = Space.XS),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Wordmark(Modifier.weight(1f))
-                AuroraIconButton(AuroraIcons.Settings, "Settings", onOpenSettings)
-            }
-            AuroraLight(
-                glow = if (phase == Phase.Running || lockdown != null) maxOf(light.glow, 0.7f) else light.glow,
-                rise = light.rise,
-                warmth = if (phase == Phase.Complete) 1f else 0.3f,
-                modifier = Modifier.fillMaxWidth().height(220.dp),
-                description = "Aurora Light. ${light.activeDays} of the last 7 days had progress.",
-            )
-            Column(Modifier.padding(horizontal = Space.Gutter)) {
-                Text(
-                    "${level.name.lowercase()} · level ${level.number}",
-                    color = colors.textTertiary,
-                    style = AuroraType.Eyebrow,
-                )
-                Spacer(Modifier.height(Space.S))
-                AnimatedContent(
-                    targetState = phase,
-                    transitionSpec = { fadeIn(tween(Motion.Gentle)) togetherWith fadeOut(tween(Motion.Quick)) },
-                    label = "hero",
-                ) { p -> Hero(p, s, lockdown?.endWall(s.time)) }
-                Spacer(Modifier.height(Space.M))
-                StatusPill(
-                    text = when {
-                        phase == Phase.Running -> "In focus · ends ${clockTime(session!!.endWall(s.time))}"
-                        lockdown != null -> "Lockdown · until ${clockTime(lockdown.endWall(s.time))}"
-                        else -> protection?.summary() ?: "Checking Shield…"
-                    },
-                    live = phase == Phase.Running || lockdown != null || protection == ProtectionStatus.Active,
-                    warm = protection != ProtectionStatus.Active && protection != ProtectionStatus.Off && phase == Phase.Idle && lockdown == null,
-                )
-                Spacer(Modifier.height(Space.L))
-                AuroraButton(
-                    text = when (phase) {
-                        Phase.Idle -> "Start focus · ${s.rules.activeProfiles(s.plan).first().minutes} min"
-                        Phase.Running -> "Return to session"
-                        Phase.Complete -> "Finish session"
-                    },
-                    onClick = onStartFocus,
-                    modifier = Modifier.fillMaxWidth(),
-                    icon = AuroraIcons.Focus,
-                )
-                if (phase == Phase.Idle && lockdown == null) {
-                    AuroraButton("Lockdown", onOpenLockdown, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet, icon = AuroraIcons.Lock)
+    LazyColumn(Modifier.fillMaxSize().background(colors.background), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottom)) {
+        // 1. The hero.
+        item(key = "hero") {
+            Box(Modifier.fillMaxWidth().height(340.dp).background(colors.sky)) {
+                AuroraLight(light.glow, light.rise, Modifier.fillMaxSize(), description = stringResource(R.string.today_light_description))
+                Row(Modifier.statusBarsPadding().padding(horizontal = Space.Gutter, vertical = Space.S).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Wordmark(Modifier.weight(1f))
+                    AuroraIconButton(AuroraIcons.Settings, stringResource(R.string.settings_title), onOpenSettings)
                 }
             }
         }
-
-        SectionLabel("Today")
-        MetricGrid(
-            listOf(
-                s.usage.total?.let(::formatDuration) to "screen time",
-                (if (s.stats.focusMinutes > 0) formatDuration(s.stats.focusMinutes * 60_000L) else "0m") to "focus",
-                "${s.stats.wentBack}" to if (s.stats.wentBack == 1) "time you stepped back" else "times you stepped back",
-                (if (s.stats.grantedMinutes > 0) "${s.stats.grantedMinutes}m" else "0m") to "chosen time in protected apps",
-            ),
-        )
-        if (s.usage.total == null) {
+        item(key = "headline") {
             Text(
-                "Screen time needs usage access. Insights explains why.",
-                Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S),
-                color = colors.textTertiary,
-                style = AuroraType.Caption,
+                stringResource(R.string.today_headline),
+                Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L).semantics { heading() },
+                color = colors.textPrimary,
+                style = AuroraType.Display,
+            )
+        }
+        // 2. Time away from protected apps.
+        item(key = "metric") {
+            Column(Modifier.padding(horizontal = Space.Gutter, vertical = Space.L)) {
+                Text(stringResource(R.string.today_metric_label), color = colors.textSecondary, style = AuroraType.BodyStrong)
+                when (val a = away) {
+                    is AwayState.Measured -> {
+                        Text(formatDuration(a.away.awayMs), color = colors.textPrimary, style = AuroraType.Metric)
+                        Text(
+                            stringResource(R.string.today_metric_detail, formatDuration(a.away.protectedMs), formatDuration(a.away.usedMs)),
+                            color = colors.textSecondary, style = AuroraType.Secondary,
+                        )
+                        Text(stringResource(R.string.today_metric_definition), Modifier.padding(top = 4.dp), color = colors.textTertiary, style = AuroraType.Caption)
+                    }
+                    AwayState.NoUsageAccess -> {
+                        Text("—", color = colors.textTertiary, style = AuroraType.Metric)
+                        Text(stringResource(R.string.today_metric_no_access), color = colors.textSecondary, style = AuroraType.Secondary)
+                        AuroraButton(stringResource(R.string.today_metric_allow), { openAccessSettings(context, Access.Usage) }, Modifier.padding(top = Space.S), kind = ButtonKind.Secondary)
+                    }
+                    AwayState.NoProtection -> {
+                        Text("0m", color = colors.textTertiary, style = AuroraType.Metric)
+                        Text(stringResource(R.string.today_metric_none), color = colors.textSecondary, style = AuroraType.Secondary)
+                    }
+                    AwayState.Loading -> Text(" ", style = AuroraType.Metric)
+                }
+            }
+        }
+        // 3. Focus, right away.
+        item(key = "focus") {
+            val focusing = data?.runtime?.focus?.takeUnless { it.isOver(today.app.now()) }
+            AuroraButton(
+                if (focusing != null) stringResource(R.string.today_focus_running) else stringResource(R.string.today_focus_start, minutesText(prefs?.defaultFocusMinutes ?: 25)),
+                onStartFocus,
+                Modifier.padding(horizontal = Space.M).fillMaxWidth(),
+                icon = AuroraIcons.Focus,
             )
         }
 
-        if (s.rules.goals.isNotEmpty()) {
-            SectionLabel("Goals")
-            RowGroup {
-                s.rules.goals.forEachIndexed { i, goal ->
-                    if (i > 0) RowDivider()
-                    val day = goal.on(
-                        s.stats,
-                        s.usage.total?.let { (it / 60_000).toInt() },
-                        s.usage.protected?.let { (it / 60_000).toInt() },
-                        dayOver = false,
-                    )
-                    Column(Modifier.padding(Space.M).semantics(mergeDescendants = true) { }, verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(goal.kind.title(goal.target), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                            Text(
-                                when {
-                                    day.value == null -> "needs usage access"
-                                    day.met == true -> "done"
-                                    day.met == false -> "over today"
-                                    else -> "on track"
-                                },
-                                color = if (day.met == true) colors.accent else colors.textSecondary,
-                                style = AuroraType.Caption,
-                            )
+        // 4. Protection.
+        item(key = "protection") { PillarHeading(stringResource(R.string.today_protection_title), status?.summary() ?: "") }
+        val d = data
+        if (d != null) {
+            if (d.sessions.isEmpty() && runningWindows(d).isEmpty()) {
+                item(key = "nothing") {
+                    Column(
+                        Modifier.padding(horizontal = Space.M).fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+                        verticalArrangement = Arrangement.spacedBy(Space.S),
+                    ) {
+                        Text(stringResource(R.string.today_nothing_protected), color = colors.textPrimary, style = AuroraType.Title)
+                        Text(nextScheduleText(d), color = colors.textSecondary, style = AuroraType.Secondary)
+                        AuroraButton(stringResource(R.string.protect_start), if (d.active.isEmpty()) onOpenProtect else onStartProtection, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+                    }
+                }
+            } else {
+                items(d.sessions, key = { "s-" + it.id }) { s -> SessionCard(s, d, onTurnOff = onOpenProtect, Modifier.padding(bottom = Space.S)) }
+                items(runningWindows(d), key = { "w-" + it.id }) { w ->
+                    Row(
+                        Modifier.padding(horizontal = Space.M).padding(bottom = Space.S).fillMaxWidth().clip(Radius.L).background(colors.surface)
+                            .border(1.dp, modeColor(w.mode).copy(alpha = 0.45f), Radius.L).padding(Space.L),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S),
+                    ) {
+                        ModeGlyph(modeColor(w.mode), size = 14)
+                        Column(Modifier.weight(1f)) {
+                            Text("${w.name} · ${modeName(w.mode)}", color = colors.textPrimary, style = AuroraType.BodyStrong)
+                            Text(stringResource(R.string.schedule_running_until, clockTime(w.end)), color = colors.textSecondary, style = AuroraType.Secondary)
                         }
-                        val v = day.value
-                        if (v != null) ProgressLine(v.toFloat() / goal.target.coerceAtLeast(1), warm = day.met == false)
                     }
                 }
             }
         }
 
-        SectionLabel("Protection")
-        RowGroup {
-            val count = s.list.active(s.plan).size
-            if (count == 0) {
-                AuroraRow(
-                    title = "Choose apps to protect",
-                    subtitle = "Pick the apps that tend to pull you away.",
-                    icon = AuroraIcons.Protect,
-                    onClick = onOpenProtect,
-                    trailing = { Chevron() },
-                )
-            } else {
-                // "Protected" only when Shield is really running. Otherwise the apps are only chosen.
-                val word = if (protection == ProtectionStatus.Active) "protected" else "chosen"
-                val paused = s.list.paused(s.plan).size
-                AuroraRow(
-                    title = if (count == 1) "1 item $word" else "$count items $word",
-                    subtitle = protection?.summary().orEmpty() + if (paused > 0) " · $paused paused" else "",
-                    leading = { IconStack(s.apps.filter { app -> s.list.apps.contains(app.packageName) }) },
-                    onClick = onOpenProtect,
-                    trailing = { Chevron() },
-                )
+        // 5. Progress: a separate pillar.
+        item(key = "progress") { PillarHeading(stringResource(R.string.today_progress_title), stringResource(R.string.today_progress_body)) }
+        item(key = "level") {
+            val xp = h.totalXp()
+            val level = levelFor(xp)
+            val steady = h.steadyDays(date)
+            Column(
+                Modifier.padding(horizontal = Space.M).fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+                verticalArrangement = Arrangement.spacedBy(Space.XS),
+            ) {
+                Text(stringResource(R.string.today_light_level, level.number, level.name), color = colors.dawnText, style = AuroraType.Eyebrow)
+                Text(stringResource(R.string.today_xp_today, h.day(date).xp()), color = colors.textPrimary, style = AuroraType.Headline)
+                ProgressLine(level.progress, Modifier.padding(vertical = Space.XS), warm = true)
+                Text(stringResource(R.string.today_xp_next, level.levelSize - level.intoLevel, light.activeDays), color = colors.textSecondary, style = AuroraType.Secondary)
+                if (steady > 1) Text(stringResource(R.string.today_steady, steady), color = colors.accent, style = AuroraType.Label)
+                Text(stringResource(R.string.today_xp_how), color = colors.textTertiary, style = AuroraType.Caption)
             }
-            RowDivider()
-            val steady = s.history.steadyDays(s.today)
-            AuroraRow(
-                title = "Your progress",
-                subtitle = if (steady > 1) "$steady days in a row with intentional time" else "${level.intoLevel} of ${level.levelSize} XP to the next level",
-                icon = AuroraIcons.Spark,
-                onClick = onOpenInsights,
-                trailing = { Chevron() },
-            )
+        }
+        if (d != null && d.rules.goals.isNotEmpty()) {
+            item(key = "goals") {
+                Column(
+                    Modifier.padding(horizontal = Space.M).padding(top = Space.S).fillMaxWidth().clip(Radius.L).background(colors.surface).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+                    verticalArrangement = Arrangement.spacedBy(Space.S),
+                ) {
+                    Text(stringResource(R.string.today_goals), color = colors.textPrimary, style = AuroraType.Title)
+                    d.rules.goals.forEach { g ->
+                        val day = g.on(h.day(date), null, null, dayOver = false)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(g.kind.title(g.target), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Body)
+                            Text(
+                                when (day.met) {
+                                    true -> stringResource(R.string.goal_met)
+                                    false -> stringResource(R.string.goal_missed)
+                                    null -> day.value?.let { stringResource(R.string.goal_so_far, it) } ?: stringResource(R.string.goal_unavailable)
+                                },
+                                color = if (day.met == true) colors.accent else colors.textSecondary,
+                                style = AuroraType.Label,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // 6. Insights.
+        item(key = "insights") {
+            val stats = h.day(date)
+            Column(Modifier.padding(horizontal = Space.M, vertical = Space.L)) {
+                Text(
+                    stringResource(R.string.today_insight_line, stats.shields, stats.wentBack + stats.intentLetGo),
+                    Modifier.padding(horizontal = Space.XS, vertical = Space.S),
+                    color = colors.textSecondary,
+                    style = AuroraType.Body,
+                )
+                AuroraButton(stringResource(R.string.today_see_insights), onOpenInsights, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+            }
         }
     }
 }
 
 @Composable
-private fun Hero(phase: Phase, s: HomeState, lockdownEnd: Long?) {
-    val colors = Aurora.colors
-    // `session` may already be cleared while an old phase animates out.
-    val session = s.runtime.focus
-    if (phase != Phase.Idle && session == null) return
-    Column {
-        when (phase) {
-            Phase.Idle -> {
-                Text(headline(s, lockdownEnd), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-                Spacer(Modifier.height(Space.XS))
-                Text(subline(s), color = colors.textSecondary, style = AuroraType.Body)
-            }
-            Phase.Running -> {
-                val remaining = session!!.remaining(s.time)
-                Text(
-                    formatClock(remaining),
-                    Modifier.semantics { contentDescription = "${spokenDuration(remaining)} left" },
-                    color = colors.textPrimary,
-                    style = AuroraType.Hero,
-                )
-                Text(
-                    "left · ${session.intention.ifBlank { "Focus session" }}",
-                    color = colors.textSecondary,
-                    style = AuroraType.Body,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Phase.Complete -> {
-                Text("Time well spent.", Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-                Spacer(Modifier.height(Space.XS))
-                Text(
-                    "You finished ${formatDuration(session!!.durationMs)} of focus. Take a breath before what's next.",
-                    color = colors.textSecondary,
-                    style = AuroraType.Body,
-                )
-            }
-        }
-    }
+private fun nextScheduleText(d: ProtectData): String {
+    val zone = ZoneId.systemDefault()
+    val next = d.rules.activeSchedules(d.plan).mapNotNull { s -> s.nextStart(d.time.wall, zone)?.let { s to it } }.minByOrNull { it.second }
+    return if (next == null) stringResource(R.string.today_no_schedule) else stringResource(R.string.today_next_schedule, next.first.name, clockTime(next.second))
 }
-
-/** A calm line grounded in what actually happened today. */
-private fun headline(s: HomeState, lockdownEnd: Long?): String = when {
-    lockdownEnd != null -> "Locked in until ${clockTime(lockdownEnd)}."
-    s.list.items.isEmpty() && s.history.days.isEmpty() -> "Make room for what matters."
-    s.stats.wentBack >= 1 -> if (s.stats.wentBack == 1) "You stepped back once today." else "You stepped back ${s.stats.wentBack} times today."
-    s.stats.focusMinutes > 0 -> "${formatDuration(s.stats.focusMinutes * 60_000L)} of focus today."
-    else -> greeting()
-}
-
-private fun subline(s: HomeState): String {
-    val motivation = s.rules.motivations.firstOrNull()?.lowercase()
-    return when {
-        motivation != null -> "Your attention is yours. More of it for $motivation."
-        s.list.items.isEmpty() -> "Choose what pulls you away, and aurora gives you a moment to decide."
-        else -> "Your attention is yours. A focus session sets aside time for what matters."
-    }
-}
-
-@Composable
-private fun IconStack(apps: List<InstalledApp>) {
-    Box {
-        apps.take(3).forEachIndexed { i, app ->
-            AppIcon(app, size = 28.dp, modifier = Modifier.padding(start = (i * 16).dp))
-        }
-    }
-}
-
-private fun greeting(): String = when (LocalTime.now().hour) {
-    in 5..11 -> "Good morning."
-    in 12..17 -> "Good afternoon."
-    else -> "Good evening."
-}
-
-fun clockTime(epochMs: Long): String =
-    DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))

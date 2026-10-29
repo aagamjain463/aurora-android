@@ -54,38 +54,48 @@ fun LoadingSurface(modifier: Modifier = Modifier) {
         modifier.fillMaxSize().background(Aurora.colors.background),
         contentAlignment = androidx.compose.ui.Alignment.Center,
     ) {
-        AuroraMark(56.dp, Modifier.graphicsLayer { alpha = shown.value })
+        AuroraMark(64.dp, Modifier.graphicsLayer { alpha = shown.value })
     }
 }
 
-/** The lowercase wordmark. Always "aurora", never capitalised. */
+/** The wordmark: "aurora", always lowercase, set tight in Manrope Bold. */
 @Composable
 fun Wordmark(modifier: Modifier = Modifier, color: Color = Aurora.colors.textPrimary) {
     Text("aurora", modifier, color = color, style = AuroraType.Wordmark)
 }
 
 /**
- * The mark: a horizon arc (dawn → aurora) and a single rising point of light above it.
- * Reads as first light over the horizon, and as a person: the point is you.
+ * The aurora symbol, "First Light": a peak drawn as one continuous stroke on a horizon, and a point of
+ * light just above its summit. It reads as an A, as a summit catching the first light of the day, and as
+ * a person (the point) rising above what pulls them down. Built on a 24-unit grid (docs/BRAND_SYSTEM.md):
+ * stroke 2.6u, peak at (12, 8.2), base on the horizon at y 19, light at (12, 3.6) r 1.9u.
  */
 @Composable
 fun AuroraMark(size: Dp, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
     Canvas(modifier.size(size).clearAndSetSemantics { }) {
-        val u = this.size.minDimension / 24f
-        val r = 7f * u
-        val center = Offset(12f * u, 17.5f * u)
-        drawArc(
-            brush = Brush.linearGradient(listOf(colors.dawn, colors.accent), Offset(center.x - r, 0f), Offset(center.x + r, 0f)),
-            startAngle = 180f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = Offset(center.x - r, center.y - r),
-            size = Size(2 * r, 2 * r),
-            style = Stroke(width = 2f * u, cap = StrokeCap.Round),
-        )
-        drawCircle(colors.light, radius = 1.9f * u, center = Offset(12f * u, 6.4f * u))
+        drawAuroraMark(this.size.minDimension, colors.dawn, colors.accent, colors.light, colors.glowCool)
     }
+}
+
+/** Draws the symbol in a [side]-sized square at the origin. Shared by the in-app mark and the splash. */
+fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAuroraMark(side: Float, warm: Color, cool: Color, light: Color, glow: Color) {
+    val u = side / 24f
+    val peak = androidx.compose.ui.graphics.Path().apply {
+        moveTo(4.2f * u, 19f * u)
+        lineTo(12f * u, 8.2f * u)
+        lineTo(19.8f * u, 19f * u)
+    }
+    drawPath(
+        peak,
+        Brush.linearGradient(listOf(warm, cool), Offset(4f * u, 19f * u), Offset(20f * u, 9f * u)),
+        style = Stroke(width = 2.6f * u, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
+    )
+    // The horizon: short, quiet, centred under the peak.
+    drawLine(cool.copy(alpha = 0.45f), Offset(2.5f * u, 21.6f * u), Offset(21.5f * u, 21.6f * u), strokeWidth = 1.1f * u, cap = StrokeCap.Round)
+    val point = Offset(12f * u, 3.6f * u)
+    drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.45f), Color.Transparent), point, 4.2f * u), 4.2f * u, point)
+    drawCircle(light, 1.9f * u, point)
 }
 
 /**

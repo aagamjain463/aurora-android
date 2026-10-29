@@ -10,7 +10,7 @@ import java.net.IDN
 
 enum class Plan { Free, Plus }
 
-enum class Allowance { ProtectedItems, IntentApps, DailyLimitRules, Schedules, FocusProfiles, LockdownMinutesPerDay }
+enum class Allowance { ProtectedItems, IntentApps, DailyLimitRules, Schedules, FocusProfiles, AlwaysBlockMinutesPerDay }
 
 enum class Feature { AdvancedInsights, Challenges }
 
@@ -21,7 +21,7 @@ val FreeLimits: Map<Allowance, Int> = mapOf(
     Allowance.DailyLimitRules to 3,
     Allowance.Schedules to 1,
     Allowance.FocusProfiles to 1,
-    Allowance.LockdownMinutesPerDay to 120,
+    Allowance.AlwaysBlockMinutesPerDay to 120,
 )
 
 /** null means unlimited. */

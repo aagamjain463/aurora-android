@@ -16,8 +16,8 @@ class ProgressTest {
         assertEquals(5, DayStats(completedFocusMinutes = 25).xp())
         assertEquals(24, DayStats(completedFocusMinutes = 600).xp())
         assertEquals(10, DayStats(wentBack = 30).xp())
-        assertEquals(12, DayStats(lockdownMinutes = 600).xp())
-        assertEquals(DailyXpCap, DayStats(completedFocusMinutes = 999, wentBack = 99, lockdownMinutes = 999).xp())
+        assertEquals(12, DayStats(alwaysBlockMinutes = 600).xp())
+        assertEquals(DailyXpCap, DayStats(completedFocusMinutes = 999, wentBack = 99, alwaysBlockMinutes = 999).xp())
     }
 
     @Test
@@ -28,7 +28,7 @@ class ProgressTest {
         val early = h.withFocus(today, record.copy(start = 2, focusedMs = 10 * 60_000, completed = false))
         assertEquals(35, early.day(today).focusMinutes)
         assertEquals(25, early.day(today).completedFocusMinutes)
-        assertEquals(30, History().withLockdown(today, 5, 30).withLockdown(today, 5, 30).day(today).lockdownMinutes)
+        assertEquals(30, History().withAlwaysBlock(today, 5, 30).withAlwaysBlock(today, 5, 30).day(today).alwaysBlockMinutes)
     }
 
     @Test

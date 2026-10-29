@@ -63,13 +63,13 @@ fun AuroraButton(
     )
     val (container, content) = when (kind) {
         ButtonKind.Primary -> colors.accent to colors.onAccent
-        ButtonKind.Secondary -> colors.surface to colors.textPrimary
-        ButtonKind.Quiet -> Color.Transparent to colors.textSecondary
+        ButtonKind.Secondary -> colors.elevated to colors.textPrimary
+        ButtonKind.Quiet -> Color.Transparent to colors.textPrimary
     }
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else 0.4f }
-            .heightIn(min = if (kind == ButtonKind.Quiet) 48.dp else 56.dp)
+            .heightIn(min = if (kind == ButtonKind.Quiet) 48.dp else 58.dp)
             .clip(Radius.Pill)
             .background(container)
             .then(if (kind == ButtonKind.Secondary) Modifier.border(1.dp, colors.hairline, Radius.Pill) else Modifier)

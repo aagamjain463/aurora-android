@@ -1,6 +1,8 @@
 package app.aurora.ui.protect
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,10 +10,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,23 +25,31 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
-import app.aurora.data.AccessState
 import app.aurora.data.InstalledApp
 import app.aurora.data.openAccessSettings
-import app.aurora.lockdownLeft
 import app.aurora.plan.Allowance
+import app.aurora.plan.Plan
 import app.aurora.plan.ProtectedItem
+import app.aurora.protect.Mode
+import app.aurora.protect.WebPrefix
+import app.aurora.protect.covers
 import app.aurora.protect.key
-import app.aurora.rememberAccess
+import app.aurora.protect.windowAt
+import app.aurora.skipWindow
+import app.aurora.turnOff
 import app.aurora.ui.components.AppIcon
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
@@ -48,240 +59,256 @@ import app.aurora.ui.components.AuroraScreen
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Chevron
-import app.aurora.ui.components.EmptyState
 import app.aurora.ui.components.IconBadge
-import app.aurora.ui.components.Notice
+import app.aurora.ui.components.ModeGlyph
 import app.aurora.ui.components.RowDivider
 import app.aurora.ui.components.RowGroup
+import app.aurora.ui.components.ScreenIntro
 import app.aurora.ui.components.SectionLabel
 import app.aurora.ui.components.SelectionMark
 import app.aurora.ui.components.SkeletonRows
-import app.aurora.ui.components.StatusPill
-import app.aurora.ui.components.Tag
 import app.aurora.ui.components.allowanceText
-import app.aurora.ui.home.clockTime
+import app.aurora.ui.components.clockTime
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
+import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
+import java.time.ZoneId
 
-/** Where the Protect tab leads. */
 object ProtectRoutes {
     const val Apps = "protect/apps"
     const val Item = "protect/item"
+    const val Start = "protect/start"
     const val Schedules = "protect/schedules"
+    const val ScheduleEdit = "protect/schedule"
     const val Limits = "protect/limits"
     const val Groups = "protect/groups"
-    const val Lockdown = "protect/lockdown"
+    const val Intent = "protect/intent"
+    const val IntentApp = "protect/intent/app"
     const val Web = "protect/web"
     const val Plus = "plus"
 }
 
 /**
- * The control centre: is Shield working, what is protected and how, and the rules on top. Simple on
- * the surface (a list and a few rows); every detail is one tap away.
+ * Protect: what's protected right now, how to start protection, and the saved apps, Intentional App
+ * Opening, schedules and limits behind it. Running sessions come first, with the one action each mode
+ * allows; saved apps are preferences and never protect anything until a session or schedule runs.
  */
 @Composable
-fun ProtectScreen(onOpen: (String) -> Unit = {}, onOpenItem: (String) -> Unit = {}) {
+fun ProtectScreen(onOpen: (String) -> Unit, onOpenItem: (String) -> Unit) {
     val vm = auroraViewModel { ProtectModel(it) }
-    val context = LocalContext.current
     val data by vm.data.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
     val status = rememberProtectionStatus(data?.list)
+    val context = LocalContext.current
     var disclosure by rememberSaveable { mutableStateOf(false) }
-    var choosing by remember { mutableStateOf<ProtectedItem?>(null) }
+    var confirmOff by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { vm.pruneUninstalled() }
-    val colors = Aurora.colors
+    val d = data
 
-    AuroraScreen(title = "Protect", subtitle = "What pulls you away, and how aurora steps in.", tabBar = true) {
-        val d = data
-        if (status != null) item(key = "status") {
-            Spacer(Modifier.height(Space.M))
-            ShieldStatusCard(
-                status = status,
-                count = d?.active?.size ?: 0,
-                allowed = rememberAccess(Access.Accessibility) == AccessState.Granted,
-                onTurnOn = { disclosure = true },
-                onOpenSettings = { openAccessSettings(context, Access.Accessibility) },
+    AuroraScreen(
+        title = stringResource(R.string.tab_protect),
+        tabBar = true,
+        listState = rememberLazyListState(),
+        header = {
+            ScreenIntro(
+                stringResource(R.string.protect_headline),
+                Modifier.padding(top = Space.XS, bottom = Space.L),
+                eyebrow = stringResource(R.string.tab_protect),
             )
+        },
+    ) {
+        item(key = "status") {
+            if (status != null && d != null) {
+                ShieldStatusCard(status, d.list.items.size, onTurnOn = { disclosure = true }, onOpenSettings = { openAccessSettings(context, Access.Accessibility) })
+            }
         }
         if (d == null) {
-            item(key = "loading") { SkeletonRows(4) }
+            item { SkeletonRows(4) }
             return@AuroraScreen
         }
-        if (!d.rulesReadable) item(key = "unreadable") {
-            Notice("Can't read your rules", "aurora can't read your saved rules, so Shield isn't applying them and nothing can be changed. Close aurora and open it again.", Modifier.padding(top = Space.S))
-        }
-        val lockdown = d.runtime.lockdown?.takeUnless { it.isOver(d.time) }
-        if (lockdown != null) item(key = "lockdown-live") {
-            LiveBanner("Lockdown", "Until ${clockTime(lockdown.endWall(d.time))} · it can't be ended early", Modifier.padding(top = Space.S)) { onOpen(ProtectRoutes.Lockdown) }
-        }
-        if (d.paused.isNotEmpty()) item(key = "paused") {
-            Notice(
-                eyebrow = "Paused",
-                body = "aurora Free protects ${d.max(Allowance.ProtectedItems)} items at a time. ${d.paused.size} of yours " +
-                    "${if (d.paused.size == 1) "is" else "are"} saved and paused. Tap one to choose what happens to it.",
-                modifier = Modifier.padding(top = Space.S),
-            )
+
+        // Running now.
+        val windows = runningWindows(d)
+        if (d.sessions.isNotEmpty() || windows.isNotEmpty()) {
+            item(key = "now") { SectionLabel(stringResource(R.string.protect_active_now)) }
+            items(d.sessions, key = { "s-" + it.id }) { s ->
+                SessionCard(s, d, onTurnOff = { confirmOff = s.id }, Modifier.padding(bottom = Space.S))
+            }
+            items(windows, key = { "w-" + it.id }) { w -> WindowCard(w, d) { vm.run { vm.app.skipWindow(w.id) } } }
         }
 
+        item(key = "start") {
+            Column(Modifier.padding(horizontal = Space.M, vertical = Space.L)) {
+                AuroraButton(
+                    stringResource(R.string.protect_start),
+                    { onOpen(ProtectRoutes.Start) },
+                    Modifier.fillMaxWidth(),
+                    icon = AuroraIcons.Protect,
+                    enabled = d.active.isNotEmpty(),
+                )
+                if (d.active.isEmpty()) {
+                    Text(stringResource(R.string.protect_start_needs_apps), Modifier.padding(top = Space.XS, start = Space.XS), color = Aurora.colors.textSecondary, style = AuroraType.Secondary)
+                }
+            }
+        }
+
+        item(key = "intent") { IntentFeatureCard(d) { onOpen(ProtectRoutes.Intent) } }
+
         item(key = "items-label") {
-            SectionLabel("Protected · ${allowanceText(d.active.size, d.max(Allowance.ProtectedItems))}")
+            SectionLabel(stringResource(R.string.protected_apps_name) + " · " + allowanceText(d.active.size, d.max(Allowance.ProtectedItems)))
         }
         item(key = "items") {
             RowGroup {
                 d.list.items.forEachIndexed { i, item ->
                     if (i > 0) RowDivider(72.dp)
                     val key = item.key
-                    val isPaused = item in d.paused
-                    val website = item is ProtectedItem.Website
+                    val paused = item in d.paused
                     AuroraRow(
                         title = d.label(key),
-                        subtitle = if (isPaused) "Paused · tap to choose" else d.rules.summary(key, d.plan, website),
-                        leading = {
-                            Box(Modifier.alpha(if (isPaused) 0.5f else 1f)) {
-                                val icon = d.apps[key]
-                                if (icon != null) AppIcon(icon, size = 40.dp) else IconBadge(AuroraIcons.Globe)
-                            }
-                        },
-                        onClick = { if (isPaused) choosing = item else onOpenItem(key) },
+                        subtitle = if (paused) stringResource(R.string.protect_paused) else d.rules.summary(key, d.plan, key.startsWith(WebPrefix)) { modeNameText(context, it) },
+                        leading = { ItemIcon(key, d) },
+                        onClick = { onOpenItem(key) },
                         trailing = { Chevron() },
                     )
                 }
                 if (d.list.items.isNotEmpty()) RowDivider(72.dp)
-                AuroraRow(
-                    title = if (d.list.items.isEmpty()) "Choose apps to protect" else "Add apps",
-                    subtitle = if (d.list.items.isEmpty()) "Start with the ones that tend to pull you in." else null,
-                    leading = { IconBadge(AuroraIcons.Plus) },
-                    onClick = { onOpen(ProtectRoutes.Apps) },
-                )
+                AuroraRow(stringResource(R.string.protect_add_apps), leading = { IconBadge(AuroraIcons.Plus) }, onClick = { onOpen(ProtectRoutes.Apps) })
                 RowDivider(72.dp)
-                AuroraRow(title = "Add a website", leading = { IconBadge(AuroraIcons.Globe) }, onClick = { onOpen(ProtectRoutes.Web) })
+                AuroraRow(stringResource(R.string.protect_add_website), leading = { IconBadge(AuroraIcons.Globe) }, onClick = { onOpen(ProtectRoutes.Web) })
             }
         }
 
+        item(key = "more") { SectionLabel(stringResource(R.string.protect_more)) }
         item(key = "rules") {
-            SectionLabel("Rules")
             RowGroup {
-                val schedules = d.rules.schedules
+                val schedules = d.rules.schedules.count { it.enabled }
                 AuroraRow(
-                    title = "Schedules",
-                    subtitle = if (schedules.isEmpty()) "Protection that starts on its own, like study hours."
-                    else "${allowanceText(d.rules.activeSchedules(d.plan).size, d.max(Allowance.Schedules))} on · ${schedules.first().name}",
-                    icon = AuroraIcons.Calendar,
-                    onClick = { onOpen(ProtectRoutes.Schedules) },
-                    trailing = { Chevron() },
+                    stringResource(R.string.schedules_name),
+                    subtitle = if (schedules == 0) stringResource(R.string.protect_schedules_sub) else pluralStringResource(R.plurals.protect_schedules_on, schedules, schedules),
+                    icon = AuroraIcons.Calendar, onClick = { onOpen(ProtectRoutes.Schedules) }, trailing = { Chevron() },
                 )
                 RowDivider(56.dp)
-                AuroraRow(
-                    title = "Daily limits",
-                    subtitle = if (d.rules.limits.isEmpty()) "Decide how long an app deserves each day."
-                    else "${allowanceText(d.rules.activeLimits(d.plan).size, d.max(Allowance.DailyLimitRules))} on",
-                    icon = AuroraIcons.Hourglass,
-                    onClick = { onOpen(ProtectRoutes.Limits) },
-                    trailing = { Chevron() },
-                )
+                AuroraRow(stringResource(R.string.limits_name), subtitle = stringResource(R.string.protect_limits_sub), icon = AuroraIcons.Hourglass, onClick = { onOpen(ProtectRoutes.Limits) }, trailing = { Chevron() })
                 RowDivider(56.dp)
-                AuroraRow(
-                    title = "Groups",
-                    subtitle = if (d.rules.groups.isEmpty()) "Social, entertainment, games: protect them together."
-                    else d.rules.groups.joinToString(", ") { it.name },
-                    icon = AuroraIcons.Layers,
-                    onClick = { onOpen(ProtectRoutes.Groups) },
-                    trailing = { Chevron() },
-                )
-                RowDivider(56.dp)
-                val left = vm.app.lockdownLeft()
-                AuroraRow(
-                    title = "Lockdown",
-                    subtitle = when {
-                        lockdown != null -> "On until ${clockTime(lockdown.endWall(d.time))}"
-                        left != null -> "A firm commitment for a set time · $left min left today"
-                        else -> "A firm commitment for a set time"
-                    },
-                    icon = AuroraIcons.Lock,
-                    onClick = { onOpen(ProtectRoutes.Lockdown) },
-                    trailing = { Chevron() },
-                )
+                AuroraRow(stringResource(R.string.groups_name), subtitle = stringResource(R.string.protect_groups_sub), icon = AuroraIcons.Layers, onClick = { onOpen(ProtectRoutes.Groups) }, trailing = { Chevron() })
             }
         }
-        item(key = "web") {
-            SectionLabel("Websites & content")
-            RowGroup {
-                AuroraRow(
-                    title = "Web & content Shield",
-                    subtitle = "Websites in supported browsers, and Shorts and Reels.",
-                    icon = AuroraIcons.Globe,
-                    onClick = { onOpen(ProtectRoutes.Web) },
-                    trailing = { Tag("optional"); Chevron() },
-                )
+        if (d.plan == Plan.Free) {
+            item(key = "plus") {
+                Column(Modifier.padding(top = Space.L)) {
+                    RowGroup { AuroraRow(stringResource(R.string.plus_name), subtitle = stringResource(R.string.protect_plus_sub), icon = AuroraIcons.Spark, onClick = { onOpen(ProtectRoutes.Plus) }, trailing = { Chevron() }) }
+                }
             }
         }
     }
 
-    if (disclosure) {
-        ShieldDisclosure(
-            onContinue = {
-                disclosure = false
-                openAccessSettings(context, Access.Accessibility)
-            },
-            onDismiss = { disclosure = false },
-        )
-    }
-    choosing?.let { item ->
-        val d = data
-        val label = d?.label(item.key) ?: item.key
-        val max = d?.max(Allowance.ProtectedItems)
-        val free = (d?.active?.size ?: 0) < (max ?: Int.MAX_VALUE)
+    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
+    confirmOff?.let { id ->
         AuroraDialog(
-            title = "$label is paused",
-            body = if (free) "You have a free slot. Resume $label to protect it again, or remove it from your list."
-            else "aurora Free protects $max items at a time. Remove another item first to resume $label, or remove it from your list.",
-            confirmLabel = if (free) "Resume" else "Remove $label",
-            onConfirm = {
-                choosing = null
-                if (free) vm.resume(item) else vm.remove(item)
-            },
-            dismissLabel = "Cancel",
-            onDismiss = { choosing = null },
-        ) {
-            if (free) AuroraButton("Remove from list", { choosing = null; vm.remove(item) }, kind = ButtonKind.Quiet)
-        }
+            title = stringResource(R.string.session_turn_off_title),
+            body = stringResource(R.string.session_turn_off_body),
+            confirmLabel = stringResource(R.string.session_turn_off),
+            onConfirm = { confirmOff = null; vm.run { vm.app.turnOff(id) } },
+            dismissLabel = stringResource(R.string.action_keep_on),
+            onDismiss = { confirmOff = null },
+        )
     }
-    LimitDialog(notice, vm::dismissNotice) { onOpen(ProtectRoutes.Plus) }
-}
-
-/** A live rule, tinted with the accent: a Lockdown or a Focus session running now. */
-@Composable
-fun LiveBanner(title: String, body: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
-    val colors = Aurora.colors
-    RowGroup(modifier) {
-        AuroraRow(
-            title = title,
-            subtitle = body,
-            modifier = Modifier.background(colors.accentSoft),
-            leading = { StatusPill("Live", live = true) },
-            onClick = onClick,
-            trailing = if (onClick != null) ({ Chevron() }) else null,
+    notice?.let { n ->
+        AuroraDialog(
+            title = n.title, body = n.body,
+            confirmLabel = if (n.plus) stringResource(R.string.plus_see) else stringResource(R.string.action_ok),
+            onConfirm = { vm.dismissNotice(); if (n.plus) onOpen(ProtectRoutes.Plus) },
+            dismissLabel = if (n.plus) stringResource(R.string.action_not_now) else null,
+            onDismiss = vm::dismissNotice,
         )
     }
 }
 
-/** The calm "that's the most for now" dialog, with a quiet way to see aurora plus. */
-@Composable
-fun LimitDialog(notice: LimitNotice?, onDismiss: () -> Unit, onPlus: () -> Unit) {
-    if (notice == null) return
-    AuroraDialog(
-        title = notice.title,
-        body = notice.body,
-        confirmLabel = "Got it",
-        onConfirm = onDismiss,
-        onDismiss = onDismiss,
-    ) {
-        if (notice.plus) AuroraButton("About aurora plus", { onDismiss(); onPlus() }, kind = ButtonKind.Quiet)
+/** A schedule window running now, outside any session. */
+data class RunningWindow(val id: String, val name: String, val mode: Mode, val keys: Set<String>, val end: Long, val committed: Boolean, val canSkip: Boolean)
+
+fun runningWindows(d: ProtectData): List<RunningWindow> {
+    val zone = ZoneId.systemDefault()
+    val now = d.time.wall
+    return d.rules.activeSchedules(d.plan).mapNotNull { s ->
+        val (start, end) = s.windowAt(now, zone) ?: return@mapNotNull null
+        if (d.runtime.skipped[s.id] == start && s.mode != Mode.AlwaysBlock) return@mapNotNull null
+        // A committed Always Block window shows as its session instead.
+        if (d.sessions.any { it.scheduleId == s.id }) return@mapNotNull null
+        val committed = s.mode == Mode.AlwaysBlock && d.plan == Plan.Plus
+        RunningWindow(s.id, s.name, s.mode, d.rules.covers(s, d.activeKeys), end, committed, canSkip = !committed && d.runtime.skipped[s.id] != start)
     }
 }
 
-/** Every launchable app, searchable; ticking protects it at once. */
+@Composable
+private fun WindowCard(w: RunningWindow, d: ProtectData, onSkip: () -> Unit) {
+    val colors = Aurora.colors
+    val tint = modeColor(w.mode)
+    Column(
+        Modifier.padding(horizontal = Space.M).padding(bottom = Space.S).fillMaxWidth().clip(Radius.L).background(colors.surface)
+            .border(1.dp, tint.copy(alpha = 0.45f), Radius.L).padding(Space.L),
+        verticalArrangement = Arrangement.spacedBy(Space.XS),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+            ModeGlyph(tint, size = 14)
+            Text("${w.name} · ${modeName(w.mode)}", color = tint, style = AuroraType.Eyebrow)
+            Box(Modifier.weight(1f))
+            IconStack(w.keys.toList(), d)
+        }
+        Text(stringResource(R.string.schedule_running_until, clockTime(w.end)), color = colors.textPrimary, style = AuroraType.Title)
+        if (w.canSkip) AuroraButton(stringResource(R.string.schedule_skip_today), onSkip, Modifier.fillMaxWidth().padding(top = Space.XS), kind = ButtonKind.Secondary)
+        else if (w.committed) Text(stringResource(R.string.session_ends_automatically), color = colors.dawnText, style = AuroraType.Label)
+    }
+}
+
+/** The flagship entry to Intentional App Opening. */
+@Composable
+private fun IntentFeatureCard(d: ProtectData, onOpen: () -> Unit) {
+    val colors = Aurora.colors
+    val on = d.rules.activeIntents(d.plan).size
+    Column(
+        Modifier
+            .padding(horizontal = Space.M)
+            .fillMaxWidth()
+            .clip(Radius.L)
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(colors.dawnSoft, colors.accentSoft)))
+            .border(1.dp, colors.hairline, Radius.L)
+            .clickable(role = Role.Button, onClick = onOpen)
+            .padding(Space.L),
+        verticalArrangement = Arrangement.spacedBy(Space.XS),
+    ) {
+        Text(stringResource(R.string.intent_card_eyebrow), color = colors.dawnText, style = AuroraType.Eyebrow)
+        Text(stringResource(R.string.intent_name), color = colors.textPrimary, style = AuroraType.Headline)
+        Text(stringResource(R.string.intent_card_body), color = colors.textSecondary, style = AuroraType.Body)
+        Spacer(Modifier.height(Space.XS))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (on == 0) stringResource(R.string.intent_card_set_up) else pluralStringResource(R.plurals.intent_card_on, on, on),
+                Modifier.weight(1f),
+                color = colors.accent,
+                style = AuroraType.Label,
+            )
+            Chevron()
+        }
+    }
+}
+
+/** Mode name outside composition (summary lines are built in plain code). */
+fun modeNameText(context: android.content.Context, mode: Mode): String = context.getString(
+    when (mode) {
+        Mode.Flexible -> R.string.mode_flexible
+        Mode.Friction -> R.string.mode_friction
+        Mode.Cooldown -> R.string.mode_cooldown
+        Mode.AlwaysBlock -> R.string.mode_always_block
+    },
+)
+
+/**
+ * Every app the person can open from their launcher: all of them, alphabetically, with search. Phase 3's
+ * onboarding list stopped after 30 apps; nothing here is cut off. Ticking adds the app to the protected
+ * apps (preferences only); it starts no protection.
+ */
 @Composable
 fun AppPickerScreen(onBack: () -> Unit, onPlus: () -> Unit) {
     val vm = auroraViewModel { ProtectModel(it) }
@@ -290,97 +317,68 @@ fun AppPickerScreen(onBack: () -> Unit, onPlus: () -> Unit) {
     val exempt by vm.exempt.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
-    val chosen = remember(data?.list) { data?.list?.apps.orEmpty().toSet() }
-    val paused = remember(data) { data?.paused.orEmpty().map { it.key }.toSet() }
-    // Chosen apps lead, but the order is fixed when the list loads: ticking never moves a row away.
-    val ordered = remember(apps, data != null) { apps?.sortedByDescending { it.packageName in chosen } }
-    val visible = remember(ordered, query) {
-        val q = query.trim()
-        if (q.isEmpty()) ordered else ordered?.filter { it.label.contains(q, ignoreCase = true) }
-    }
-    val max = data?.max(Allowance.ProtectedItems)
-
     AuroraScreen(
-        title = "Choose apps",
-        subtitle = "${allowanceText(data?.active?.size ?: 0, max)} protected. Tick to protect, untick to stop.",
+        title = stringResource(R.string.picker_title),
+        subtitle = data?.let { stringResource(R.string.picker_subtitle, allowanceText(it.active.size, it.max(Allowance.ProtectedItems))) },
         onBack = onBack,
     ) {
         item(key = "search") {
-            AuroraTextField(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = "Search apps",
-                icon = AuroraIcons.Search,
-                imeAction = ImeAction.Search,
-                modifier = Modifier.padding(horizontal = Space.M).padding(top = Space.M, bottom = Space.S),
-            )
+            AuroraTextField(query, { query = it }, stringResource(R.string.picker_search), Modifier.padding(horizontal = Space.M, vertical = Space.S), icon = AuroraIcons.Search)
         }
-        when {
-            visible == null -> item(key = "loading") { SkeletonRows() }
-            visible.isEmpty() -> item(key = "empty") {
-                EmptyState(
-                    title = if (query.isBlank()) "No apps found" else "Nothing matches “${query.trim()}”",
-                    body = if (query.isBlank()) "aurora couldn't find any apps to list on this phone." else "Try a different name.",
-                )
-            }
-            else -> items(visible, key = { it.packageName }, contentType = { "app" }) { app ->
-                val pkg = app.packageName
-                val isChosen = pkg in chosen
-                AppRow(
-                    app = app,
-                    chosen = isChosen,
-                    note = when {
-                        pkg in exempt -> "aurora never shields this app"
-                        pkg in paused -> "Paused · open Protect to choose"
-                        else -> null
-                    },
-                    // A protected exempt app (chosen before Phase 3) can still be removed.
-                    enabled = isChosen || pkg !in exempt,
-                ) { ProtectedItem.App.of(pkg)?.let { vm.toggle(it) } }
-            }
-        }
+        appList(apps, data, exempt, query) { pkg -> ProtectedItem.App.of(pkg)?.let { vm.toggle(it) } }
     }
-    LimitDialog(notice, vm::dismissNotice, onPlus)
+    notice?.let { n ->
+        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) stringResource(R.string.plus_see) else stringResource(R.string.action_ok), { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) stringResource(R.string.action_not_now) else null)
+    }
+}
+
+/** The searchable, complete list of launchable apps, shared by the picker and onboarding. */
+fun androidx.compose.foundation.lazy.LazyListScope.appList(
+    apps: List<InstalledApp>?,
+    data: ProtectData?,
+    exempt: Set<String>,
+    query: String,
+    onToggle: (String) -> Unit,
+) {
+    if (apps == null || data == null) {
+        item { SkeletonRows(8) }
+        return
+    }
+    val chosen = data.list.apps.toSet()
+    val q = query.trim()
+    val visible = apps.filter { it.packageName !in exempt || it.packageName in chosen }
+        .filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) }
+    item(key = "count") {
+        Text(
+            if (q.isEmpty()) stringResource(R.string.picker_count, visible.size, chosen.size) else stringResource(R.string.picker_matches, visible.size),
+            Modifier.padding(horizontal = Space.Gutter, vertical = Space.XS),
+            color = Aurora.colors.textSecondary,
+            style = AuroraType.Caption,
+        )
+    }
+    items(visible, key = { it.packageName }, contentType = { "app" }) { app ->
+        AppPickRow(app, app.packageName in chosen) { onToggle(app.packageName) }
+    }
+    item(key = "note") {
+        Text(stringResource(R.string.picker_exempt_note), Modifier.padding(Space.Gutter), color = Aurora.colors.textTertiary, style = AuroraType.Caption)
+    }
 }
 
 @Composable
-fun AppRow(app: InstalledApp, chosen: Boolean, note: String?, enabled: Boolean, onToggle: () -> Unit) {
+private fun AppPickRow(app: InstalledApp, selected: Boolean, onClick: () -> Unit) {
     val colors = Aurora.colors
+    val state = stringResource(if (selected) R.string.picker_selected else R.string.picker_not_selected)
     Row(
         Modifier
             .fillMaxWidth()
-            .toggleable(chosen, enabled = enabled, role = Role.Checkbox, onValueChange = { onToggle() })
-            .heightIn(min = 64.dp)
-            .padding(horizontal = Space.Gutter, vertical = Space.XS)
-            .alpha(if (enabled) 1f else 0.55f),
+            .clickable(role = Role.Checkbox, onClick = onClick)
+            .semantics(mergeDescendants = true) { stateDescription = state }
+            .padding(horizontal = Space.Gutter, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.M),
     ) {
-        AppIcon(app, size = 40.dp)
-        Column(Modifier.weight(1f)) {
-            Text(app.label, color = colors.textPrimary, style = AuroraType.Body, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (note != null) Text(note, color = colors.textSecondary, style = AuroraType.Caption)
-        }
-        if (enabled) SelectionMark(chosen)
+        AppIcon(app, size = 44.dp)
+        Text(app.label, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        SelectionMark(selected)
     }
 }
-
-/** A key's icon: the app's own, or a globe for a site. */
-@Composable
-fun KeyIcon(data: ProtectData, key: String, size: Int = 40) {
-    val app = data.apps[key]
-    if (app != null) AppIcon(app, size = size.dp) else IconBadge(AuroraIcons.Globe, size = size)
-}
-
-@Composable
-internal fun Hint(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        modifier.padding(horizontal = Space.Gutter).padding(top = Space.S),
-        color = Aurora.colors.textTertiary,
-        style = AuroraType.Caption,
-    )
-}
-
-@Composable
-internal fun Pad(height: androidx.compose.ui.unit.Dp = Space.M) = Spacer(Modifier.height(height))

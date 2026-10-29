@@ -24,7 +24,10 @@ class InterceptorTest {
     private val trace = ShieldTrace()
     private val scheduled = mutableListOf<() -> Unit>()
     private val interceptor = Interceptor(presenter, trace, "app.aurora", setOf("com.android.systemui", "ime"), { 0L }, { now }, { _, block -> scheduled += block }).apply {
-        state = PolicyState(setOf("com.social"), exempt = setOf("app.aurora", "com.launcher", "com.android.systemui"))
+        state = PolicyState(
+            setOf("com.social"), exempt = setOf("app.aurora", "com.launcher", "com.android.systemui"),
+            restrictions = listOf(Restriction(ShieldReason.AlwaysBlock, setOf("com.social"), 0, Long.MAX_VALUE, "test")),
+        )
     }
 
     private fun window(pkg: String?, after: Long = 50) {
@@ -92,7 +95,7 @@ class InterceptorTest {
     @Test
     fun ruleChangesApplyToTheNextEvent() {
         window("com.social")
-        interceptor.state = interceptor.state!!.copy(protectedPackages = emptySet())
+        interceptor.state = interceptor.state!!.copy(restrictions = emptyList())
         window("com.social", after = 500)
         assertEquals(1, presenter.shown.size)
         interceptor.state = null
@@ -144,7 +147,7 @@ class InterceptorTest {
         assertEquals(0, trace.snapshot().recovered)
         // Unprotected meanwhile: nothing to re-show either.
         window("com.social", after = 500)
-        interceptor.state = interceptor.state!!.copy(protectedPackages = emptySet())
+        interceptor.state = interceptor.state!!.copy(restrictions = emptyList())
         runChecks()
         assertEquals(2, presenter.shown.size)
     }
@@ -160,7 +163,7 @@ class InterceptorTest {
     @Test
     fun traceKeepsTheLastTimingsOnly() {
         repeat(ShieldTrace.Keep + 5) { i ->
-            trace.shown(ShieldRequest("com.social", ShieldReason.Blocked, eventUptime = 0, receivedUptime = 10, decidedUptime = 11), frameEndUptime = 100L + i)
+            trace.shown(ShieldRequest("com.social", ShieldReason.AlwaysBlock, eventUptime = 0, receivedUptime = 10, decidedUptime = 11), frameEndUptime = 100L + i)
         }
         val snap = trace.snapshot()
         assertEquals(ShieldTrace.Keep, snap.timings.size)

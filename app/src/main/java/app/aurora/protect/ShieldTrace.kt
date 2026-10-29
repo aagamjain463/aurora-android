@@ -19,6 +19,12 @@ class ShieldTrace {
         val unavailable: Int,
         /** Shields shown again because the app came back without a window event (Interceptor.shieldHidden). */
         val recovered: Int,
+        /** Events for an app something applies to, and how many of those decided on a Shield. */
+        val watched: Int,
+        val restricted: Int,
+        /** The strongest reason of the last Shield decision, and when the last event of any kind came. */
+        val lastReason: ShieldReason?,
+        val lastEventUptime: Long?,
         val timings: List<Timing>,
         val lifecycle: List<String>,
     ) {
@@ -33,12 +39,22 @@ class ShieldTrace {
     private var failures = 0
     private var unavailable = 0
     private var recovered = 0
+    private var watched = 0
+    private var restricted = 0
+    private var lastReason: ShieldReason? = null
+    private var lastEventUptime: Long? = null
     private val timings = ArrayDeque<Timing>()
     private val lifecycle = ArrayDeque<String>()
 
-    @Synchronized fun decided(decision: Decision) {
+    @Synchronized fun decided(decision: Decision, uptime: Long = 0L) {
         events++
+        lastEventUptime = uptime
         if (decision == Decision.Unavailable) unavailable++
+        if (decision is Decision.Shield || decision is Decision.TemporarilyAllowed) watched++
+        if (decision is Decision.Shield) {
+            restricted++
+            lastReason = decision.reason
+        }
     }
 
     @Synchronized fun repeat() {
@@ -72,7 +88,7 @@ class ShieldTrace {
         if (lifecycle.size > Keep) lifecycle.removeFirst()
     }
 
-    @Synchronized fun snapshot() = Snapshot(events, shields, repeats, failures, unavailable, recovered, timings.toList(), lifecycle.toList())
+    @Synchronized fun snapshot() = Snapshot(events, shields, repeats, failures, unavailable, recovered, watched, restricted, lastReason, lastEventUptime, timings.toList(), lifecycle.toList())
 
     companion object {
         const val Keep = 20

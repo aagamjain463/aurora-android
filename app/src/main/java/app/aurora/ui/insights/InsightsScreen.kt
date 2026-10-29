@@ -274,7 +274,7 @@ fun InsightsScreen(onPlus: () -> Unit = {}) {
                 }
             }
             Text(
-                "XP comes only from completed Focus, stepping back at a Shield and Lockdown time, with a daily cap. " +
+                "XP comes only from completed Focus, stepping back at a Shield or an intentional opening, and committed Always Block time, with a daily cap. " +
                     "aurora can't see whether you were truly focused, so leaving a timer running earns no more than the cap.",
                 Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S),
                 color = colors.textTertiary,

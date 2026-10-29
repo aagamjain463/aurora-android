@@ -54,7 +54,7 @@ import app.aurora.ui.theme.auroraTween
 private val TopBarHeight = 56.dp
 
 /** Height of [AuroraNavBar] above the system navigation bar. Tab screens pad their content by it. */
-val TabBarHeight = 65.dp
+val TabBarHeight = 73.dp
 
 /**
  * Standard aurora screen: a large title that scrolls away into a compact top bar.
@@ -69,6 +69,8 @@ fun AuroraScreen(
     tabBar: Boolean = false,
     listState: LazyListState = rememberLazyListState(),
     actions: @Composable RowScope.() -> Unit = {},
+    /** Replaces the standard large title, for screens that open with their own composition. */
+    header: (@Composable () -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val colors = Aurora.colors
@@ -86,7 +88,8 @@ fun AuroraScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = top, bottom = bottom),
         ) {
-            item(key = "title", contentType = "title") {
+            if (header != null) item(key = "title", contentType = "header") { header() }
+            else item(key = "title", contentType = "title") {
                 Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS, bottom = Space.S)) {
                     Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
                     if (subtitle != null) {
@@ -110,7 +113,7 @@ private fun TopBar(title: String, collapsed: Boolean, onBack: (() -> Unit)?, act
             Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = Space.XS),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (onBack != null) AuroraIconButton(AuroraIcons.Back, "Back", onBack) else Spacer(Modifier.size(48.dp))
+            if (onBack != null) AuroraIconButton(AuroraIcons.Back, androidx.compose.ui.res.stringResource(app.aurora.R.string.action_back), onBack) else Spacer(Modifier.size(48.dp))
             Text(
                 title,
                 Modifier.weight(1f).graphicsLayer { alpha = titleAlpha },
@@ -124,7 +127,7 @@ private fun TopBar(title: String, collapsed: Boolean, onBack: (() -> Unit)?, act
     }
 }
 
-data class NavItem(val route: String, val label: String, val icon: ImageVector)
+data class NavItem(val route: String, @androidx.annotation.StringRes val label: Int, val icon: ImageVector)
 
 /** Bottom tab bar. The selected tab is marked by the rising point: a small dot of aurora light. */
 @Composable
@@ -136,7 +139,7 @@ fun AuroraNavBar(items: List<NavItem>, current: String?, onSelect: (String) -> U
             Modifier
                 .navigationBarsPadding()
                 .fillMaxWidth()
-                .height(64.dp)
+                .height(72.dp)
                 .selectableGroup(),
         ) {
             items.forEach { item ->
@@ -151,17 +154,18 @@ fun AuroraNavBar(items: List<NavItem>, current: String?, onSelect: (String) -> U
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Icon(item.icon, null, tint = tint, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.height(2.dp))
-                    Text(item.label, color = tint, style = AuroraType.Caption)
-                    Spacer(Modifier.height(4.dp))
+                    // The selected tab sits in a soft pill of aurora light.
                     Box(
                         Modifier
-                            .size(4.dp)
-                            .graphicsLayer { alpha = dot; scaleX = 0.5f + dot / 2; scaleY = 0.5f + dot / 2 }
+                            .size(width = 60.dp, height = 32.dp)
                             .clip(Radius.Pill)
-                            .background(colors.accent),
-                    )
+                            .background(colors.accent.copy(alpha = 0.16f * dot)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(item.icon, null, tint = if (selected) colors.accent else tint, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(androidx.compose.ui.res.stringResource(item.label), color = tint, style = AuroraType.Caption)
                 }
             }
         }

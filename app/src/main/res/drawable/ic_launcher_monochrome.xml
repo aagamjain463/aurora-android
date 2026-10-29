@@ -1,15 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon version of the aurora symbol: one colour, same construction. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M34.75,67.5 A19.25,19.25 0 0 1 73.25,67.5"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="5.5"
+        android:pathData="M37.4,69.3 L70.6,69.3"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FF000000"
         android:strokeLineCap="round" />
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M54,37.6m-5.2,0a5.2,5.2 0,1 1,10.4 0a5.2,5.2 0,1 1,-10.4 0" />
+        android:pathData="M40.35,64.25 L54,45.35 L67.65,64.25"
+        android:strokeWidth="4.55"
+        android:strokeColor="#FF000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M54,37.3m-3.3,0a3.3,3.3 0,1 1,6.6 0a3.3,3.3 0,1 1,-6.6 0" />
 </vector>

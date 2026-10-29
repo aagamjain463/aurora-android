@@ -16,89 +16,6 @@ class RulesTest {
     private fun at(text: String) = LocalDateTime.parse(text).atZone(zone).toInstant().toEpochMilli()
     private val min = 60_000L
 
-    private val base = PolicyState(
-        protectedPackages = setOf("com.social", "com.video", "web:reddit.com"),
-        exempt = setOf("app.aurora"),
-        modes = mapOf("com.social" to Mode.Flexible, "com.video" to Mode.RulesOnly, "web:reddit.com" to Mode.Block),
-    )
-
-    @Test
-    fun modesDecideOutsideAnyRule() {
-        assertEquals(Decision.Shield("com.social", ShieldReason.Choice), decide("com.social", 0, base))
-        assertEquals(Decision.Allow, decide("com.video", 0, base))
-        assertEquals(Decision.Shield("web:reddit.com", ShieldReason.Blocked), decide("web:reddit.com", 0, base))
-        for (mode in listOf(Mode.Friction, Mode.Cooldown)) {
-            assertEquals(ShieldReason.Choice, (decide("com.social", 0, base.copy(modes = mapOf("com.social" to mode))) as Decision.Shield).reason)
-        }
-    }
-
-    /** The documented precedence: Lockdown > schedule > Focus > limit > grant > cooldown > mode. */
-    @Test
-    fun strongerRestrictionsWinAndGrantsNeverLiftThem() {
-        val granted = base.copy(grants = mapOf("com.social" to 10 * min))
-        assertEquals(Decision.TemporarilyAllowed(10 * min), decide("com.social", 0, granted))
-
-        val focus = TimedBlock(ShieldReason.Focus, setOf("com.social"), 0, 5 * min)
-        val schedule = TimedBlock(ShieldReason.Schedule, setOf("com.social"), 0, 6 * min)
-        val lockdown = TimedBlock(ShieldReason.Lockdown, setOf("com.social"), 0, 7 * min)
-        assertEquals(Decision.Shield("com.social", ShieldReason.Focus, 5 * min), decide("com.social", 1, granted.copy(blocks = listOf(focus))))
-        assertEquals(Decision.Shield("com.social", ShieldReason.Schedule, 6 * min), decide("com.social", 1, granted.copy(blocks = listOf(focus, schedule))))
-        assertEquals(
-            Decision.Shield("com.social", ShieldReason.Lockdown, 7 * min),
-            decide("com.social", 1, granted.copy(blocks = listOf(focus, schedule, lockdown))),
-        )
-        // RulesOnly items are covered by rules too.
-        assertEquals(ShieldReason.Focus, (decide("com.video", 1, base.copy(blocks = listOf(focus.copy(keys = setOf("com.video"))))) as Decision.Shield).reason)
-        // A block over other apps, or one that hasn't started or has ended, doesn't apply.
-        assertEquals(Decision.TemporarilyAllowed(10 * min), decide("com.social", 1, granted.copy(blocks = listOf(focus.copy(keys = setOf("com.x"))))))
-        assertEquals(Decision.TemporarilyAllowed(10 * min), decide("com.social", 5 * min, granted.copy(blocks = listOf(focus))))
-    }
-
-    @Test
-    fun aSpentBudgetBeatsAGrantUntilMidnight() {
-        val limited = base.copy(limits = mapOf("com.video" to 20 * min), usedToday = mapOf("com.video" to 20 * min), midnight = 99 * min)
-        assertEquals(Decision.Shield("com.video", ShieldReason.Limit, 99 * min), decide("com.video", 0, limited.copy(grants = mapOf("com.video" to 50 * min))))
-        assertEquals(Decision.Allow, decide("com.video", 0, limited.copy(usedToday = mapOf("com.video" to 19 * min))))
-    }
-
-    @Test
-    fun cooldownFollowsTheGrantAndThenEnds() {
-        val rule = AppRule(mode = Mode.Cooldown, cooldownMinutes = 30)
-        val runtime = Runtime().granted("com.social", 10, rule, now = 0)
-        val state = base.copy(modes = mapOf("com.social" to Mode.Cooldown), grants = runtime.grants, cooldowns = runtime.cooldowns)
-        assertEquals(Decision.TemporarilyAllowed(10 * min), decide("com.social", 5 * min, state))
-        assertEquals(Decision.Shield("com.social", ShieldReason.Cooldown, 40 * min), decide("com.social", 10 * min, state))
-        assertEquals(Decision.Shield("com.social", ShieldReason.Choice), decide("com.social", 40 * min, state))
-        // Flexible and Friction grants leave no cooldown.
-        assertTrue(Runtime().granted("com.social", 10, AppRule(mode = Mode.Friction), 0).cooldowns.isEmpty())
-    }
-
-    @Test
-    fun aPauseContinuesInsteadOfRestartingOrSkipping() {
-        val (first, start) = Runtime().waitFor("com.social", now = 1_000)
-        assertEquals(1_000L, start)
-        // Leave and come back 4 s later: the same pause.
-        assertEquals(1_000L, first.waitFor("com.social", now = 5_000).second)
-        // Long after, a fresh pause.
-        assertEquals(1_000L + Runtime.WaitReuseMs, first.waitFor("com.social", now = 1_000 + Runtime.WaitReuseMs).second)
-        // Continuing clears it.
-        assertFalse("com.social" in first.granted("com.social", 5, AppRule(), 6_000).waits)
-    }
-
-    @Test
-    fun nextChangeFindsTheEarliestBoundary() {
-        val state = base.copy(
-            grants = mapOf("com.social" to 10 * min),
-            blocks = listOf(TimedBlock(ShieldReason.Schedule, setOf("com.social"), 8 * min, 20 * min)),
-        )
-        assertEquals(8 * min, nextChange("com.social", 0, state))
-        assertEquals(10 * min, nextChange("com.social", 9 * min, state))
-        assertEquals(20 * min, nextChange("com.social", 15 * min, state))
-        assertNull(nextChange("com.mail", 0, state))
-        val limited = base.copy(limits = mapOf("com.video" to 20 * min), usedToday = mapOf("com.video" to 15 * min), midnight = 60 * min)
-        assertEquals(5 * min, nextChange("com.video", 0, limited))
-    }
-
     @Test
     fun weekdayEveningScheduleCoversItsWindowOnly() {
         // Monday to Friday, 18:00 to 21:00. 2026-11-02 is a Monday.
@@ -145,10 +62,11 @@ class RulesTest {
         assertTrue(session.isOver(DeviceTime(1_000_000 + 31 * min, 1_000, 8)))
     }
 
+    private val apps = (1..7).map { ProtectedItem.App.of("com.app$it")!! }
+    private val list = ProtectedList(apps)
+
     @Test
     fun snapshotEnforcesOnlyWhatThePlanAllows() {
-        val apps = (1..7).map { ProtectedItem.App.of("com.app$it")!! }
-        val list = ProtectedList(apps)
         val t = DeviceTime(at("2026-11-02T19:00"), 0, 1)
         val rules = Rules(
             apps = apps.associate { it.key to AppRule(Mode.Flexible) },
@@ -160,36 +78,134 @@ class RulesTest {
             limits = (1..4).map { DailyLimit("com.app$it", 10) },
         )
         val free = policyState(list, rules, Runtime(), Plan.Free, emptySet(), emptyMap(), t, zone)!!
-        assertEquals((1..5).map { "com.app$it" }.toSet(), free.protectedPackages)
         // One schedule on Free; it covers only the group's active items (app7 is paused).
-        assertEquals(setOf(setOf("com.app1", "com.app2")), free.blocks.filter { it.start <= t.wall }.map { it.keys }.toSet())
+        assertEquals(setOf(setOf("com.app1", "com.app2")), free.restrictions.filter { it.start <= t.wall }.map { it.keys }.toSet())
         assertEquals(3, free.limits.size)
         val plus = policyState(list, rules, Runtime(), Plan.Plus, emptySet(), emptyMap(), t, zone)!!
-        assertEquals(7, plus.protectedPackages.size)
         assertEquals(4, plus.limits.size)
-        assertTrue(plus.blocks.any { it.keys.size == 7 })
+        assertTrue(plus.restrictions.any { it.keys.size == 7 })
         assertNull(policyState(ProtectedList(readable = false), rules, Runtime(), Plan.Free, emptySet(), emptyMap(), t, zone))
     }
 
     @Test
-    fun lockdownAndFocusInTheSnapshot() {
-        val list = ProtectedList(listOf("com.a", "com.b").map { ProtectedItem.App.of(it)!! })
-        val t = DeviceTime(1_000_000, 10_000, 3)
-        val runtime = Runtime(lockdown = Session.start(t, 30), focus = Session.start(t, 25, groupId = "g"))
-        val rules = Rules(groups = listOf(Group("g", "One", listOf("com.b"))))
-        val later = t.copy(wall = t.wall + 10 * min, elapsed = t.elapsed + 10 * min)
-        val state = policyState(list, rules, runtime, Plan.Free, emptySet(), emptyMap(), later, zone)!!
-        assertEquals(Decision.Shield("com.a", ShieldReason.Lockdown, t.wall + 30 * min), decide("com.a", later.wall, state))
-        val noLockdown = policyState(list, rules, runtime.copy(lockdown = null), Plan.Free, emptySet(), emptyMap(), later, zone)!!
-        assertEquals(Decision.Shield("com.b", ShieldReason.Focus, t.wall + 25 * min), decide("com.b", later.wall, noLockdown))
-        assertEquals(ShieldReason.Choice, (decide("com.a", later.wall, noLockdown.copy(modes = mapOf("com.a" to Mode.Flexible))) as Decision.Shield).reason)
+    fun aScheduleCarriesItsOwnModeAppsAndGroups() {
+        val t = DeviceTime(at("2026-11-02T10:00"), 0, 1)
+        val rules = Rules(
+            groups = listOf(Group("g", "Games", listOf("com.app5"))),
+            schedules = listOf(Schedule("s", "Study hours", setOf(1, 2, 3, 4, 5), 9 * 60, 17 * 60, keys = listOf("com.app1", "com.app2"), groupIds = listOf("g"), mode = Mode.Friction)),
+        )
+        val state = policyState(list, rules, Runtime(), Plan.Free, emptySet(), emptyMap(), t, zone)!!
+        val now = state.restrictions.single { it.start <= t.wall }
+        assertEquals(setOf("com.app1", "com.app2", "com.app5"), now.keys)
+        assertEquals(ShieldReason.Friction, now.reason)
+        assertEquals("Study hours", now.label)
+        assertEquals(ShieldReason.Friction, (decide("com.app1", t.wall, state) as Decision.Shield).reason)
+        assertEquals(Decision.Allow, decide("com.app3", t.wall, state))
     }
 
     @Test
-    fun intentAppsAreLimitedOnFree() {
-        val rules = Rules(apps = (1..5).associate { "com.app$it" to AppRule(intent = IntentNote("Because")) })
+    fun overlappingSchedulesTheStrongestWins() {
+        val t = DeviceTime(at("2026-11-02T10:00"), 0, 1)
+        val rules = Rules(schedules = listOf(
+            Schedule("a", "Work", setOf(1), 9 * 60, 17 * 60, keys = listOf("com.app1"), mode = Mode.Friction),
+            Schedule("b", "Deep", setOf(1), 9 * 60, 12 * 60, keys = listOf("com.app1"), mode = Mode.AlwaysBlock),
+        ))
+        val state = policyState(list, rules, Runtime(), Plan.Plus, emptySet(), emptyMap(), t, zone)!!
+        assertEquals(ShieldReason.AlwaysBlock, (decide("com.app1", t.wall, state) as Decision.Shield).reason)
+        assertEquals(ShieldReason.Friction, (decide("com.app1", at("2026-11-02T12:00"), state) as Decision.Shield).reason)
+    }
+
+    @Test
+    fun aFlexibleWindowCanBeTurnedOffButACommittedOneCannot() {
+        val t = DeviceTime(at("2026-11-02T10:00"), 0, 1)
+        val flexible = Schedule("f", "Work", setOf(1), 9 * 60, 17 * 60, keys = listOf("com.app1"))
+        val skipped = Runtime(skipped = mapOf("f" to at("2026-11-02T09:00")))
+        assertEquals(Decision.Allow, decide("com.app1", t.wall, policyState(list, Rules(schedules = listOf(flexible)), skipped, Plan.Plus, emptySet(), emptyMap(), t, zone)))
+        val strict = flexible.copy(mode = Mode.AlwaysBlock)
+        assertEquals(ShieldReason.AlwaysBlock, (decide("com.app1", t.wall, policyState(list, Rules(schedules = listOf(strict)), skipped, Plan.Plus, emptySet(), emptyMap(), t, zone)) as Decision.Shield).reason)
+    }
+
+    @Test
+    fun onFreeAScheduledAlwaysBlockIsCommittedOnlyFromTheAllowance() {
+        val t = DeviceTime(at("2026-11-02T10:00"), 0, 1)
+        val strict = Schedule("s", "Work", setOf(1), 9 * 60, 17 * 60, keys = listOf("com.app1"), mode = Mode.AlwaysBlock)
+        // Without a committed session the window is still a full block, but one that can be turned off.
+        val state = policyState(list, Rules(schedules = listOf(strict)), Runtime(), Plan.Free, emptySet(), emptyMap(), t, zone)!!
+        assertEquals(ShieldReason.Flexible, (decide("com.app1", t.wall, state) as Decision.Shield).reason)
+    }
+
+    @Test
+    fun aCommittedSessionKeepsItsAppsThroughEditsRemovalAndDowngrade() {
+        val t = DeviceTime(at("2026-11-02T10:00"), 5_000, 1)
+        val session = ProtectionSession("x", setOf("com.app7"), Mode.AlwaysBlock, Session.start(t, 30))
+        // com.app7 is paused on Free and removed from every rule and group: the commitment still holds.
+        val empty = ProtectedList(apps.take(2))
+        val state = policyState(empty, Rules(), Runtime(sessions = listOf(session)), Plan.Free, emptySet(), emptyMap(), t, zone)!!
+        assertEquals(ShieldReason.AlwaysBlock, (decide("com.app7", t.wall + 29 * min, state) as Decision.Shield).reason)
+        assertFalse(session.cancellable)
+        assertTrue(session.copy(mode = Mode.Flexible).cancellable)
+    }
+
+    @Test
+    fun aCommittedSessionSurvivesARestartOnTheWallClock() {
+        val t = DeviceTime(at("2026-11-02T10:00"), 5_000, 1)
+        val session = ProtectionSession("x", setOf("com.app1"), Mode.AlwaysBlock, Session.start(t, 30))
+        // After a reboot: new boot count, monotonic clock restarted.
+        val after = DeviceTime(t.wall + 10 * min, 2_000, 2)
+        val state = policyState(list, Rules(), Runtime(sessions = listOf(session)), Plan.Plus, emptySet(), emptyMap(), after, zone)!!
+        assertEquals(Decision.Shield("com.app1", ShieldReason.AlwaysBlock, t.wall + 30 * min, state.restrictions.single()), decide("com.app1", after.wall, state))
+        assertEquals(Decision.Allow, decide("com.app1", t.wall + 30 * min, policyState(list, Rules(), Runtime(sessions = listOf(session)), Plan.Plus, emptySet(), emptyMap(), DeviceTime(t.wall + 30 * min, 0, 2), zone)))
+    }
+
+    @Test
+    fun aPhase3LockdownBecomesAnAlwaysBlockSession() {
+        val t = DeviceTime(1_000_000, 10_000, 3)
+        val small = ProtectedList(listOf("com.a", "com.b").map { ProtectedItem.App.of(it)!! })
+        val runtime = Runtime(lockdown = Session.start(t, 30))
+        val later = t.copy(wall = t.wall + 10 * min, elapsed = t.elapsed + 10 * min)
+        // Before migration it already enforces as Always Block.
+        val before = policyState(small, Rules(), runtime, Plan.Free, emptySet(), emptyMap(), later, zone)!!
+        assertEquals(ShieldReason.AlwaysBlock, (decide("com.a", later.wall, before) as Decision.Shield).reason)
+        val migrated = runtime.migrated(Rules(), setOf("com.a", "com.b"))
+        assertNull(migrated.lockdown)
+        val s = migrated.sessions.single()
+        assertEquals(Mode.AlwaysBlock, s.mode)
+        assertEquals(setOf("com.a", "com.b"), s.keys)
+        assertEquals(20 * min, s.time.remaining(later))
+        assertFalse(s.cancellable)
+        // Migrating twice changes nothing.
+        assertEquals(migrated, migrated.migrated(Rules(), setOf("com.a")))
+    }
+
+    @Test
+    fun focusInTheSnapshot() {
+        val small = ProtectedList(listOf("com.a", "com.b").map { ProtectedItem.App.of(it)!! })
+        val t = DeviceTime(1_000_000, 10_000, 3)
+        val runtime = Runtime(focus = Session.start(t, 25, groupId = "g"))
+        val rules = Rules(groups = listOf(Group("g", "One", listOf("com.b"))))
+        val later = t.copy(wall = t.wall + 10 * min, elapsed = t.elapsed + 10 * min)
+        val state = policyState(small, rules, runtime, Plan.Free, emptySet(), emptyMap(), later, zone)!!
+        assertEquals(ShieldReason.Focus, (decide("com.b", later.wall, state) as Decision.Shield).reason)
+        assertEquals(Decision.Allow, decide("com.a", later.wall, state))
+    }
+
+    @Test
+    fun intentAppsAreLimitedOnFreeAndKeptOnDowngrade() {
+        val rules = Rules(apps = (1..5).associate { "com.app$it" to AppRule(intent = IntentConfig("Because")) })
         assertEquals(setOf("com.app1", "com.app2", "com.app3"), rules.activeIntents(Plan.Free))
         assertEquals(5, rules.activeIntents(Plan.Plus).size)
+        // Nothing is deleted: the other two stay saved and come back on Plus.
+        assertEquals(5, rules.apps.values.count { it.intent?.enabled == true })
+    }
+
+    @Test
+    fun reflectionContinuesInsteadOfRestarting() {
+        val (r1, start) = Runtime().reflectionFor("k", 1_000)
+        val (r2, again) = r1.reflectionFor("k", 1_000 + 30_000)
+        assertEquals(start, again)
+        assertEquals(r1, r2)
+        val (_, fresh) = r2.reflectionFor("k", 1_000 + Runtime.ReflectionReuseMs + 1)
+        assertEquals(1_000 + Runtime.ReflectionReuseMs + 1, fresh)
     }
 
     @Test

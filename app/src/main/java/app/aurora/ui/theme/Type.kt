@@ -17,7 +17,7 @@ private fun manrope(weight: Int) = Font(
 )
 
 /** Manrope (SIL OFL), bundled as one variable font. */
-val Manrope = FontFamily(manrope(300), manrope(400), manrope(500), manrope(600), manrope(700))
+val Manrope = FontFamily(manrope(300), manrope(400), manrope(450), manrope(500), manrope(550), manrope(600), manrope(650), manrope(700), manrope(800))
 
 private fun style(size: Int, line: Int, weight: Int, tracking: Double = 0.0, features: String? = null) = TextStyle(
     fontFamily = Manrope,
@@ -28,21 +28,26 @@ private fun style(size: Int, line: Int, weight: Int, tracking: Double = 0.0, fea
     fontFeatureSettings = features,
 )
 
-/** aurora's type scale. Light, large numerals; firm headlines; quiet body. */
+/**
+ * aurora's type scale. Big, confident numbers; firm headlines; body text that is easy to read at arm's
+ * length. Nothing below 13sp, and supporting text is never faded to a whisper.
+ */
 object AuroraType {
-    /** Timers and the one number a screen is about. Tabular so digits don't jitter. */
-    val Hero = style(64, 68, 300, -0.035, "tnum")
-    val Display = style(34, 40, 600, -0.025)
-    val Headline = style(26, 32, 600, -0.02)
-    val Title = style(18, 24, 600, -0.01)
-    val Body = style(16, 24, 400)
-    val BodyStrong = style(16, 24, 600, -0.005)
-    val Secondary = style(14, 20, 400)
-    val Label = style(15, 20, 600, 0.0)
-    val Caption = style(12, 16, 500, 0.01)
-    /** Section labels: lowercase with open tracking. Never uppercase; aurora speaks softly. */
-    val Eyebrow = style(12, 16, 600, 0.09)
-    val Wordmark = style(22, 26, 600, -0.03)
+    /** The one number a screen is about. Tabular so digits don't jitter. */
+    val Metric = style(64, 68, 600, -0.045, "tnum")
+    /** Timers on the Shield and in Focus. */
+    val Hero = style(56, 60, 500, -0.04, "tnum")
+    val Display = style(36, 42, 700, -0.035)
+    val Headline = style(28, 34, 700, -0.025)
+    val Title = style(20, 26, 650, -0.015)
+    val Body = style(16, 24, 450)
+    val BodyStrong = style(16, 22, 650, -0.005)
+    val Secondary = style(15, 21, 450)
+    val Label = style(16, 20, 650, -0.005)
+    val Caption = style(13, 18, 550, 0.005)
+    /** Section labels: sentence case, tracked, firm. */
+    val Eyebrow = style(13, 16, 700, 0.06)
+    val Wordmark = style(24, 28, 700, -0.04)
 }
 
 val MaterialTypography = Typography(
