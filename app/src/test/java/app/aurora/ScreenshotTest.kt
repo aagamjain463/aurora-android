@@ -133,8 +133,8 @@ class ScreenshotTest(private val variant: Variant) {
                 }
             }
         }
-        if (screen == "insights" || screen == "track") compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("Screen time").fetchSemanticsNodes().isNotEmpty()
+        if (screen == "track" || screen == "insights") compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Habits").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen.startsWith("shield_")) compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Photos").fetchSemanticsNodes().isNotEmpty()
@@ -144,10 +144,10 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun onboarding() = capture("onboarding") { OnboardingScreen(onFinish = {}) }
 
-    @Test fun home() = capture("home") { homeScreen() }
+    @Test fun home() = capture("home") { HomeUnderTest() }
 
     @Composable
-    private fun homeScreen() = HomeScreen(onNormalUse = {}, onCustom = {}, onOpenFocus = {}, onOpenLegacyFocus = {}, onOpenTrack = {}, onOpenSettings = {})
+    private fun HomeUnderTest() = HomeScreen(onNormalUse = {}, onCustom = {}, onOpenFocus = {}, onOpenLegacyFocus = {}, onOpenTrack = {}, onOpenSettings = {})
 
     @Test fun track() = capture("insights") { InsightsScreen() }
 
@@ -196,11 +196,13 @@ class ScreenshotTest(private val variant: Variant) {
         }
     }
 
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun homeActive() {
         library(running = true)
-        capture("home_active") { homeScreen() }
+        capture("home_active") { HomeUnderTest() }
     }
 
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun shieldLibrary() {
         library()
         capture("library_shield") { ShieldLibraryScreen({}, {}, {}, {}, {}) }
@@ -211,6 +213,7 @@ class ScreenshotTest(private val variant: Variant) {
         capture("builder_shield") { ShieldEditorScreen("s1", {}, {}, startStep = 3) }
     }
 
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun intentLibrary() {
         library()
         capture("intent_library") { IntentLibraryScreen({}, {}, {}) }
@@ -222,40 +225,40 @@ class ScreenshotTest(private val variant: Variant) {
     }
 
     @Composable
-    private fun configure(custom: Boolean, config: String? = null, step: String? = null, timing: When? = null) =
+    private fun Configure(custom: Boolean, config: String? = null, step: String? = null, timing: When? = null) =
         ConfigureScreen(custom, config, false, null, null, {}, {}, {}, {}, {}, {}, startStep = step, startWhen = timing)
 
-    @Test fun normalUse() = capture("configure_normal") { configure(custom = false) }
+    @Test fun normalUse() = capture("configure_normal") { Configure(custom = false) }
 
     @Test fun customConfiguration() {
         library()
-        capture("configure_custom") { configure(custom = true, config = "c1", step = "Contents") }
+        capture("configure_custom") { Configure(custom = true, config = "c1", step = "Contents") }
     }
 
     @Test fun startNow() {
         library()
-        capture("configure_now") { configure(custom = true, config = "c1", step = "Timing", timing = When.Now) }
+        capture("configure_now") { Configure(custom = true, config = "c1", step = "Timing", timing = When.Now) }
     }
 
     @Test fun startLater() {
         library()
-        capture("configure_later") { configure(custom = true, config = "c1", step = "Timing", timing = When.Later) }
+        capture("configure_later") { Configure(custom = true, config = "c1", step = "Timing", timing = When.Later) }
     }
 
     @Test fun schedule() {
         library()
-        capture("configure_schedule") { configure(custom = true, config = "c1", step = "Timing", timing = When.Recurring) }
+        capture("configure_schedule") { Configure(custom = true, config = "c1", step = "Timing", timing = When.Recurring) }
     }
 
     /** Always is shown but not offered with an Always Block Shield. */
     @Test fun alwaysUnavailable() {
         library()
-        capture("configure_when_always_block") { configure(custom = true, config = "c2", step = "When") }
+        capture("configure_when_always_block") { Configure(custom = true, config = "c2", step = "When") }
     }
 
     @Test fun alwaysBlockCommitment() {
         library()
-        capture("configure_commit") { configure(custom = true, config = "c2", step = "Review", timing = When.Now) }
+        capture("configure_commit") { Configure(custom = true, config = "c2", step = "Review", timing = When.Now) }
     }
 
     @Test fun habitCreation() {
@@ -263,11 +266,13 @@ class ScreenshotTest(private val variant: Variant) {
         capture("habit_create") { HabitEditorScreen(null, "c1", {}, {}, {}, startStep = 2) }
     }
 
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun habitDetail() {
         library()
         capture("habit_detail") { HabitScreen("h1", {}, {}) }
     }
 
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun trackHabits() {
         library()
         capture("track") { InsightsScreen() }

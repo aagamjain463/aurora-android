@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -112,7 +113,7 @@ private fun HabitCard(h: Habit, p: HabitProgress, onClick: () -> Unit) {
 
 @Composable
 fun streakText(p: HabitProgress): String =
-    stringResource(R.string.habit_streak) + " · " + stringResource(if (p.streakUnitWeeks) R.string.habit_weeks_unit else R.string.habit_days_unit, p.currentStreak)
+    stringResource(R.string.habit_streak) + " · " + pluralStringResource(if (p.streakUnitWeeks) R.plurals.habit_weeks_unit else R.plurals.habit_days_unit, p.currentStreak, p.currentStreak)
 
 /**
  * The completion ring: emerald warming to sun as it fills, the point of light at its head. An on-demand

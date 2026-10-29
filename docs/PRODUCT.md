@@ -1,6 +1,8 @@
 # aurora product reinvention
 
-This describes `feat/aurora-product-reinvention`. Current behaviour supersedes the Phase 3 product.
+The current Home/Shield/Intent/Track model, including Habits, is described in
+[CONFIGURATIONS.md](CONFIGURATIONS.md). It supersedes this earlier
+`feat/aurora-product-reinvention` navigation and activation flow.
 The previous product and validation records remain in Git history. Brand details are in
 [BRAND_SYSTEM.md](BRAND_SYSTEM.md), enforcement in [SHIELD.md](SHIELD.md), and copy review in
 [AURORA_COPY_REVIEW.md](AURORA_COPY_REVIEW.md).
@@ -15,7 +17,7 @@ for apps, mode, settings where needed, duration and confirmation. Custom duratio
 | --- | --- | --- |
 | Flexible | Fully blocked | Turn off in aurora; no continue button on Shield |
 | Friction | A task before access | Math, written intention with read-back, or reflection; then chosen usage time |
-| Cooldown | A wait before access | The persisted wait survives leaving and reopening; then chosen usage time |
+| Cooldown | A wait before access | A genuine reopening restarts the persisted wait; then chosen usage time |
 | Always Block | Fully blocked | No in-app early end; timer ends automatically |
 
 Always Block has no escape through edits, removing an app, deleting data or downgrading. A running

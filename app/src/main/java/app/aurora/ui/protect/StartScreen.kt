@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -94,7 +95,7 @@ fun StartScreen(preselect: String?, onBack: () -> Unit, onDone: () -> Unit, onPl
     var mode by rememberSaveable { mutableStateOf(first.mode) }
     var task by rememberSaveable { mutableStateOf(first.friction.task) }
     var difficulty by rememberSaveable { mutableStateOf(first.friction.difficulty) }
-    var pause by rememberSaveable { mutableStateOf(first.friction.reflectionSeconds) }
+    var pause by rememberSaveable { mutableIntStateOf(first.friction.reflectionSeconds) }
     var wait by rememberSaveable { mutableStateOf<Int?>(first.cooldownWaitMinutes) }
     var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
     var committed by rememberSaveable { mutableStateOf(false) }

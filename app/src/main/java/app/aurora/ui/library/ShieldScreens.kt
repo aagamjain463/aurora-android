@@ -10,11 +10,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -122,7 +124,7 @@ fun shieldDetail(p: ShieldPreset, apps: Int = p.keys.count { !it.startsWith(WebP
         Mode.Cooldown -> stringResource(R.string.start_review_cooldown, minutesText(p.cooldownWaitMinutes))
         else -> modeDescription(p.mode)
     }
-    return stringResource(R.string.shield_items, apps, p.keys.size - apps) + " · " + extra
+    return listOfNotNull(pluralStringResource(R.plurals.count_apps, apps, apps), (p.keys.size - apps).takeIf { it > 0 }?.let { pluralStringResource(R.plurals.count_sites, it, it) }).joinToString(" · ") + " · " + extra
 }
 
 /** Deleting asks first, and refuses (explaining why) while a configuration uses the preset. */
@@ -150,8 +152,10 @@ fun ShieldEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Uni
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val d = data ?: return
+    // A new preset keeps one id for the whole flow, however often the screen recomposes.
+    val fresh = rememberSaveable { newId() }
     val existing = id?.let { i -> d.rules.shields.find { it.id == i } }
-    ShieldEditor(vm, existing ?: ShieldPreset(newId(), "", createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
+    ShieldEditor(vm, existing ?: ShieldPreset(fresh, "", createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -166,7 +170,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
     var mode by rememberSaveable(initial.id) { mutableStateOf(initial.mode) }
     var task by rememberSaveable(initial.id) { mutableStateOf(initial.friction.task) }
     var difficulty by rememberSaveable(initial.id) { mutableStateOf(initial.friction.difficulty) }
-    var pause by rememberSaveable(initial.id) { mutableStateOf(initial.friction.reflectionSeconds) }
+    var pause by rememberSaveable(initial.id) { mutableIntStateOf(initial.friction.reflectionSeconds) }
     var wait by rememberSaveable(initial.id) { mutableStateOf<Int?>(initial.cooldownWaitMinutes) }
     var query by rememberSaveable { mutableStateOf("") }
     var step by rememberSaveable { mutableStateOf(ShieldStep.entries[startStep]) }

@@ -12,16 +12,17 @@ account, no analytics and no `INTERNET` permission.
 
 - Brand and design system: [`docs/BRAND.md`](docs/BRAND.md)
 - Architecture and decisions: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Configurations, four-tab navigation and Habits: [`docs/CONFIGURATIONS.md`](docs/CONFIGURATIONS.md)
 - Roadmap to 1.0 and beyond: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - Plans and limits (aurora Free and aurora plus): [`docs/BUSINESS_MODEL.md`](docs/BUSINESS_MODEL.md)
 - The complete product, verification and launch dependencies: [`docs/PRODUCT.md`](docs/PRODUCT.md)
 
-## Status: complete product build (`feat/aurora-complete`)
+## Status: configurations and Habits (`feat/aurora-configurations-habits`)
 
-Onboarding, Today with Aurora Light, Protect (Shield with Flexible, Friction, Cooldown, Block and
-rules-only modes, Intent, timed access, schedules, daily limits, groups, Lockdown), enforced Focus
-with profiles, Insights with goals and XP, optional website and Shorts/Reels protection, aurora Free
-and plus with Google Play Billing, and Settings with data controls.
+Home activates Normal Use or Custom Configurations. Shield and Intent hold reusable presets;
+Track shows Habits, configuration performance, screen time and progress. Configurations support
+starting now, later, on recurring schedules or Always, with optional Focus. Always Block keeps
+its commitment rules. Existing billing, data controls and optional Web & content protection remain.
 
 What is verified, what isn't, rule precedence, and what still needs phones, Play Console and policy
 review: [`docs/PRODUCT.md`](docs/PRODUCT.md). Emulator screenshots: `docs/screenshots/emulator-2026-10-29/`.

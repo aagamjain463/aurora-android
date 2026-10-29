@@ -1,6 +1,7 @@
 package app.aurora.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +60,6 @@ import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.LitBadge
 import app.aurora.ui.components.ProgressLine
-import app.aurora.ui.components.Tag
 import app.aurora.ui.components.auroraSurface
 import app.aurora.ui.components.clockTime
 import app.aurora.ui.configure.timingText
@@ -195,7 +195,7 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
             run.shield?.let { ModeChip(it.mode, label = it.name) }
-            run.intent?.let { Tag(it.name, accent = true) }
+            run.intent?.let { IntentChip(it.name) }
         }
         if (end != null) {
             Text(formatClock(end - d.time.wall), color = colors.textPrimary, style = AuroraType.Hero)
@@ -328,6 +328,19 @@ fun outcomeName(o: Outcome): String = stringResource(
         Outcome.Unverified -> R.string.outcome_unverified
     },
 )
+
+/** An Intent preset's name, in the sun's colour beside the Shield's mode chip. */
+@Composable
+fun IntentChip(name: String) {
+    val tint = Aurora.colors.sun
+    Row(
+        Modifier.clip(Radius.Pill).background(tint.copy(alpha = 0.08f)).border(1.dp, tint.copy(alpha = 0.55f), Radius.Pill).padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(AuroraIcons.Intent, null, tint = tint, modifier = Modifier.size(15.dp))
+        Text(name, color = tint, style = AuroraType.Caption, maxLines = 1)
+    }
+}
 
 /** An outcome, in calm colours: success is lit, the rest are information, never red. */
 @Composable

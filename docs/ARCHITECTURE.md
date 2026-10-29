@@ -3,6 +3,10 @@
 The architecture is intentionally small. Phase 1 is one Gradle module, a handful of
 repositories, and one ViewModel per screen. Add structure when a real need appears, not before.
 
+The current four-tab configuration and Habits model is documented in
+[CONFIGURATIONS.md](CONFIGURATIONS.md). Historical phase notes below describe the
+foundation; use the configuration model for current activation and progress behavior.
+
 ## Stack
 
 | Concern | Choice | Why |
@@ -10,7 +14,7 @@ repositories, and one ViewModel per screen. Add structure when a real need appea
 | Language | Kotlin 2.4 | AGP 9 compiles Kotlin itself. The root build pins the Kotlin version. |
 | UI | Jetpack Compose + Material 3 | M3 supplies accessible primitives (switch, dialog, text selection). aurora supplies the look. |
 | Presentation | MVVM: `ViewModel` + `StateFlow` | Survives configuration changes. Screens are functions of state. |
-| Navigation | Navigation Compose 2.x, string routes | Six destinations don't need type-safe routes or a serialization plugin. |
+| Navigation | Navigation Compose 2.x, string routes | Four root tabs and pushed builders/detail screens share the existing nav graph. |
 | Persistence | DataStore Preferences + kotlinx.serialization JSON values | Small data, async and transactional, held in memory for the Shield (`data/Store.kt`). No database needed yet. |
 | DI | Manual (`AuroraApplication`) | Four singletons. A framework would cost more than it saves. |
 | Min / target / compile SDK | 26 / 36 / 37 | API 26 adds adaptive icons and variable fonts and covers almost every active device. Current AndroidX releases require compile SDK 37. Target stays at 36 until aurora is tested on Android 17. |
@@ -78,8 +82,8 @@ Shield service all read the same `ProtectionRepository.list`. Details are in `SH
 `UsageEvents` since local midnight through `foregroundTime()`, a pure, unit-tested function. The
 default home launcher is excluded. Nothing is persisted or sent anywhere.
 
-**Tabs are Today, Protect and Insights. Settings and Focus are pushed.** Today is always the root
-of the back stack, so the tab bar can `popUpTo(Today)` with save/restore state. The tab bar
+**Tabs are Home, Shield, Intent and Track. Settings and builders are pushed.** Home is always the root
+of the back stack, so the tab bar can `popUpTo(Home)` with save/restore state. The tab bar
 floats over content and tab screens pad for it. Showing or hiding the bar never resizes
 the content.
 

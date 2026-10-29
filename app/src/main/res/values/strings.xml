@@ -157,11 +157,6 @@
     <string name="today_headline">Make room for what matters.</string>
     <string name="today_metric_label">Time away from protected apps</string>
     <string name="today_subtitle">Your attention is yours. More of it, for a deeper, calmer life.</string>
-    <string name="today_shield_on">Shield is on</string>
-    <plurals name="today_shield_apps">
-        <item quantity="one">%d app protected</item>
-        <item quantity="other">%d apps protected</item>
-    </plurals>
     <string name="today_week_sessions">Focus sessions this week</string>
     <string name="today_week_focus">Focus this week</string>
     <plurals name="week_dots_spoken">
@@ -173,14 +168,9 @@
     <string name="today_metric_no_access">Allow usage access so Aurora can measure this. It\'s read on this phone only.</string>
     <string name="today_metric_not_measured">Not measured yet</string>
     <string name="today_metric_allow">Allow usage access</string>
-    <string name="today_metric_none">Nothing was protected yet today. Start protection, a schedule or Focus, and this starts counting.</string>
+    <string name="today_metric_none">Nothing was protected yet today. Start a configuration below, and this starts counting.</string>
     <string name="today_light_description">Aurora Light, drawn from your progress this week</string>
-    <string name="today_focus_start">Start Focus · %1$s</string>
-    <string name="today_focus_running">Return to Focus</string>
     <string name="today_protection_title">Protection</string>
-    <string name="today_nothing_protected">Nothing is protected right now.</string>
-    <string name="today_no_schedule">No schedule is coming up.</string>
-    <string name="today_next_schedule">Next: %1$s at %2$s</string>
     <string name="today_progress_title">Your progress</string>
     <string name="today_progress_body">How things are changing, day by day.</string>
     <string name="today_light_level">Level %1$d · %2$s</string>
@@ -553,7 +543,6 @@
     <string name="settings_aurora_doesn_t_send_any_notifications_yet_so_there_s_nothing_to">Aurora doesn\'t send any notifications yet, so there\'s nothing to allow. Focus and protection sessions keep time on their own and show their result the next time you open Aurora.</string>
     <string name="settings_manrope_typeface_the_manrope_project_authors_sil_open_font_licen">Manrope typeface, © The Manrope Project Authors. SIL Open Font License 1.1.\n\n</string>
     <string name="settings_jetpack_compose_androidx_kotlin_kotlinx_serialization_and_google">Jetpack Compose, AndroidX, Kotlin, kotlinx.serialization and Google Play Billing Library. Apache License 2.0 and the Android SDK License.</string>
-    <string name="insights_measured_on_this_phone_nothing_leaves_it">Measured on this phone. Nothing leaves it.</string>
     <string name="insights_see_where_your_time_goes">See where your time goes</string>
     <string name="insights_with_usage_access_aurora_can_show_how_long_you_spend_in_each_app">With usage access, Aurora can show how long you spend in each app. It\'s calculated on this phone and never leaves it. What Aurora counts itself is below either way.</string>
     <string name="insights_screen_time_since_midnight">screen time since midnight</string>
@@ -718,13 +707,11 @@
     <string name="home_resume">Resume</string>
     <string name="home_remove">Remove</string>
     <string name="home_turn_off">Turn off</string>
-    <string name="home_turn_off_always">Turn off</string>
     <string name="home_enforced">Enforced now</string>
     <string name="home_not_enforced">Not enforced: the Shield service is off</string>
     <string name="home_committed_until">Committed until %1$s</string>
     <string name="home_open_focus">Open Focus</string>
     <string name="home_focus_prompt">How did “%1$s” go?</string>
-    <string name="home_legacy_session">Protection session</string>
     <string name="home_legacy_focus">Focus session</string>
     <string name="home_nothing_active">Nothing is running. Choose Normal Use or a Custom Configuration to begin.</string>
     <string name="home_paused_plan">Paused: over Aurora Free\'s limits</string>
@@ -769,6 +756,8 @@
     <string name="when_always_desc">Applies until you turn it off.</string>
     <string name="when_always_blocked">Not available with an Always Block Shield. A permanent commitment can\'t be made by accident: choose a finite time or a schedule.</string>
     <string name="cfg_how_long">How long?</string>
+    <string name="cfg_builtin_found">Suggested apps found on this phone</string>
+    <string name="cfg_builtin_choose">You choose the apps next</string>
     <string name="cfg_how_long_hint">A custom time can be any length up to 24 hours.</string>
     <string name="later_date">Date</string>
     <string name="later_time">Start time</string>
@@ -783,7 +772,10 @@
     <string name="recurring_weekends">Weekends</string>
     <string name="recurring_end">Last date</string>
     <string name="recurring_no_end">No end</string>
-    <string name="recurring_in_weeks">In %1$d weeks</string>
+    <plurals name="recurring_in_weeks">
+        <item quantity="one">In %d week</item>
+        <item quantity="other">In %d weeks</item>
+    </plurals>
     <string name="recurring_note">Windows keep their local clock times across daylight-saving changes and time zones. A schedule starts with its next window.</string>
     <string name="cfg_focus_title">Would you like to track a Focus session with this configuration?</string>
     <string name="cfg_focus_body">Optional. Name the task; at the end you say how it went. A timer alone never counts as done.</string>
@@ -793,7 +785,6 @@
     <string name="cfg_focus_goal">Goal (optional)</string>
     <string name="cfg_focus_use_window">Use the configuration\'s time as the target</string>
     <string name="cfg_focus_custom_target">Focus target</string>
-    <string name="cfg_focus_always_note">Focus needs a finished time, so it isn\'t offered with Always.</string>
     <string name="cfg_review_title">Review</string>
     <string name="cfg_review_when_now">Starts now for %1$s</string>
     <string name="cfg_review_when_later">%1$s, for %2$s</string>
@@ -820,7 +811,14 @@
     <string name="shield_create">Create a Shield</string>
     <string name="shield_empty_title">No Shields yet</string>
     <string name="shield_empty_body">A Shield lists apps and sites and how they\'re restricted. Creating one doesn\'t start it.</string>
-    <string name="shield_items">%1$d apps · %2$d sites</string>
+    <plurals name="count_apps">
+        <item quantity="one">%d app</item>
+        <item quantity="other">%d apps</item>
+    </plurals>
+    <plurals name="count_sites">
+        <item quantity="one">%d site</item>
+        <item quantity="other">%d sites</item>
+    </plurals>
     <string name="preset_edit">Edit</string>
     <string name="preset_duplicate">Duplicate</string>
     <string name="preset_delete">Delete</string>
@@ -830,7 +828,6 @@
     <string name="preset_delete_title">Delete %1$s?</string>
     <string name="preset_delete_body">It\'s removed from your library. Anything running keeps going until it ends.</string>
     <string name="preset_delete_blocked">Used by %1$s. Change or delete those configurations first.</string>
-    <string name="preset_start_home">Start from Home</string>
     <string name="shield_more">More protection</string>
     <string name="shield_limits_row">Daily limits</string>
     <string name="shield_limits_row_body">A budget per app, every day</string>
@@ -859,7 +856,6 @@
     <string name="intent_create">Create an Intent</string>
     <string name="intent_lib_empty_title">No Intents yet</string>
     <string name="intent_lib_empty_body">An Intent asks before an app opens, then measures the time you choose. Creating one doesn\'t start it.</string>
-    <string name="intent_items">%1$d apps</string>
     <string name="intent_name_title">Name your Intent</string>
     <string name="intent_name_placeholder">e.g. Intentional YouTube</string>
     <string name="intent_confirm_title">Ask me to confirm before continuing</string>
@@ -900,7 +896,10 @@
     <string name="habit_target_per_week">A number of times a week</string>
     <string name="habit_target_on_demand">Whenever I use it</string>
     <string name="habit_target_on_demand_desc">No day counts as missed. Progress is your successes.</string>
-    <string name="habit_per_week_value">%1$d times a week</string>
+    <plurals name="habit_per_week_value">
+        <item quantity="one">Once a week</item>
+        <item quantity="other">%d times a week</item>
+    </plurals>
     <string name="habit_target_mismatch">Its schedule runs on %1$s. On other days you\'d start it yourself from Home, or the day counts as missed.</string>
     <string name="habit_target_unscheduled">This configuration has no schedule. You\'ll start it from Home on those days.</string>
     <string name="habit_success_title">What counts as success?</string>
@@ -928,8 +927,14 @@
     <string name="habit_archive">Archive</string>
     <string name="habit_restore">Restore</string>
     <string name="habit_delete">Delete</string>
-    <string name="habit_days_unit">%1$d days</string>
-    <string name="habit_weeks_unit">%1$d weeks</string>
+    <plurals name="habit_days_unit">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+    <plurals name="habit_weeks_unit">
+        <item quantity="one">%d week</item>
+        <item quantity="other">%d weeks</item>
+    </plurals>
     <string name="habit_rules">A day counts when its run succeeded on the evidence Aurora has. Expected days that pass without success break the streak; other days never do.</string>
     <string name="habit_unlinked">Its configuration was deleted. History stays; the habit is archived.</string>
     <string name="config_delete_title">Delete %1$s?</string>
@@ -966,8 +971,7 @@
 
     <!-- Focus inside a configuration -->
     <string name="focusrun_target">Target %1$s</string>
-    <string name="focusrun_finish">I finished the task</string>
     <string name="focusrun_report_title">How did it go?</string>
     <string name="focusrun_reported">You said: %1$s</string>
-    <string name="focusrun_protection">Protection: %1$s</string>
+    <string name="focusrun_protection">Protection ends at %1$s</string>
 </resources>

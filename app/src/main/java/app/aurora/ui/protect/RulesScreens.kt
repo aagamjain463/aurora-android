@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -217,14 +218,14 @@ fun ScheduleEditorScreen(id: String?, onBack: () -> Unit) {
     var step by rememberSaveable { mutableStateOf(ScheduleStep.Name) }
     var name by rememberSaveable { mutableStateOf(base.name) }
     var days by rememberSaveable { mutableStateOf(base.days.toList()) }
-    var start by rememberSaveable { mutableStateOf(base.startMinute) }
-    var end by rememberSaveable { mutableStateOf(base.endMinute) }
+    var start by rememberSaveable { mutableIntStateOf(base.startMinute) }
+    var end by rememberSaveable { mutableIntStateOf(base.endMinute) }
     var keys by rememberSaveable { mutableStateOf(startKeys) }
     var groupIds by rememberSaveable { mutableStateOf(base.groupIds) }
     var mode by rememberSaveable { mutableStateOf(base.mode) }
     var task by rememberSaveable { mutableStateOf(base.friction.task) }
     var difficulty by rememberSaveable { mutableStateOf(base.friction.difficulty) }
-    var pause by rememberSaveable { mutableStateOf(base.friction.reflectionSeconds) }
+    var pause by rememberSaveable { mutableIntStateOf(base.friction.reflectionSeconds) }
     var wait by rememberSaveable { mutableStateOf<Int?>(base.cooldownWaitMinutes) }
     var deleting by remember { mutableStateOf(false) }
 

@@ -48,7 +48,7 @@ fun Rules.migratedToConfigurations(items: List<String>, now: Long): Rules {
             // Only the apps it was on for: the others stay saved in the preset, not active.
             val active = if (on.size == keys.size) preset else preset.copy(id = "${preset.id}-on", keys = on).also { intents += it }
             configs += UsageConfig("migrated-intent-$i", active.name, intentId = active.id, createdAt = now)
-            activations += Activation("migrated-intent-$i", "migrated-intent-$i", Timing.Always, true, createdAt = 0)
+            activations += Activation("migrated-intent-$i", "migrated-intent-$i", Timing.Always, true, createdAt = now)
         }
     }
 

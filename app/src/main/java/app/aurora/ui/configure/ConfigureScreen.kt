@@ -13,11 +13,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -46,6 +48,11 @@ import app.aurora.protect.shieldOf
 import app.aurora.runsNow
 import app.aurora.saveConfig
 import app.aurora.ui.components.AuroraButton
+import app.aurora.ui.components.AuroraDialog
+import app.aurora.ui.components.AuroraIconButton
+import app.aurora.ui.components.AuroraIcons
+import app.aurora.deleteConfig
+import androidx.compose.runtime.remember
 import app.aurora.ui.components.AuroraSwitch
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
@@ -143,9 +150,9 @@ fun ConfigureScreen(
     var whenKind by rememberSaveable { mutableStateOf(startWhen) }
     var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
     var laterDay by rememberSaveable { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
-    var laterMinute by rememberSaveable { mutableStateOf(7 * 60) }
+    var laterMinute by rememberSaveable { mutableIntStateOf(7 * 60) }
     var days by rememberSaveable { mutableStateOf(setOf(1, 2, 3, 4, 5)) }
-    var recurMinute by rememberSaveable { mutableStateOf(9 * 60) }
+    var recurMinute by rememberSaveable { mutableIntStateOf(9 * 60) }
     var until by rememberSaveable { mutableStateOf<String?>(null) }
 
     var focusOn by rememberSaveable { mutableStateOf(start?.focus != null) }
@@ -158,6 +165,7 @@ fun ConfigureScreen(
     var problem by rememberSaveable { mutableStateOf<ActivationProblem?>(null) }
     var step by rememberSaveable { mutableStateOf(startStep?.let { Step.valueOf(it) } ?: if (custom && start == null && saved.isNotEmpty() && !forHabit) Step.Saved else Step.Contents) }
 
+    var deleting by remember { mutableStateOf<UsageConfig?>(null) }
     LaunchedEffect(createdShield) { if (createdShield != null) shieldId = createdShield }
     LaunchedEffect(createdIntent) { if (createdIntent != null) intentId = createdIntent }
 
@@ -267,12 +275,15 @@ fun ConfigureScreen(
                 items(saved, key = { "cfg-" + it.id }) { c ->
                     val s = d.rules.shieldOf(c)
                     val i = d.rules.intentOf(c)
-                    PickRow(c.name, listOfNotNull(s?.name, i?.name, c.focus?.task).joinToString(" · "), id == c.id, {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    PickRow(c.name, listOfNotNull(s?.name, i?.name, c.focus?.task).joinToString(" · "), id == c.id, modifier = Modifier.weight(1f), onClick = {
                         id = c.id; name = c.name; shieldId = c.shieldId; intentId = c.intentId
                         focusOn = c.focus != null; task = c.focus?.task.orEmpty(); description = c.focus?.description.orEmpty()
                         goal = c.focus?.goal.orEmpty(); focusWindow = c.focus?.minutes == null; focusMinutes = c.focus?.minutes
                         step = Step.When
                     }, leading = { IconStack((s?.keys.orEmpty() + i?.keys.orEmpty()).distinct(), d, max = 3, size = 28.dp) })
+                    AuroraIconButton(AuroraIcons.Trash, stringResource(R.string.config_delete_title, c.name), { deleting = c })
+                    }
                 }
                 item(key = "new") {
                     AuroraButton(stringResource(R.string.cfg_new), { id = newId(); name = ""; shieldId = null; intentId = null; step = Step.Contents }, Modifier.fillMaxWidth().padding(top = Space.S), kind = ButtonKind.Secondary)
@@ -293,7 +304,7 @@ fun ConfigureScreen(
                         }
                     }
                 } else items(BuiltInShields, key = { "bs-" + it.id }) { b ->
-                    PickRow(b.name, stringResource(R.string.intent_items, suggested(b).size), shieldBuiltIn == b.id, { shieldBuiltIn = b.id; shieldKeys = suggested(b) })
+                    PickRow(b.name, builtInLine(suggested(b).size), shieldBuiltIn == b.id, { shieldBuiltIn = b.id; shieldKeys = suggested(b) })
                 }
                 item(key = "intent-label") { Label(stringResource(R.string.cfg_intent)) }
                 item(key = "intent-none") { PickRow(stringResource(R.string.cfg_none), "", if (custom) intentId == null else intentBuiltIn == null, { if (custom) intentId = null else intentBuiltIn = null }) }
@@ -346,6 +357,14 @@ fun ConfigureScreen(
                 }
             }
             Step.Timing -> {
+                stepTitle(
+                    when (whenKind) {
+                        When.Later -> R.string.when_later
+                        When.Recurring -> R.string.when_recurring
+                        else -> R.string.when_now
+                    },
+                    null,
+                )
                 val allowance = if (alwaysBlock && whenKind == When.Now) vm.app.alwaysBlockLeft() else null
                 val max = allowance ?: (24 * 60)
                 if (whenKind == When.Later) {
@@ -389,7 +408,7 @@ fun ConfigureScreen(
                             Chip(stringResource(R.string.recurring_no_end), until == null) { until = null }
                             listOf(4, 8, 12).forEach { w ->
                                 val date = LocalDate.now().plusWeeks(w.toLong()).toString()
-                                Chip(stringResource(R.string.recurring_in_weeks, w), until == date) { until = date }
+                                Chip(pluralStringResource(R.plurals.recurring_in_weeks, w, w), until == date) { until = date }
                             }
                         }
                         Text(stringResource(R.string.recurring_note), color = colors.textTertiary, style = AuroraType.Caption)
@@ -450,7 +469,24 @@ fun ConfigureScreen(
             }
         }
     }
+    deleting?.let { c ->
+        val habits = d.rules.habits.filter { it.configId == c.id && !it.archived }
+        AuroraDialog(
+            stringResource(R.string.config_delete_title, c.name), { deleting = null },
+            stringResource(if (habits.isEmpty()) R.string.preset_delete else R.string.config_delete_archive),
+            {
+                deleting = null
+                vm.run { vm.app.deleteConfig(c.id, archiveHabits = true) }
+            },
+            if (habits.isEmpty()) stringResource(R.string.config_delete_body) else stringResource(R.string.config_delete_habits, habits.joinToString(", ") { it.name }) + " " + stringResource(R.string.config_delete_body),
+            stringResource(R.string.action_cancel),
+        )
+    }
 }
+
+@Composable
+private fun builtInLine(found: Int): String =
+    if (found == 0) stringResource(R.string.cfg_builtin_choose) else pluralStringResource(R.plurals.count_apps, found, found) + " · " + stringResource(R.string.cfg_builtin_found)
 
 @Composable
 private fun Label(text: String) {

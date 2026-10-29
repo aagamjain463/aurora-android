@@ -48,6 +48,22 @@ class HabitsTest {
     }
 
     @Test
+    fun runsBeforeCreationAndAfterTodayDoNotCount() {
+        val h = weekdays.copy(
+            createdAt = ms(mon, 10),
+            targets = listOf(HabitTarget(mon.toString())),
+        )
+        val valid = ok(mon).copy(start = ms(mon, 10), verifiedMs = 60_000)
+        val records = listOf(ok(mon.minusDays(1)), ok(mon), valid, ok(mon.plusDays(1)))
+        val p = habitProgress(h, records, mon, zone)
+        assertEquals(1, p.runs)
+        assertEquals(1, p.successes)
+        assertEquals(60_000L, p.verifiedMs)
+        assertEquals(1, p.weeks.last())
+        assertEquals(DayMark.Succeeded, p.calendar.last().second)
+    }
+
+    @Test
     fun onDemandHasNoMisses() {
         val h = weekdays.copy(targets = listOf(HabitTarget(mon.toString())))
         val p = habitProgress(h, listOf(ok(mon.plusDays(3))), mon.plusDays(10), zone)
@@ -73,6 +89,62 @@ class HabitsTest {
         val p = habitProgress(edited, (0L..4L).map { ok(mon.plusDays(it)) }, mon.plusDays(8), zone)
         assertEquals(5, p.successes)
         assertEquals(0, p.missed)
+    }
+
+    @Test
+    fun changingToWeeklyKeepsEarlierWeekdayResults() {
+        val edited = weekdays.copy(targets = weekdays.targets + HabitTarget(mon.plusDays(7).toString(), perWeek = 2))
+        val p = habitProgress(edited, (0L..4L).map { ok(mon.plusDays(it)) }, mon.plusDays(8), zone)
+        assertEquals(5, p.successes)
+        assertEquals(5, p.expected)
+        assertEquals(0, p.missed)
+        assertEquals(0, p.currentStreak)
+    }
+
+    @Test
+    fun changingFromWeeklyKeepsEarlierWeeklyResults() {
+        val edited = weekdays.copy(targets = listOf(
+            HabitTarget(mon.toString(), perWeek = 2),
+            HabitTarget(mon.plusDays(7).toString(), days = setOf(1, 2, 3, 4, 5)),
+        ))
+        val p = habitProgress(edited, listOf(ok(mon), ok(mon.plusDays(1)), ok(mon.plusDays(7))), mon.plusDays(8), zone)
+        assertEquals(2, p.successes)
+        assertEquals(2, p.expected)
+        assertEquals(1, p.currentStreak)
+    }
+
+    @Test
+    fun changingFromOnDemandDoesNotInventEarlierMisses() {
+        val edited = weekdays.copy(targets = listOf(
+            HabitTarget(mon.toString()),
+            HabitTarget(mon.plusDays(7).toString(), perWeek = 2),
+        ))
+        val p = habitProgress(edited, emptyList(), mon.plusDays(8), zone)
+        assertEquals(0, p.missed)
+        assertEquals(0, p.expected)
+    }
+
+    @Test
+    fun changingToOnDemandStillCountsNewSuccesses() {
+        val edited = weekdays.copy(targets = weekdays.targets + HabitTarget(mon.plusDays(7).toString()))
+        val p = habitProgress(edited, listOf(ok(mon), ok(mon.plusDays(7))), mon.plusDays(8), zone)
+        assertEquals(2, p.successes)
+        assertEquals(4, p.missed)
+        assertEquals(0, p.currentStreak)
+        assertNull(p.expected)
+    }
+
+    @Test
+    fun earlierOnDemandRunsCountAsOccurrencesAfterChangingToWeekdays() {
+        val edited = weekdays.copy(targets = listOf(
+            HabitTarget(mon.toString()),
+            HabitTarget(mon.plusDays(7).toString(), days = setOf(1, 2, 3, 4, 5)),
+        ))
+        val p = habitProgress(edited, listOf(ok(mon), bad(mon.plusDays(1)), ok(mon.plusDays(7))), mon.plusDays(8), zone)
+        assertEquals(2, p.successes)
+        assertEquals(3, p.expected)
+        assertEquals(0, p.missed)
+        assertEquals(2f / 3, p.rate!!, 0.001f)
     }
 
     @Test

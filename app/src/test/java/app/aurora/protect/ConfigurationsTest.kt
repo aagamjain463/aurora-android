@@ -97,6 +97,18 @@ class ConfigurationsTest {
         assertEquals(ActivationProblem.Empty, rules.problem(UsageConfig("e", "Empty"), Timing.Now(30), Plan.Plus, emptyList(), now))
     }
 
+    @Test
+    fun alwaysWithMissingStartBeginsNowAndKeepsItsFrozenStart() {
+        val now = at(2026, 10, 27, 9)
+        val a = Activation("a", "c", Timing.Always)
+        val r = rules.copy(activations = listOf(a))
+        val run = runsToMaterialize(r, Runtime(), Plan.Plus, t(now), zone).single()
+        assertEquals(now, run.start)
+        val later = liveRuns(r, Runtime(runs = listOf(run)), Plan.Plus, t(now + min), zone).single()
+        assertEquals(run.id, later.id)
+        assertEquals(now, later.start)
+    }
+
     /** Scenario H: a weaker configuration can't lift a committed one over the same app. */
     @Test
     fun strongestRuleWinsAcrossRuns() {

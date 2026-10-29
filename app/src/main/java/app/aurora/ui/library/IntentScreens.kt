@@ -12,12 +12,14 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -76,7 +78,7 @@ fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSe
         } else item(key = "label") { SectionLabel(stringResource(R.string.tab_intent)) }
         items(presets, key = { it.id }) { p ->
             PresetCard(
-                p.name, { Tag(stringResource(R.string.intent_items, p.keys.size), accent = true) }, intentSummary(p.config), p.keys, d, p.id in running,
+                p.name, { Tag(pluralStringResource(R.plurals.count_apps, p.keys.size, p.keys.size), accent = true) }, intentSummary(p.config), p.keys, d, p.id in running,
                 onEdit = { onEdit(p.id) },
                 onDuplicate = { vm.run { vm.app.saveIntentPreset(p.copy(id = newId(), name = vm.app.getString(R.string.preset_copy_name, p.name), createdAt = System.currentTimeMillis())) } },
                 onDelete = { deleting = p },
@@ -124,8 +126,10 @@ fun IntentEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Uni
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val d = data ?: return
+    // A new preset keeps one id for the whole flow, however often the screen recomposes.
+    val fresh = rememberSaveable { newId() }
     val existing = id?.let { i -> d.rules.intentPresets.find { it.id == i } }
-    IntentEditor(vm, existing ?: IntentPreset(newId(), "", createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
+    IntentEditor(vm, existing ?: IntentPreset(fresh, "", createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -137,7 +141,7 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
     val c0 = initial.config
     var name by rememberSaveable(initial.id) { mutableStateOf(initial.name) }
     var keys by rememberSaveable(initial.id) { mutableStateOf(initial.keys) }
-    var pause by rememberSaveable(initial.id) { mutableStateOf(c0.reflectionSeconds) }
+    var pause by rememberSaveable(initial.id) { mutableIntStateOf(c0.reflectionSeconds) }
     var reason by rememberSaveable(initial.id) { mutableStateOf(c0.reason) }
     var alternative by rememberSaveable(initial.id) { mutableStateOf(c0.alternative) }
     var confirm by rememberSaveable(initial.id) { mutableStateOf(c0.confirmContinue) }
@@ -248,7 +252,7 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
                 item(key = "review") {
                     val data by vm.data.collectAsStateWithLifecycle()
                     Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                        Tag(stringResource(R.string.intent_items, keys.size), accent = true)
+                        Tag(pluralStringResource(R.plurals.count_apps, keys.size, keys.size), accent = true)
                         Text(name.trim(), color = colors.textPrimary, style = AuroraType.Headline)
                         Text(intentSummary(config), color = colors.textSecondary, style = AuroraType.Secondary)
                         app.aurora.ui.protect.IconStack(keys, data, max = 8)

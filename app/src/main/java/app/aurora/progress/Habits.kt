@@ -85,7 +85,10 @@ const val TrendWeeks = 8
  * demand: successes over runs, with no misses and no streak of days.
  */
 fun habitProgress(habit: Habit, records: List<RunRecord>, today: LocalDate, zone: ZoneId): HabitProgress {
-    val mine = records.filter { it.configId == habit.configId }
+    val mine = records.filter {
+        it.configId == habit.configId && it.start >= habit.createdAt &&
+            !Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate().isAfter(today)
+    }
     val first = Instant.ofEpochMilli(habit.createdAt).atZone(zone).toLocalDate()
     fun dateOf(r: RunRecord) = Instant.ofEpochMilli(r.start).atZone(zone).toLocalDate()
     val byDate = mine.groupBy(::dateOf)
@@ -106,27 +109,44 @@ fun habitProgress(habit: Habit, records: List<RunRecord>, today: LocalDate, zone
     val days = generateSequence(first) { it.plusDays(1) }.takeWhile { !it.isAfter(today) }.toList()
     val weekly = habit.target.perWeek != null
     val successRuns = mine.count { it.meets(habit.criterion) == Outcome.Succeeded }
+    val onDemandRuns = mine.filter { habit.targetOn(dateOf(it))?.onDemand == true }
 
-    val (current, longest, successes, missed, expected) = if (weekly) {
-        // One result per week, Monday first; the current week is pending until it reaches the target.
-        val weeks = days.groupBy { it.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) }
-        val results = weeks.map { (monday, inWeek) ->
-            val need = habit.targetOn(inWeek.last())?.perWeek ?: 1
+    // Judge each occurrence by its historical target, even after switching between days and weeks.
+    val dailyResults = days.filter { d -> habit.targetOn(d)?.let { d.dayOfWeek.value in it.days } == true }
+        .map { d -> Triple(d, when (mark(d)) {
+            DayMark.Succeeded -> true
+            DayMark.Pending -> null
+            else -> false
+        }, false) }
+    val weeklyResults = days.filter { habit.targetOn(it)?.perWeek != null }
+        .groupBy { it.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) }
+        .map { (monday, inWeek) ->
+            val last = inWeek.last()
+            val need = habit.targetOn(last)!!.perWeek!!
             val got = inWeek.sumOf { d -> byDate[d].orEmpty().count { it.meets(habit.criterion) == Outcome.Succeeded } }
-            when {
+            Triple(last, when {
                 got >= need -> true
-                monday == today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) -> null
+                last == today && monday == today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) -> null
                 else -> false
-            }
+            }, true)
         }
-        streaks(results).let { (c, l) -> listOf(c, l, results.count { it == true }, results.count { it == false }, results.count { it != null }) }
-    } else if (habit.target.onDemand && habit.targets.all { it.onDemand }) {
+    val results = (dailyResults + weeklyResults).sortedBy { it.first }
+    val (current, longest, successes, missed, expected) = if (habit.targets.all { it.onDemand }) {
         listOf(0, 0, successRuns, 0, -1)
     } else {
-        // Successes on days that weren't expected still count as successes, never as a streak break.
-        val expectedResults = days.filter { d -> habit.targetOn(d)?.let { !it.onDemand && it.perWeek == null && d.dayOfWeek.value in it.days } == true }
-            .map(::mark).mapNotNull { if (it == DayMark.Succeeded) true else if (it == DayMark.Pending) null else false }
-        streaks(expectedResults).let { (c, l) -> listOf(c, l, expectedResults.count { it == true }, expectedResults.count { it == false }, expectedResults.count { it != null }) }
+        // Days and weeks are different streak units; a change starts a new streak, without erasing totals.
+        val currentTargets = habit.targets.asReversed().takeWhile {
+            (it.perWeek != null) == weekly && it.onDemand == habit.target.onDemand
+        }
+        val since = LocalDate.parse(currentTargets.last().since)
+        val streakResults = results.filter { !it.first.isBefore(since) && it.third == weekly }.map { it.second }
+        val (c, l) = streaks(streakResults)
+        listOf(
+            c, l,
+            results.count { it.second == true } + onDemandRuns.count { it.meets(habit.criterion) == Outcome.Succeeded },
+            results.count { it.second == false },
+            if (habit.target.onDemand) -1 else results.count { it.second != null } + onDemandRuns.size,
+        )
     }
     val weeks = (TrendWeeks - 1 downTo 0).map { back ->
         val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).minusWeeks(back.toLong())

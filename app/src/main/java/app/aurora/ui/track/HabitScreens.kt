@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -91,7 +93,7 @@ fun HabitEditorScreen(id: String?, createdConfig: String?, onBack: () -> Unit, o
     var configId by rememberSaveable { mutableStateOf(existing?.configId) }
     var kind by rememberSaveable { mutableStateOf(existing?.target?.let { if (it.perWeek != null) TargetKind.PerWeek else if (it.onDemand) TargetKind.OnDemand else TargetKind.Days }) }
     var days by rememberSaveable { mutableStateOf(existing?.target?.days ?: setOf(1, 2, 3, 4, 5)) }
-    var perWeek by rememberSaveable { mutableStateOf(existing?.target?.perWeek ?: 3) }
+    var perWeek by rememberSaveable { mutableIntStateOf(existing?.target?.perWeek ?: 3) }
     var criterion by rememberSaveable { mutableStateOf(existing?.criterion ?: HabitCriterion.All) }
     var step by rememberSaveable { mutableStateOf(HabitStep.entries[startStep]) }
     LaunchedEffect(createdConfig) { if (createdConfig != null) configId = createdConfig }
@@ -162,7 +164,7 @@ fun HabitEditorScreen(id: String?, createdConfig: String?, onBack: () -> Unit, o
                         else if (off.isNotEmpty()) Text(stringResource(R.string.habit_target_mismatch, daysText(scheduled)), color = colors.dawnText, style = AuroraType.Secondary)
                     }
                 }
-                item(key = "per-week") { ChoiceCard(stringResource(R.string.habit_target_per_week), stringResource(R.string.habit_per_week_value, perWeek), kind == TargetKind.PerWeek, { kind = TargetKind.PerWeek }) }
+                item(key = "per-week") { ChoiceCard(stringResource(R.string.habit_target_per_week), pluralStringResource(R.plurals.habit_per_week_value, perWeek, perWeek), kind == TargetKind.PerWeek, { kind = TargetKind.PerWeek }) }
                 if (kind == TargetKind.PerWeek) item(key = "per-week-pick") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                         (1..7).forEach { n -> Chip("$n", perWeek == n) { perWeek = n } }
@@ -212,8 +214,8 @@ fun HabitScreen(id: String, onBack: () -> Unit, onEdit: () -> Unit) {
                 HabitRing(p.rate, 132.dp, stringResource(R.string.habit_rate))
                 Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                     Text(stringResource(R.string.habit_streak), color = colors.textSecondary, style = AuroraType.Caption)
-                    Text(stringResource(if (p.streakUnitWeeks) R.string.habit_weeks_unit else R.string.habit_days_unit, p.currentStreak), color = colors.sun, style = AuroraType.Headline)
-                    Text(stringResource(R.string.habit_longest) + " · " + stringResource(if (p.streakUnitWeeks) R.string.habit_weeks_unit else R.string.habit_days_unit, p.longestStreak), color = colors.textSecondary, style = AuroraType.Secondary)
+                    Text(pluralStringResource(if (p.streakUnitWeeks) R.plurals.habit_weeks_unit else R.plurals.habit_days_unit, p.currentStreak, p.currentStreak), color = colors.sun, style = AuroraType.Headline)
+                    Text(stringResource(R.string.habit_longest) + " · " + pluralStringResource(if (p.streakUnitWeeks) R.plurals.habit_weeks_unit else R.plurals.habit_days_unit, p.longestStreak, p.longestStreak), color = colors.textSecondary, style = AuroraType.Secondary)
                     Text(targetText(habit.target), color = colors.textTertiary, style = AuroraType.Caption)
                 }
             }
@@ -266,7 +268,7 @@ fun HabitScreen(id: String, onBack: () -> Unit, onEdit: () -> Unit) {
 
 @Composable
 private fun targetText(t: HabitTarget): String = when {
-    t.perWeek != null -> stringResource(R.string.habit_per_week_value, t.perWeek)
+    t.perWeek != null -> pluralStringResource(R.plurals.habit_per_week_value, t.perWeek, t.perWeek)
     t.onDemand -> stringResource(R.string.habit_target_on_demand)
     else -> daysText(t.days)
 }

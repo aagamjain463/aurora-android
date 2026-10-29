@@ -160,7 +160,8 @@ private fun Timing.Recurring.asSchedule(id: String) =
 fun Activation.windows(now: Long, zone: ZoneId): List<Pair<Long, Long>> = when (val t = timing) {
     is Timing.Now -> emptyList()
     is Timing.Later -> listOf(t.start to t.start + t.minutes * 60_000L).filter { it.second > now }
-    is Timing.Always -> listOf(createdAt to Long.MAX_VALUE)
+    // An Always activation applies from when it was made (never before: 0 would mean 1970).
+    is Timing.Always -> listOf((if (createdAt > 0) createdAt else now) to Long.MAX_VALUE)
     is Timing.Recurring -> {
         val s = t.asSchedule(id)
         val last = t.until?.let { LocalDate.parse(it) }

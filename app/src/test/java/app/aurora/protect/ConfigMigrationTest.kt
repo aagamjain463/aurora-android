@@ -34,6 +34,7 @@ class ConfigMigrationTest {
         val config = m.configs.single { it.id == always.single().configId }
         assertEquals(listOf("com.a"), m.intentPresets.single { it.id == config.intentId }.keys)
         assertEquals(old.apps, m.apps)
+        assertEquals(100L, always.single().createdAt)
     }
 
     @Test

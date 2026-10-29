@@ -23,6 +23,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
 import app.aurora.protect.ShieldPreset
+import app.aurora.protect.FocusPlan
+import app.aurora.protect.UsageConfig
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
@@ -66,7 +68,11 @@ class NavigationTest {
     /** Home is a lazy list: bring a node into composition before looking for it. */
     private fun scrollTo(text: String): androidx.compose.ui.test.SemanticsNodeInteraction {
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasScrollAction()).fetchSemanticsNodes().isNotEmpty() }
-        compose.onAllNodes(androidx.compose.ui.test.hasScrollAction())[0].performScrollToNode(hasText(text))
+        compose.waitUntil(5_000) {
+            runCatching {
+                compose.onAllNodes(androidx.compose.ui.test.hasScrollAction())[0].performScrollToNode(hasText(text))
+            }.isSuccess
+        }
         return compose.onNodeWithText(text)
     }
 
@@ -131,10 +137,48 @@ class NavigationTest {
         compose.onNodeWithText("Start").performClick()
         // Fetching nodes syncs with the main thread, where each step of the activation resumes.
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() && app.runtime.value?.runs?.size == 1 }
+        val runId = app.runtime.value!!.runs.single().id
         scrollTo("Turn off").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNode(hasText("Turn off") and hasAnyAncestor(isDialog())).performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Turn off").fetchSemanticsNodes().isEmpty() && app.history.value?.runs?.isNotEmpty() == true }
         org.junit.Assert.assertTrue(app.runtime.value!!.runs.isEmpty())
-        org.junit.Assert.assertEquals(listOf("Study"), app.history.value!!.runs.map { it.name })
+        org.junit.Assert.assertEquals("Study", app.history.value!!.runs.single { it.id == runId }.name)
+    }
+
+    @Test
+    fun habitCanBeCreatedArchivedAndRestoredWithoutStartingProtection() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        val config = UsageConfig("habit-test", "Habit Study", focus = FocusPlan("Study"))
+        runBlocking {
+            app.rules.update { r -> r.copy(
+                version = 1,
+                configs = r.configs.filterNot { it.id == config.id } + config,
+                habits = r.habits.filterNot { it.configId == config.id },
+            ) }
+        }
+        launch(onboarded = true)
+        val runsBefore = app.runtime.value!!.runs
+        tab("Track").performClick()
+        scrollTo("Create Habit").performSemanticsAction(SemanticsActions.OnClick)
+        awaitText("Name your habit")
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Daily learning")
+        compose.onNodeWithText("Next").performClick()
+        awaitText("Habit Study")
+        compose.onNodeWithText("Habit Study").performClick()
+        compose.onNodeWithText("Next").performClick()
+        compose.onNodeWithText("Whenever I use it").performScrollTo().performClick()
+        compose.onNodeWithText("Next").performClick()
+        compose.onNodeWithText("Save habit").performClick()
+        awaitText("Linked to Habit Study")
+        val habit = app.rules.value!!.habits.single { it.configId == config.id }
+        org.junit.Assert.assertTrue(habit.target.onDemand)
+        org.junit.Assert.assertEquals(runsBefore, app.runtime.value!!.runs)
+        org.junit.Assert.assertTrue(app.rules.value!!.activations.none { it.configId == config.id })
+        scrollTo("Archive").performClick()
+        awaitText("Restore")
+        org.junit.Assert.assertTrue(app.rules.value!!.habits.single { it.id == habit.id }.archived)
+        scrollTo("Restore").performClick()
+        awaitText("Archive")
+        org.junit.Assert.assertFalse(app.rules.value!!.habits.single { it.id == habit.id }.archived)
     }
 }

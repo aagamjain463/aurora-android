@@ -189,7 +189,8 @@ suspend fun AuroraApplication.syncRuns() {
     val started = mutableListOf<ConfigRun>()
     val ended = mutableListOf<ConfigRun>()
     runtime.update { rt ->
-        var next = rt
+        // A run stored with no start (an early build of this migration) starts from now instead of 1970.
+        var next = if (rt.runs.none { it.start <= 0 }) rt else rt.copy(runs = rt.runs.map { if (it.start <= 0) it.copy(start = t.wall) else it })
         for (run in runsToMaterialize(r, rt, plan, t, zone)) {
             var committed: Long? = null
             if (run.shield?.mode == Mode.AlwaysBlock && plan != Plan.Plus) {
@@ -205,7 +206,7 @@ suspend fun AuroraApplication.syncRuns() {
             next = next.copy(runs = next.runs + frozen)
         }
         ended += next.runs.filter { it.isOver(t) }
-        if (ended.isEmpty() && started.isEmpty()) rt
+        if (ended.isEmpty() && started.isEmpty() && next.runs == rt.runs) rt
         else next.copy(runs = next.runs - ended.toSet(), closed = next.closed + ended.map { it.id to (it.endAt(t) ?: t.wall) })
     }
     if (started.isNotEmpty()) history.update { h ->

@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -443,7 +444,7 @@ private fun GoalDialog(onDismiss: () -> Unit, onAdd: (Goal) -> Unit) {
         GoalKind.FocusAtLeast -> listOf(25, 50, 90, 120)
         GoalKind.OpensUnder -> listOf(1, 3, 5, 10)
     }
-    var target by remember(kind) { mutableStateOf(options[1]) }
+    var target by remember(kind) { mutableIntStateOf(options[1]) }
     AuroraDialog(
         title = stringResource(R.string.insights_a_goal_for_each_day),
         confirmLabel = stringResource(R.string.insights_add_goal),
