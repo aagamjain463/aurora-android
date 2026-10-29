@@ -1,5 +1,14 @@
 package app.aurora.protect
 
+import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.AuroraIcons
+import app.aurora.ui.components.FirstLightBackdrop
+import app.aurora.ui.components.LitBadge
+import app.aurora.ui.components.Wordmark
+import app.aurora.ui.components.auroraSurface
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -138,12 +147,15 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
     }
 }
 
-/** The Shield's stage: the sky, a low Aurora Light, the app in question, and the moment's content. */
+/**
+ * The Shield's stage: First Light at full strength, the mark, then the app in question held in a soft
+ * halo at the centre, and the moment's content set centred beneath it.
+ */
 @Composable
 private fun ShieldFrame(label: String, icon: ImageBitmap?, content: @Composable () -> Unit) {
     val colors = Aurora.colors
-    Box(Modifier.fillMaxSize().background(colors.sky)) {
-        AuroraLandscape(Modifier.fillMaxWidth().height(260.dp))
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        FirstLightBackdrop(ArtTier.Immersive)
         Column(
             Modifier
                 .fillMaxSize()
@@ -151,21 +163,23 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, content: @Composable 
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Space.Gutter),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(Modifier.padding(top = Space.M), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-                AuroraMark(22.dp)
-                Text(stringResource(R.string.shield_brand), color = colors.textSecondary, style = AuroraType.Caption)
+            Row(Modifier.fillMaxWidth().padding(top = Space.S), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+                AuroraMark(30.dp)
+                Wordmark()
             }
-            Spacer(Modifier.height(150.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+            Spacer(Modifier.height(104.dp))
+            Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.size(132.dp).background(Brush.radialGradient(listOf(colors.sun.copy(alpha = 0.28f), Color.Transparent))))
                 if (icon != null) {
-                    Image(icon, null, Modifier.size(52.dp).clip(RoundedCornerShape(15.dp)))
+                    Image(icon, null, Modifier.size(76.dp).clip(RoundedCornerShape(22.dp)))
                 } else {
-                    Box(Modifier.size(52.dp).clip(RoundedCornerShape(15.dp)).background(colors.elevated))
+                    Box(Modifier.size(76.dp).clip(RoundedCornerShape(22.dp)).background(colors.elevated))
                 }
-                Text(label, color = colors.textPrimary, style = AuroraType.Title)
             }
-            Spacer(Modifier.height(Space.L))
+            Text(label, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(Space.M))
             content()
             Spacer(Modifier.height(Space.XL))
         }
@@ -174,31 +188,58 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, content: @Composable 
 
 @Composable
 private fun Eyebrow(text: String, warm: Boolean = false) {
-    Text(text, color = if (warm) Aurora.colors.dawnText else Aurora.colors.accent, style = AuroraType.Eyebrow)
+    Text(text, Modifier.fillMaxWidth(), color = if (warm) Aurora.colors.sun else Aurora.colors.accent, style = AuroraType.Eyebrow, textAlign = TextAlign.Center)
 }
 
+/** The Shield's question. The app's name, when it appears, is lit in First Light cream. */
 @Composable
-private fun Headline(text: String) {
-    Text(text, Modifier.padding(top = Space.XS).semantics { heading() }, color = Aurora.colors.textPrimary, style = AuroraType.Display)
+private fun Headline(text: String, highlight: String? = null) {
+    val colors = Aurora.colors
+    val at = highlight?.takeIf { it.isNotBlank() }?.let { text.indexOf(it) } ?: -1
+    val annotated = androidx.compose.ui.text.buildAnnotatedString {
+        append(text)
+        if (at >= 0) addStyle(androidx.compose.ui.text.SpanStyle(color = colors.headlineLead), at, at + highlight!!.length)
+    }
+    Text(annotated, Modifier.fillMaxWidth().padding(top = Space.XS).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center)
 }
 
 @Composable
 private fun Body(text: String) {
-    Text(text, Modifier.padding(top = Space.S), color = Aurora.colors.textSecondary, style = AuroraType.Body)
+    Text(text, Modifier.fillMaxWidth().padding(top = Space.S), color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center)
+}
+
+/** The reflection pause: a small ring of light that closes as the seconds pass. */
+@Composable
+private fun PauseRing(leftMs: Long, totalMs: Long) {
+    val colors = Aurora.colors
+    val fraction = if (totalMs <= 0) 1f else (1f - leftMs.toFloat() / totalMs).coerceIn(0f, 1f)
+    val seconds = ((leftMs + 999) / 1000).toInt().coerceAtLeast(0)
+    Box(Modifier.padding(top = Space.L).size(88.dp), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val stroke = 4.dp.toPx()
+            val inset = stroke / 2 + 2.dp.toPx()
+            val box = androidx.compose.ui.geometry.Size(size.width - 2 * inset, size.height - 2 * inset)
+            val tl = androidx.compose.ui.geometry.Offset(inset, inset)
+            drawArc(colors.hairline, 0f, 360f, false, tl, box, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            drawArc(Brush.sweepGradient(listOf(colors.accent, colors.cta.last(), colors.accent)), -90f, 360f * (1f - fraction), false, tl, box,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        Text(if (seconds > 0) "${seconds}s" else "✓", color = colors.textPrimary, style = AuroraType.Title)
+    }
 }
 
 /** A live countdown with the clock time it ends. */
 @Composable
 private fun Countdown(until: Long, now: Long, caption: String) {
     val colors = Aurora.colors
-    Column(Modifier.padding(vertical = Space.L)) {
+    Column(Modifier.padding(vertical = Space.L), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             formatClock(until - now),
             Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             color = colors.textPrimary,
             style = AuroraType.Hero,
         )
-        Text(caption, color = colors.textSecondary, style = AuroraType.Secondary)
+        Text(caption, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
     }
 }
 
@@ -226,12 +267,12 @@ private fun Blocked(decision: Decision.Shield, label: String, now: Long, home: (
     when (decision.reason) {
         ShieldReason.AlwaysBlock -> {
             Eyebrow(stringResource(R.string.mode_always_block), warm = true)
-            Headline(stringResource(R.string.shield_blocked_title, label))
+            Headline(stringResource(R.string.shield_blocked_title, label), label)
             Body(stringResource(R.string.mode_always_block_desc))
         }
         ShieldReason.Flexible -> {
             Eyebrow(schedule ?: stringResource(R.string.mode_flexible))
-            Headline(stringResource(R.string.shield_blocked_title, label))
+            Headline(stringResource(R.string.shield_blocked_title, label), label)
             Body(stringResource(R.string.mode_flexible_desc))
             Body(stringResource(R.string.shield_flexible_how_to_off))
         }
@@ -242,7 +283,7 @@ private fun Blocked(decision: Decision.Shield, label: String, now: Long, home: (
         }
         ShieldReason.Limit -> {
             Eyebrow(stringResource(R.string.limits_name))
-            Headline(stringResource(R.string.shield_limit_title, label))
+            Headline(stringResource(R.string.shield_limit_title, label), label)
             Body(stringResource(R.string.shield_limit_body))
         }
         else -> {
@@ -277,7 +318,7 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
     val haptics = LocalHapticFeedback.current
     if (!ready) {
         Eyebrow(stringResource(R.string.mode_cooldown))
-        Headline(stringResource(R.string.shield_cooldown_title, label))
+        Headline(stringResource(R.string.shield_cooldown_title, label), label)
         Body(stringResource(R.string.shield_cooldown_body))
         readyAt?.let { Countdown(it, now, stringResource(R.string.shield_cooldown_ready_at, clockTime(it))) }
         Actions {
@@ -570,30 +611,22 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
             }
             val left = pauseStart?.let { it + config.reflectionSeconds * 1000L - now } ?: (config.reflectionSeconds * 1000L)
             Eyebrow(stringResource(R.string.intent_name))
-            Headline(stringResource(R.string.intent_prompt_title, label))
+            Headline(stringResource(R.string.intent_prompt_title, label), label)
             Body(stringResource(R.string.intent_prompt_question))
-            if (config.reason.isNotBlank() || config.alternative.isNotBlank()) {
-                Column(
-                    Modifier.padding(top = Space.L).fillMaxWidth().clip(Radius.L).background(colors.elevated).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
-                    verticalArrangement = Arrangement.spacedBy(Space.XS),
-                ) {
-                    if (config.reason.isNotBlank()) {
-                        Text(stringResource(R.string.intent_your_reason), color = colors.accent, style = AuroraType.Eyebrow)
-                        Text(config.reason, color = colors.textPrimary, style = AuroraType.Title)
-                    }
-                    if (config.alternative.isNotBlank()) {
-                        if (config.reason.isNotBlank()) Spacer(Modifier.height(Space.XS))
-                        Text(stringResource(R.string.intent_instead), color = colors.dawnText, style = AuroraType.Eyebrow)
-                        Text(config.alternative, color = colors.textPrimary, style = AuroraType.Body)
-                    }
-                }
+            if (config.reflectionSeconds > 0) PauseRing(left.coerceAtLeast(0), config.reflectionSeconds * 1000L)
+            if (config.reason.isNotBlank()) {
+                ReasonCard(AuroraIcons.Spark, stringResource(R.string.intent_your_reason), config.reason, warm = false)
+            }
+            if (config.alternative.isNotBlank()) {
+                ReasonCard(AuroraIcons.Target, stringResource(R.string.intent_instead), config.alternative, warm = true)
             }
             if (config.reflectionSeconds > 0) {
                 Text(
                     if (left > 0) stringResource(R.string.intent_pause_left, ((left + 999) / 1000).toInt()) else stringResource(R.string.intent_pause_done),
-                    Modifier.padding(top = Space.L).semantics { liveRegion = LiveRegionMode.Polite },
+                    Modifier.fillMaxWidth().padding(top = Space.M).semantics { liveRegion = LiveRegionMode.Polite },
                     color = colors.textSecondary,
-                    style = AuroraType.BodyStrong,
+                    style = AuroraType.Secondary,
+                    textAlign = TextAlign.Center,
                 )
             }
             Actions {
@@ -622,6 +655,23 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
                 color = colors.textTertiary,
                 style = AuroraType.Caption,
             )
+        }
+    }
+}
+
+/** The person's own words, shown back to them: their reason (aurora light) or a better choice (sun). */
+@Composable
+private fun ReasonCard(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, text: String, warm: Boolean) {
+    val colors = Aurora.colors
+    Row(
+        Modifier.padding(top = Space.M).fillMaxWidth().auroraSurface(colors, warm = warm).padding(Space.M).semantics(mergeDescendants = true) { },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.M),
+    ) {
+        LitBadge(icon, tint = if (warm) colors.sun else colors.accent, size = 52)
+        Column(Modifier.weight(1f)) {
+            Text(label, color = colors.textSecondary, style = AuroraType.Caption)
+            Text(text, color = colors.textPrimary, style = AuroraType.Title)
         }
     }
 }

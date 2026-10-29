@@ -72,9 +72,9 @@
   },
   "typography": {
     "hero-timer": { "$type": "typography", "$value": { "fontSize": "60sp", "lineHeight": "64sp", "fontWeight": 500, "letterSpacing": "-0.04em", "fontFeature": "tnum" } },
-    "metric": { "$type": "typography", "$value": { "fontSize": "48sp", "lineHeight": "52sp", "fontWeight": 600, "letterSpacing": "-0.04em", "fontFeature": "tnum" } },
+    "metric": { "$type": "typography", "$value": { "fontSize": "56sp", "lineHeight": "60sp", "fontWeight": 500, "letterSpacing": "-0.035em", "fontFeature": "tnum" } },
     "display-xl": { "$type": "typography", "$value": { "fontSize": "56sp", "lineHeight": "60sp", "fontWeight": 500, "letterSpacing": "-0.04em" }, "$description": "One-word screen titles: Focus" },
-    "display": { "$type": "typography", "$value": { "fontSize": "34sp", "lineHeight": "40sp", "fontWeight": 560, "letterSpacing": "-0.03em" }, "$description": "Hero headlines, two-tone" },
+    "display": { "$type": "typography", "$value": { "fontSize": "36sp", "lineHeight": "42sp", "fontWeight": 500, "letterSpacing": "-0.018em" }, "$description": "Hero headlines, two-tone" },
     "headline": { "$type": "typography", "$value": { "fontSize": "26sp", "lineHeight": "32sp", "fontWeight": 620, "letterSpacing": "-0.02em" } },
     "title": { "$type": "typography", "$value": { "fontSize": "19sp", "lineHeight": "25sp", "fontWeight": 620, "letterSpacing": "-0.012em" } },
     "body": { "$type": "typography", "$value": { "fontSize": "16sp", "lineHeight": "24sp", "fontWeight": 450 } },
@@ -112,8 +112,8 @@
     "breath": { "$type": "duration", "$value": "4200ms" }
   },
   "art": {
-    "immersive": { "$type": "other", "$value": { "asset": "first_light_night / first_light_day", "height": "0.92 x width", "scrim": 0 }, "$description": "Today, Focus, Intent, onboarding" },
-    "balanced": { "$type": "other", "$value": { "asset": "first_light_night / first_light_day", "height": "0.70 x width", "scrim": 0.25 }, "$description": "Protect, Insights, Shield" },
-    "restrained": { "$type": "other", "$value": { "asset": "drawn horizon glow, no image", "height": "120dp" }, "$description": "Settings, schedules, pickers, forms" }
+    "immersive": { "$type": "other", "$value": { "asset": "first_light_cinematic (dark) / first_light_day (light)", "height": "440dp", "alignment": "bias 0.42, -0.2" }, "$description": "Today, Focus, Shield and Intent, onboarding welcome and finish" },
+    "balanced": { "$type": "other", "$value": { "asset": "first_light_cinematic (dark) / first_light_day (light)", "height": "360dp", "alignment": "bias 0.42, -0.45" }, "$description": "Protect, Insights" },
+    "restrained": { "$type": "other", "$value": { "asset": "none: palette, hairlines and mark only" }, "$description": "Settings, schedules, pickers, forms" }
   }
 }

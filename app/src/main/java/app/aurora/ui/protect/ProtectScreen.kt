@@ -137,7 +137,8 @@ fun ProtectScreen(onOpen: (String) -> Unit, onOpenItem: (String) -> Unit, onOpen
         },
     ) {
         item(key = "status") {
-            if (status != null && d != null) {
+            // Only when Shield needs something from the person; a healthy Shield doesn't need a card.
+            if (status != null && d != null && status != app.aurora.data.ProtectionStatus.Active) {
                 ShieldStatusCard(status, d.list.items.size, onTurnOn = { disclosure = true }, onOpenSettings = { openAccessSettings(context, Access.Accessibility) })
             }
         }

@@ -65,7 +65,9 @@ import app.aurora.protect.key
 import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
-import app.aurora.ui.components.AuroraLight
+import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.FirstLightBackdrop
+import app.aurora.ui.components.TwoToneHeadline
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
@@ -113,11 +115,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val p = page.coerceAtLeast(0)
 
     Box(Modifier.fillMaxSize().background(colors.background)) {
-        if (p == 0 || p == PageCount - 1) {
-            AuroraLight(glow = if (p == 0) 0.25f else 0.8f, rise = if (p == 0) 0.05f else 0.6f, modifier = Modifier.fillMaxWidth().height(380.dp).background(colors.sky))
+        // First Light opens and closes onboarding; the steps between are quiet.
+        androidx.compose.animation.AnimatedVisibility(p == 0 || p == PageCount - 1, enter = fadeIn(tween(Motion.Gentle)), exit = fadeOut(tween(Motion.Standard))) {
+            FirstLightBackdrop(ArtTier.Immersive)
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
+                AuroraMark(30.dp)
+                Spacer(Modifier.width(Space.S))
                 Wordmark(Modifier.weight(1f))
                 PageDots(p)
             }
@@ -192,9 +197,8 @@ private fun Title(eyebrow: String, title: String, body: String?) {
 @Composable
 private fun Welcome() {
     val colors = Aurora.colors
-    Spacer(Modifier.height(250.dp))
-    AuroraMark(56.dp)
-    Text(stringResource(R.string.today_headline), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
+    Spacer(Modifier.height(230.dp))
+    TwoToneHeadline(stringResource(R.string.today_headline))
     Text(stringResource(R.string.onb_welcome_body), color = colors.textSecondary, style = AuroraType.Body)
 }
 

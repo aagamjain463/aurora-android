@@ -96,7 +96,7 @@ class ScreenshotTest(private val variant: Variant) {
         app.runtime.reset()
         app.rules.reset()
         app.preferences.setReduceMotion(variant.reduceMotion)
-        app.rules.update { it.copy(apps = mapOf("com.example.photos" to AppRule(intent = IntentConfig(reflectionSeconds = 0)))) }
+        app.rules.update { it.copy(apps = mapOf("com.example.photos" to AppRule(intent = IntentConfig(reason = "I want more time for studying and building my future.", alternative = "Continue working on my project.", reflectionSeconds = 0)))) }
         Unit
     }
 

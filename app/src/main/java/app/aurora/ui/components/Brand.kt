@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
 import app.aurora.ui.theme.Space
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
@@ -157,6 +158,7 @@ fun TwoToneHeadline(
 ) {
     val colors = Aurora.colors
     val words = text.split(" ")
+    val spoken = androidx.compose.ui.text.AnnotatedString(text)
     val split = (words.size - tailWords).coerceIn(0, words.size)
     val lead = words.take(split).joinToString(" ")
     val tail = words.drop(split).joinToString(" ")
@@ -171,7 +173,8 @@ fun TwoToneHeadline(
     }
     Text(
         annotated,
-        modifier.semantics { heading(); contentDescription = text },
+        // Screen readers and tests get the exact copy, without the designed line break.
+        modifier.clearAndSetSemantics { heading(); semanticsText(spoken) },
         style = style,
         textAlign = textAlign,
     )
@@ -290,4 +293,8 @@ fun HorizonArc(progress: Float, modifier: Modifier = Modifier, complete: Boolean
         drawCircle(Brush.radialGradient(listOf(colors.glowCool.copy(alpha = glowAlpha), Color.Transparent), dot, halo), halo, dot)
         drawCircle(colors.light, 5.dp.toPx(), dot)
     }
+}
+
+private fun androidx.compose.ui.semantics.SemanticsPropertyReceiver.semanticsText(value: androidx.compose.ui.text.AnnotatedString) {
+    text = value
 }

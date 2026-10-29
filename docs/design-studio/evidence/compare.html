@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aurora Visual QA</title><style>
+:root{--bg:#05100D;--fg:#F1F6F3;--mute:#8E9D97;--line:rgba(166,240,207,.12)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;padding:24px 16px}
+h1{font-weight:500;margin:0 0 4px}p{color:var(--mute);margin:0 0 24px;max-width:70ch}
+section{border-top:1px solid var(--line);padding:20px 0}h2{font-weight:500;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+figure{margin:0}img{width:100%;border-radius:14px;border:1px solid var(--line);display:block}
+figcaption{color:var(--mute);font-size:13px;margin-top:6px}</style></head><body>
+<h1>Aurora — visual QA</h1>
+<p>Before (commit 489d4a0) · approved reference · now, rendered on the JVM (Roborazzi, 411×914dp, dark) · now on the Android emulator with real data. Reference numbers are illustrative; Aurora shows real data or empty states.</p>
+<section><h2>Today</h2><div class="grid">
+<figure><img src="before/today_Dark.png" alt="Today before"><figcaption>Before</figcaption></figure>
+<figure><img src="../../aurora-design-reference/01-today.png" alt="Today reference"><figcaption>Approved reference</figcaption></figure>
+<figure><img src="../../../app/src/test/screenshots/today_Dark.png" alt="Today now"><figcaption>Now · JVM render (today_Dark)</figcaption></figure>
+<figure><img src="emulator/today.png" alt="Today emulator"><figcaption>Now · emulator, real data</figcaption></figure>
+</div></section>
+<section><h2>Protect</h2><div class="grid">
+<figure><img src="before/protect_Dark.png" alt="Protect before"><figcaption>Before</figcaption></figure>
+<figure><img src="../../aurora-design-reference/02-protect.png" alt="Protect reference"><figcaption>Approved reference</figcaption></figure>
+<figure><img src="../../../app/src/test/screenshots/protect_saved_Dark.png" alt="Protect now"><figcaption>Now · JVM render (protect_saved_Dark)</figcaption></figure>
+<figure><img src="emulator/protect.png" alt="Protect emulator"><figcaption>Now · emulator, real data</figcaption></figure>
+</div></section>
+<section><h2>Intent</h2><div class="grid">
+<figure><img src="before/shield_intent_Dark.png" alt="Intent before"><figcaption>Before</figcaption></figure>
+<figure><img src="../../aurora-design-reference/03-intent.png" alt="Intent reference"><figcaption>Approved reference</figcaption></figure>
+<figure><img src="../../../app/src/test/screenshots/shield_intent_Dark.png" alt="Intent now"><figcaption>Now · JVM render (shield_intent_Dark)</figcaption></figure>
+</div></section>
+<section><h2>Focus</h2><div class="grid">
+<figure><img src="before/focus_Dark.png" alt="Focus before"><figcaption>Before</figcaption></figure>
+<figure><img src="../../aurora-design-reference/04-focus.png" alt="Focus reference"><figcaption>Approved reference</figcaption></figure>
+<figure><img src="../../../app/src/test/screenshots/focus_running_Dark.png" alt="Focus now"><figcaption>Now · JVM render (focus_running_Dark)</figcaption></figure>
+</div></section>
+<section><h2>Insights</h2><div class="grid">
+<figure><img src="before/insights_Dark.png" alt="Insights before"><figcaption>Before</figcaption></figure>
+<figure><img src="../../aurora-design-reference/05-insights.png" alt="Insights reference"><figcaption>Approved reference</figcaption></figure>
+<figure><img src="../../../app/src/test/screenshots/insights_Dark.png" alt="Insights now"><figcaption>Now · JVM render (insights_Dark)</figcaption></figure>
+<figure><img src="emulator/insights.png" alt="Insights emulator"><figcaption>Now · emulator, real data</figcaption></figure>
+</div></section>
+</body></html>

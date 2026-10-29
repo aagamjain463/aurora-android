@@ -58,7 +58,8 @@ fun FirstLightBackdrop(tier: ArtTier, modifier: Modifier = Modifier, scroll: () 
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
             // The ring sits right of centre, as in the approved references, leaving the left for type.
-            alignment = BiasAlignment(0.42f, if (tier == ArtTier.Immersive) -0.2f else -0.45f),
+            // Balanced crops so the horizon sits above the headline; the morning art's horizon is higher.
+            alignment = BiasAlignment(0.42f, if (tier == ArtTier.Immersive) -0.2f else if (colors.isDark) -0.45f else 1f),
         )
         // Shade on the reading side: type sits at the left, the ring stays bright at the right.
         Box(

@@ -58,7 +58,6 @@
     <string name="duration_cooldown_hint">The wait starts each time you try to open the app. Then you choose how long to use it.</string>
 
     <!-- Shield (over the protected app) -->
-    <string name="shield_brand">Aurora Shield</string>
     <string name="shield_return_home">Return home</string>
     <string name="shield_open_app">Open %1$s</string>
     <string name="shield_blocked_title">%1$s is blocked.</string>
