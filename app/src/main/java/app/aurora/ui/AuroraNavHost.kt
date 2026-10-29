@@ -146,7 +146,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, onStart = { startFor(it) }, onIntent = intentApp, onPlus = plus)
             }
             composable("${ProtectRoutes.Start}?key={key}") { entry ->
-                StartScreen(entry.arguments?.getString("key")?.let(Uri::decode), back, onDone = { nav.selectTab(Routes.Protect) }, onPlus = plus)
+                StartScreen(entry.arguments?.getString("key")?.let(Uri::decode), back, onDone = { nav.popBackStack() }, onPlus = plus)
             }
             composable(ProtectRoutes.Schedules) { SchedulesScreen(back, onEdit = { id -> nav.navigate(if (id == null) ProtectRoutes.ScheduleEdit else "${ProtectRoutes.ScheduleEdit}?id=$id") }, onPlus = plus) }
             composable("${ProtectRoutes.ScheduleEdit}?id={id}") { entry -> ScheduleEditorScreen(entry.arguments?.getString("id"), back) }

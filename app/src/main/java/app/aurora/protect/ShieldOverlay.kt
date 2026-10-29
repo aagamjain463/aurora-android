@@ -60,8 +60,8 @@ class OverlayShieldPresenter(
     private var host: Host? = null
     private val request = mutableStateOf<ShieldRequest?>(null)
 
-    /** Called when the Shield leaves the screen because the person chose to (home or access granted). */
-    var onClosed: () -> Unit = {}
+    /** Called when the person closed the Shield: [home] true for the home screen, false for access granted. */
+    var onClosed: (home: Boolean) -> Unit = {}
 
     /** True while the overlay window is attached: the Shield is really on screen, not just requested. */
     val showing: Boolean get() = host?.view?.isAttachedToWindow == true
@@ -135,7 +135,7 @@ class OverlayShieldPresenter(
     private fun close(home: Boolean) {
         if (home) service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
         dismiss()
-        onClosed()
+        onClosed(home)
     }
 
     /** One overlay window: its view and the owners Compose expects from an activity. */

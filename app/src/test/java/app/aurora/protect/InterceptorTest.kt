@@ -170,4 +170,33 @@ class InterceptorTest {
         assertEquals(ShieldTrace.Timing(detectMs = 10, decideMs = 1, presentMs = 113, exposureMs = 124), snap.timings.last())
         assertEquals(114L to 124L, snap.exposure)
     }
+
+    @Test
+    fun closingTheShieldHomeIsNeverUndoneByALateCheck() {
+        // The person tapped Return home; the launcher's window event hasn't arrived yet.
+        window("com.social")
+        interceptor.closedByPerson(home = true)
+        runChecks()
+        assertEquals(1, presenter.shown.size)
+    }
+
+    @Test
+    fun auroraOwnScreenDismissesTheShield() {
+        window("com.social")
+        interceptor.onWindow("app.aurora", 0, 0, ownApp = true)
+        assertEquals(1, presenter.dismissed)
+        runChecks()
+        assertEquals(1, presenter.shown.size)
+    }
+
+    @Test
+    fun aLateEventFromTheAppJustLeftDoesNotBringTheShieldBack() {
+        window("com.social")
+        interceptor.closedByPerson(home = true)
+        window("com.social", after = 300) // the app's own delayed window event
+        assertEquals(1, presenter.shown.size)
+        window("com.launcher", after = 2_000)
+        window("com.social", after = 100) // a real reopening later is shielded
+        assertEquals(2, presenter.shown.size)
+    }
 }

@@ -155,6 +155,7 @@
     <string name="today_metric_detail">%1$s protected today · %2$s spent in protected apps</string>
     <string name="today_metric_definition">Measured from your phone\'s usage records while protection was on. Time with the screen off counts as time away.</string>
     <string name="today_metric_no_access">Allow usage access so aurora can measure this. It\'s read on this phone only.</string>
+    <string name="today_metric_not_measured">Not measured yet</string>
     <string name="today_metric_allow">Allow usage access</string>
     <string name="today_metric_none">Nothing was protected yet today. Start protection, a schedule or Focus, and this starts counting.</string>
     <string name="today_light_description">Aurora Light, drawn from your progress this week</string>
@@ -458,7 +459,10 @@
     <string name="onb_first_light_eyebrow">First light</string>
     <string name="onb_first_light_title">You\'re ready.</string>
     <string name="onb_first_light_none">Add apps in Protect when you\'re ready. Today shows your time away once protection runs.</string>
-    <string name="onb_first_light_body">%1$d apps saved. Start protection from Today or Protect whenever you\'re ready.</string>
+    <plurals name="onb_first_light_body">
+        <item quantity="one">%d app saved. Start protection from Today or Protect whenever you\'re ready.</item>
+        <item quantity="other">%d apps saved. Start protection from Today or Protect whenever you\'re ready.</item>
+    </plurals>
 
     <!-- Focus -->
     <string name="focus_length_prompt">How long do you want to focus?</string>

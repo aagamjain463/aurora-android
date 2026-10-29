@@ -8,7 +8,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,7 +56,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.cooldownWait
-import app.aurora.data.ThemeMode
 import app.aurora.data.formatClock
 import app.aurora.finishIntent
 import app.aurora.grantAccess
@@ -98,12 +96,9 @@ val UsagePresets = listOf(5, 10, 15, 30)
 fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
     val app = LocalContext.current.applicationContext as AuroraApplication
     val prefs by app.preferences.preferences.collectAsStateWithLifecycle(null)
-    val dark = when (prefs?.themeMode) {
-        ThemeMode.Light -> false
-        ThemeMode.Dark -> true
-        else -> isSystemInDarkTheme()
-    }
-    AuroraTheme(darkTheme = dark, reduceMotion = prefs?.reduceMotion == true) {
+    // The Shield is always night: the same sky as Today's hero, whatever the theme. It reads as aurora at
+    // once, and never flashes white over a dark app.
+    AuroraTheme(darkTheme = true, reduceMotion = prefs?.reduceMotion == true) {
         val pkg = request.packageName
         val website = pkg.startsWith(WebPrefix)
         val label by produceState(if (website) pkg.removePrefix(WebPrefix) else "", pkg) {
@@ -417,6 +412,20 @@ private fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () ->
     var answer by remember { mutableStateOf("") }
     var misses by remember { mutableIntStateOf(0) }
     val haptics = LocalHapticFeedback.current
+    val check = {
+        if (answer.isNotBlank()) {
+            if (checkAnswer(problem, answer)) {
+                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                onSolved()
+            } else {
+                haptics.performHapticFeedback(HapticFeedbackType.Reject)
+                misses++
+                onMiss()
+                problem = mathProblem(difficulty)
+                answer = ""
+            }
+        }
+    }
     Column(Modifier.padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
         Text(stringResource(R.string.friction_math_prompt), color = colors.textSecondary, style = AuroraType.BodyStrong)
         Text(
@@ -434,22 +443,12 @@ private fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () ->
             answer, { answer = it.filter { c -> c.isDigit() || c == '-' }.take(6) },
             placeholder = stringResource(R.string.friction_math_answer),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            onDone = check,
         )
         if (misses > 0) {
             Text(stringResource(R.string.friction_math_wrong), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.dawnText, style = AuroraType.Secondary)
         }
-        AuroraButton(stringResource(R.string.friction_math_check), {
-            if (checkAnswer(problem, answer)) {
-                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                onSolved()
-            } else {
-                haptics.performHapticFeedback(HapticFeedbackType.Reject)
-                misses++
-                onMiss()
-                problem = mathProblem(difficulty)
-                answer = ""
-            }
-        }, Modifier.fillMaxWidth(), enabled = answer.isNotBlank())
+        AuroraButton(stringResource(R.string.friction_math_check), check, Modifier.fillMaxWidth(), enabled = answer.isNotBlank())
     }
 }
 

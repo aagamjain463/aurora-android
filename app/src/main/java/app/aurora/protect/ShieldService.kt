@@ -45,7 +45,7 @@ class ShieldService : AccessibilityService() {
         val app = application as AuroraApplication
         val main = Handler(Looper.getMainLooper())
         val presenter = OverlayShieldPresenter(this) { request, close -> ShieldContent(request, close) }
-        presenter.onClosed = { interceptor?.shieldHidden() }
+        presenter.onClosed = { home -> interceptor?.closedByPerson(home) }
         this.presenter = presenter
         val exempt = exemptPackages(this)
         val interceptor = Interceptor(
@@ -81,7 +81,9 @@ class ShieldService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val received = SystemClock.uptimeMillis()
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        interceptor?.onWindow(event.packageName?.toString(), event.eventTime, received)
+        // aurora's own screens (not this service's overlay) count as leaving the protected app.
+        val ownApp = event.packageName?.toString() == packageName && event.className?.toString()?.startsWith("app.aurora.") == true
+        interceptor?.onWindow(event.packageName?.toString(), event.eventTime, received, ownApp)
         if (received - lastCommitCheck > CommitCheckMs) {
             lastCommitCheck = received
             val app = application as AuroraApplication

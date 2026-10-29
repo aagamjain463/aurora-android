@@ -22,6 +22,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Brush
+import app.aurora.ui.theme.DarkColors
+import app.aurora.ui.theme.LocalAuroraColors
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -166,24 +172,33 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
     val light = h.light(date)
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + TabBarHeight + Space.XXL
 
-    LazyColumn(Modifier.fillMaxSize().background(colors.background), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottom)) {
-        // 1. The hero.
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val heroVisible by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex == 0 } }
+    NightStatusBar(heroVisible)
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottom)) {
+        // 1. The hero: always a night sky, in both themes. aurora's signature, and the one dark moment on a light day.
         item(key = "hero") {
-            Box(Modifier.fillMaxWidth().height(340.dp).background(colors.sky)) {
-                AuroraLight(light.glow, light.rise, Modifier.fillMaxSize(), description = stringResource(R.string.today_light_description))
-                Row(Modifier.statusBarsPadding().padding(horizontal = Space.Gutter, vertical = Space.S).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Wordmark(Modifier.weight(1f))
-                    AuroraIconButton(AuroraIcons.Settings, stringResource(R.string.settings_title), onOpenSettings)
+            CompositionLocalProvider(LocalAuroraColors provides DarkColors) {
+                val night = Aurora.colors
+                Box(
+                    Modifier.fillMaxWidth().height(440.dp)
+                        .clip(RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp))
+                        .background(Brush.verticalGradient(listOf(night.sky, night.background))),
+                ) {
+                    AuroraLight(light.glow, light.rise, Modifier.fillMaxWidth().height(330.dp), description = stringResource(R.string.today_light_description))
+                    Row(Modifier.statusBarsPadding().padding(horizontal = Space.Gutter, vertical = Space.S).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Wordmark(Modifier.weight(1f))
+                        AuroraIconButton(AuroraIcons.Settings, stringResource(R.string.settings_title), onOpenSettings)
+                    }
+                    Text(
+                        stringResource(R.string.today_headline),
+                        Modifier.align(Alignment.BottomStart).padding(horizontal = Space.Gutter, vertical = Space.L).semantics { heading() },
+                        color = night.textPrimary,
+                        style = AuroraType.Display,
+                    )
                 }
             }
-        }
-        item(key = "headline") {
-            Text(
-                stringResource(R.string.today_headline),
-                Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L).semantics { heading() },
-                color = colors.textPrimary,
-                style = AuroraType.Display,
-            )
         }
         // 2. Time away from protected apps.
         item(key = "metric") {
@@ -199,7 +214,7 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
                         Text(stringResource(R.string.today_metric_definition), Modifier.padding(top = 4.dp), color = colors.textTertiary, style = AuroraType.Caption)
                     }
                     AwayState.NoUsageAccess -> {
-                        Text("—", color = colors.textTertiary, style = AuroraType.Metric)
+                        Text(stringResource(R.string.today_metric_not_measured), Modifier.padding(vertical = Space.XS), color = colors.textPrimary, style = AuroraType.Headline)
                         Text(stringResource(R.string.today_metric_no_access), color = colors.textSecondary, style = AuroraType.Secondary)
                         AuroraButton(stringResource(R.string.today_metric_allow), { openAccessSettings(context, Access.Usage) }, Modifier.padding(top = Space.S), kind = ButtonKind.Secondary)
                     }
@@ -312,6 +327,9 @@ fun HomeScreen(onStartFocus: () -> Unit, onOpenProtect: () -> Unit, onStartProte
             }
         }
     }
+    // Content scrolls under a calm status bar, never under the clock.
+    if (!heroVisible) Box(Modifier.fillMaxWidth().background(colors.background.copy(alpha = 0.96f)).statusBarsPadding())
+    }
 }
 
 @Composable
@@ -319,4 +337,20 @@ private fun nextScheduleText(d: ProtectData): String {
     val zone = ZoneId.systemDefault()
     val next = d.rules.activeSchedules(d.plan).mapNotNull { s -> s.nextStart(d.time.wall, zone)?.let { s to it } }.minByOrNull { it.second }
     return if (next == null) stringResource(R.string.today_no_schedule) else stringResource(R.string.today_next_schedule, next.first.name, clockTime(next.second))
+}
+
+/** Light status-bar icons over the night hero, the theme's own once it scrolls away. */
+@Composable
+private fun NightStatusBar(overHero: Boolean) {
+    val activity = androidx.compose.ui.platform.LocalContext.current as? androidx.activity.ComponentActivity ?: return
+    val dark = Aurora.colors.isDark
+    androidx.compose.runtime.DisposableEffect(overHero, dark) {
+        val transparent = android.graphics.Color.TRANSPARENT
+        val status = if (overHero || dark) androidx.activity.SystemBarStyle.dark(transparent) else androidx.activity.SystemBarStyle.light(transparent, transparent)
+        val nav = androidx.activity.SystemBarStyle.auto(transparent, transparent) { dark }
+        activity.enableEdgeToEdge(status, nav)
+        onDispose {
+            activity.enableEdgeToEdge(androidx.activity.SystemBarStyle.auto(transparent, transparent) { dark }, nav)
+        }
+    }
 }

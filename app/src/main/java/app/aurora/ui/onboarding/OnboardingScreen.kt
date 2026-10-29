@@ -339,7 +339,7 @@ private fun FirstLight(vm: ProtectModel) {
     Text(stringResource(R.string.onb_first_light_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
     val count = data?.list?.items?.size ?: 0
     Text(
-        if (count == 0) stringResource(R.string.onb_first_light_none) else stringResource(R.string.onb_first_light_body, count),
+        if (count == 0) stringResource(R.string.onb_first_light_none) else androidx.compose.ui.res.pluralStringResource(R.plurals.onb_first_light_body, count, count),
         color = colors.textSecondary, style = AuroraType.Body,
     )
 }

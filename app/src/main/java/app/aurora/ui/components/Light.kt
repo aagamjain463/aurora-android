@@ -40,7 +40,7 @@ fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth:
     LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, tween(1800, easing = Motion.Ease)) }
     Canvas(modifier.semantics { if (description != null) contentDescription = description }) {
         val k = shown.value
-        val g = (0.22f + 0.78f * glow.coerceIn(0f, 1f)) * k
+        val g = (0.4f + 0.6f * glow.coerceIn(0f, 1f)) * k
         val w = size.width
         val h = size.height
         val rim = h * 0.80f

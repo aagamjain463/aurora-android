@@ -74,7 +74,11 @@ class Interceptor(
     /** Counts every window event except overlays, so a delayed check can tell whether anything happened. */
     private var windows = 0L
 
-    fun onWindow(packageName: String?, eventUptime: Long, receivedUptime: Long) {
+    /** [ownApp]: one of aurora's own screens came to the front, so the person left the protected app. */
+    fun onWindow(packageName: String?, eventUptime: Long, receivedUptime: Long, ownApp: Boolean = false) {
+        // A late event from the app the person just left with Return home (one opening sends 2–3, spread
+        // over half a second) is not a new opening. Without this the Shield reappeared over the home screen.
+        if (packageName != null && packageName == leftApp && uptime() - leftAt < LeftGraceMs) return
         val current = snapshot()
         val decision = decide(packageName, wallClock(), current)
         trace.decided(decision, receivedUptime)
@@ -89,6 +93,13 @@ class Interceptor(
             packageName == ownPackage -> {
                 interrupted = true
                 onForeground(null)
+                if (ownApp && shownFor != null) {
+                    presenter.dismiss()
+                    leftApp = shownFor
+                    leftAt = uptime()
+                    shownFor = null
+                    lastApp = null
+                }
             }
             // A real app or the launcher is in front. A Shield started for an earlier app must not
             // appear over it, or stay behind it.
@@ -159,6 +170,26 @@ class Interceptor(
         confirm(pkg, attempt = 0)
     }
 
+    /**
+     * The person closed the Shield. Home: they left the app, so nothing is re-checked until the next
+     * window. Access granted: the app is allowed now, and is watched so the Shield returns when it ends.
+     */
+    fun closedByPerson(home: Boolean) {
+        val pkg = shownFor
+        shownFor = null
+        watchToken++
+        if (home) {
+            leftApp = pkg
+            leftAt = uptime()
+            lastApp = null
+        } else {
+            recheck()
+        }
+    }
+
+    private var leftApp: String? = null
+    private var leftAt = 0L
+
     /** The presenter reports that the Shield left the screen without the person closing it. */
     fun shieldHidden() {
         shownFor?.let { confirm(it, attempt = 0) }
@@ -193,6 +224,7 @@ class Interceptor(
         const val ConfirmRetries = 3
 
         const val MinWatchMs = 250L
+        const val LeftGraceMs = 1_000L
         const val MaxWatchMs = 60_000L
     }
 }
