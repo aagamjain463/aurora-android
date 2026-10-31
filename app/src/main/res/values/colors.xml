@@ -1,7 +1,7 @@
 <resources>
     <color name="aurora_window">#080A0F</color>
-    <color name="aurora_splash">#050609</color>
-    <color name="aurora_icon_background">#050609</color>
+    <!-- The midnight green behind the approved logo, sampled from brand/final/aurora-final-logo.png. -->
+    <color name="aurora_splash">#021816</color>
     <!-- Palette tokens (brand/tokens/aurora.tokens.json) used outside Compose: notification and widget. -->
     <color name="aurora_accent">#4BEA55</color>
     <color name="widget_top">#0F1416</color>

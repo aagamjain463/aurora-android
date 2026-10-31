@@ -50,8 +50,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // The splash is the same night as the opening behind it. The mark finishes drawing and holds a moment,
-            // then fades, and only then does the opening start.
+            // The approved symbol holds a moment on its midnight green, then fades, and only then does the opening start.
             splashScreen.setOnExitAnimationListener { splash ->
                 val drawn = splash.iconAnimationStart?.plus(splash.iconAnimationDuration)
                 val left = if (drawn == null) 0L else java.time.Duration.between(java.time.Instant.now(), drawn).toMillis().coerceAtLeast(0L)
@@ -87,5 +86,5 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** How long the finished mark holds on the splash before it fades. */
+/** How long the symbol holds on the splash before it fades. */
 private const val LogoHoldMs = 500L

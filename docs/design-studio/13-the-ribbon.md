@@ -1,3 +1,5 @@
+> **Logo superseded.** The Ribbon symbol described here was replaced by the founder-approved logo, `brand/final/aurora-final-logo.png`. Its generator and SVGs were removed; see `brand/final/README.md`. The rest of this document still stands.
+
 # 13: The Ribbon
 
 30 October 2026. The founder pointed at real footage of the aurora over Alaska (Nature Relaxation Films,

@@ -178,13 +178,7 @@ fun AuroraUnveil(interactive: Boolean, modifier: Modifier = Modifier) {
             alpha = ((v - 0.06f) / 0.14f).coerceIn(0f, 1f) * (1f - ((v - PartAt) / 0.1f).coerceIn(0f, 1f))
             translationY = (1f - Motion.Ease.transform((v / 0.3f).coerceIn(0f, 1f))) * 12.dp.toPx() - ((v - PartAt).coerceAtLeast(0f)) * 240.dp.toPx()
         }
-        AuroraMark(84.dp, Modifier.align(Alignment.Center).offset(y = (-132).dp).then(lockup))
-        Text(
-            stringResource(R.string.app_name),
-            Modifier.align(Alignment.Center).offset(y = (-48).dp).then(lockup),
-            color = DarkColors.textPrimary,
-            style = AuroraType.Wordmark.copy(fontSize = 62.sp, lineHeight = 64.sp),
-        )
+        AuroraLogo(280.dp, Modifier.align(Alignment.Center).offset(y = (-88).dp).then(lockup))
         if (interactive) {
             val hint = remember { Animatable(0f) }
             LaunchedEffect(holding) { hint.animateTo(if (holding) 1f else 0f, tween(if (holding) Motion.Gentle else Motion.Quick)) }

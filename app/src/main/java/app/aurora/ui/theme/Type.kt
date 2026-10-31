@@ -20,7 +20,7 @@ private fun geist(weight: Int) = Font(
 val Geist = FontFamily(geist(400), geist(420), geist(500), geist(560))
 
 /**
- * Cormorant Garamond (SIL OFL): headlines, the wordmark and every big number. Its fine strokes are light on a night sky.
+ * Cormorant Garamond (SIL OFL): headlines and every big number. Its fine strokes are light on a night sky.
  * Its letters are small for their size, so it is set larger than most serifs, and never below [AuroraType.DisplayS].
  */
 val Cormorant = FontFamily(Font(
@@ -69,8 +69,6 @@ object AuroraType {
     val Caption = style(13, 18, 500, 0.002, "tnum")
     /** Section labels: sentence case, tracked, firm. */
     val Eyebrow = style(13, 16, 560, 0.018)
-    /** "Aurora", title case, in Cormorant, set beside the symbol. */
-    val Wordmark = style(31, 32, 500, -0.01).copy(fontFamily = Cormorant)
 }
 
 val MaterialTypography = Typography(

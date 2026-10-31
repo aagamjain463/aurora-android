@@ -11,6 +11,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,11 +50,6 @@ import androidx.compose.ui.unit.dp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Motion
-import app.aurora.ui.theme.Palette.Aurora300
-import app.aurora.ui.theme.Palette.Aurora400
-import app.aurora.ui.theme.Palette.Aurora600
-import app.aurora.ui.theme.Palette.Aurora700
-import app.aurora.ui.theme.Palette.Starlight
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -77,39 +73,45 @@ fun LoadingSurface(modifier: Modifier = Modifier) {
     }
 }
 
-/** The wordmark: "Aurora", title case, Cormorant Medium. Always beside or below the symbol, never restyled. */
-@Composable
-fun Wordmark(modifier: Modifier = Modifier, color: Color = Aurora.colors.textPrimary) {
-    Text("Aurora", modifier, color = color, style = AuroraType.Wordmark)
-}
-
 /**
- * The Aurora symbol, the Ribbon: a solid dome of sky that is also an A, its crossbar a ribbon of light cut clean through
- * it, with rays rising above the ribbon. Paths come from brand/tools/logo.py, the source of the SVG masters and every icon.
+ * The official logo, symbol over wordmark, cut from brand/final/aurora-final-logo.png. It is light lifted off
+ * the master's midnight, so it belongs on Aurora's night and nowhere paler.
  */
 @Composable
-fun AuroraMark(size: Dp, modifier: Modifier = Modifier, mono: Color? = null) {
-    Canvas(modifier.size(size).clearAndSetSemantics { }) { drawAuroraMark(this.size.minDimension, mono) }
+fun AuroraLogo(width: Dp, modifier: Modifier = Modifier) {
+    Image(
+        androidx.compose.ui.res.painterResource(app.aurora.R.drawable.logo_full),
+        androidx.compose.ui.res.stringResource(app.aurora.R.string.app_name),
+        modifier.width(width).aspectRatio(LogoAspect),
+    )
 }
 
-private fun parsed(paths: List<String>) = paths.map { androidx.compose.ui.graphics.vector.PathParser().parsePathString(it).toPath() }
-private val MarkShapes by lazy { parsed(MarkPaths) }
-private val MarkRayShapes by lazy { parsed(MarkRays) }
-
-/** Draws the symbol in a [side]-sized square at the origin. */
-fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAuroraMark(side: Float, mono: Color? = null) {
-    scale(side / 100f, pivot = Offset.Zero) {
-        if (mono != null) {
-            MarkShapes.forEach { drawPath(it, mono) }
-            return@scale
-        }
-        drawPath(MarkShapes[0], Brush.verticalGradient(0f to Starlight, 0.34f to Aurora300, 1f to Aurora400, startY = 6f, endY = 62f))
-        val ray = Brush.verticalGradient(listOf(Color.Transparent, Aurora700.copy(alpha = 0.20f)), startY = 20f, endY = 60f)
-        MarkRayShapes.forEach { drawPath(it, ray) }
-        val legs = Brush.verticalGradient(listOf(Aurora400, Aurora600), startY = 54f, endY = 94f)
-        MarkShapes.drop(1).forEach { drawPath(it, legs) }
-    }
+/** The approved wordmark, as drawn in the master. Always beside or below the symbol, never reset in a font. */
+@Composable
+fun Wordmark(modifier: Modifier = Modifier) {
+    val name = androidx.compose.ui.res.stringResource(app.aurora.R.string.app_name)
+    Image(
+        androidx.compose.ui.res.painterResource(app.aurora.R.drawable.logo_wordmark),
+        null,
+        modifier.height(LockupMark * 0.8f).clearAndSetSemantics { semanticsText(androidx.compose.ui.text.AnnotatedString(name)) },
+        alignment = androidx.compose.ui.Alignment.CenterStart,
+        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+    )
 }
+
+/** The approved symbol, [size] tall, on Aurora's night. Decorative: the wordmark or the screen says the name. */
+@Composable
+fun AuroraMark(size: Dp, modifier: Modifier = Modifier) {
+    Image(
+        androidx.compose.ui.res.painterResource(if (size <= 40.dp) app.aurora.R.drawable.logo_symbol_small else app.aurora.R.drawable.logo_symbol),
+        null,
+        modifier.height(size).aspectRatio(SymbolAspect),
+    )
+}
+
+// The shapes of the cuts in brand/tools/final_logo.py.
+private const val LogoAspect = 980f / 844f
+private const val SymbolAspect = 980f / 672f
 
 /** The symbol beside the wordmark: sized in dp, so it grows with text size to keep the lockup balanced. */
 val LockupMark: androidx.compose.ui.unit.Dp

@@ -24,7 +24,7 @@ Motion `Motion`: Quick 120 · Standard 240 · Gentle 420 · Reveal 900 · Breath
 | `AuroraSky(sky, glow)`, `Sky` | Sky.kt | Living aurora over the art; pass `sky`/`glow` to the backdrop |
 | `Modifier.auroraSurface(colors, shape, edge, warm)` | Backdrop.kt | The one card surface: top-lit gradient, top-bright hairline; `edge` = mode colour, `warm` = sun cards |
 | `LightRing(progress)` | Backdrop.kt | Focus timer ring with art window |
-| `AuroraMark`, `Wordmark`, `AuroraHeader`, `TwoToneHeadline` | Brand.kt | Identity; two-tone keeps exact copy in semantics |
+| `AuroraLogo`, `AuroraMark`, `Wordmark`, `AuroraHeader`, `TwoToneHeadline` | Brand.kt | Identity; two-tone keeps exact copy in semantics |
 | `AuroraButton(kind)` | Buttons.kt | Primary (the aurora sweep), Secondary, Quiet, Danger; `compact` for card headers |
 | `AuroraNavBar` | Scaffold.kt | Lifted panel, selected pill, rising-point dot |
 | `AuroraScreen(art=…)` | Scaffold.kt | Large-title list screen; with `art` the top bar stays clear until collapsed |
@@ -91,7 +91,7 @@ could drive figma.com, but that needs the founder's sign-in and uploads private 
 party. Both are approval-gated, and pixel-driving a full component library through the browser would
 produce a fragile, unverified copy of what the code already defines. The editable deliverables instead:
 
-- SVG masters: `brand/logo/*.svg`, which import into Figma, Penpot or Inkscape as editable vectors.
+- Logo master and cuts: `brand/final/` (see its README). The SVGs there are editable approximations of the raster master
 - `brand/tokens/aurora.tokens.json`, which imports into Figma with the Tokens Studio plugin or into
   Penpot tokens.
 - `docs/design-studio/brand-specimen.html`, a living specimen of the symbol, palette and type.

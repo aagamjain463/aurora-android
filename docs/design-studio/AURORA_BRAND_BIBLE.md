@@ -16,14 +16,15 @@ Detail lives in the numbered studio docs; this page is the rulebook.
 
 ## 2. Logo
 
-- Symbol: the Ribbon. A solid dome of sky that is also an A. Its crossbar is a ribbon of light cut clean through it,
-  widening as it travels, with soft rays above it. Starlight at the crown, falling through aurora green to emerald. `brand/tools/logo.py` generates the SVG masters in `brand/logo/`, the
-  launcher, themed and status icons, the splash and the Compose paths (`MarkPaths.kt`).
-- Wordmark: "Aurora", Cormorant Garamond 500, title case. Never lowercase, never another font.
-- Lockup: symbol left, wordmark right. On tab screens use `AuroraHeader`.
-- The app icon sets the symbol on night with one soft glow.
-- Do: use it on night, at 16dp or more, in full colour or one colour.
-- Don't: recolour it, close the ribbon's gap, draw the rays in one colour, put it in a box, rotate it, or set "aurora" lowercase.
+- **The master is `brand/final/aurora-final-logo.png`, chosen by the founder. It is never edited, regenerated or reinterpreted.** `LogoMasterTest` holds its checksum.
+- Symbol: a capital A formed from flowing, translucent northern lights ribbons, emerald at the left into warm gold at the right, on midnight green.
+- Wordmark: "Aurora" as drawn in the master. It is artwork, not a font: use `Wordmark`, never type it out in Cormorant or anything else.
+- Tagline: "Your phone. Your rules." It stays separate from the logo artwork.
+- In the app: `AuroraLogo` (symbol over wordmark), `AuroraMark` (symbol), `Wordmark`. On tab screens use `AuroraHeader`. All are cut from the master by `brand/tools/final_logo.py`; see `brand/final/README.md`.
+- The app icon sets the symbol on the master's midnight green, without the wordmark.
+- The cutouts are light lifted off a dark ground, so use them on night or midnight only. There is no version for pale backgrounds.
+- The vectors in `brand/final/` are approximations for editing and for sizes under about 20dp. Never use them where the raster fits.
+- Don't: recolour it, redraw it, rearrange symbol and wordmark, put it in a box, rotate it, or merge the tagline into it.
 
 ## 3. Colour
 
@@ -125,11 +126,11 @@ The brand continues where people meet it without opening Aurora, always quiet an
 
 - **Ongoing notification** (`SessionNotification`): only while a timed session or Focus runs; title
   is the session, text is the mode and the end time; a native countdown; Android 16 progress style.
-  Always sessions never post one. Small icon is the one-colour symbol (`ic_stat_aurora`).
-- **Widget** (`AuroraWidget`): night surface, mark, gold eyebrow, Cormorant title. Idle it carries the
+  Always sessions never post one. Small icon is the one-colour silhouette of the symbol (`ic_stat_aurora`).
+- **Widget** (`AuroraWidget`): night surface, the small-size symbol (`ic_mark`), gold eyebrow, Cormorant title. Idle it carries the
   promise; running it names the session and counts down.
 - **Quick Settings tile** (`AuroraTile`): lit while protection runs, naming it.
-- **Splash**: the outer arc lights, then the inner (`splash_icon_animated`), then run straight into the opening.
+- **Splash**: the approved symbol still on midnight green (`splash_symbol`), then the opening with the full logo.
 - **The opening** (`AuroraUnveil`): see section 8.
 - **Store art**: `brand/tools/store.sh` frames the verified dark baselines; the feature graphic is the
   lockup and the promise over First Light.

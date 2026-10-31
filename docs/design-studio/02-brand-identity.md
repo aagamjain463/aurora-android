@@ -1,3 +1,5 @@
+> **Logo superseded.** The logo described here was replaced by the founder-approved `brand/final/aurora-final-logo.png`. See `brand/final/README.md`.
+
 # 02 — Brand identity
 
 ## Positioning

@@ -262,7 +262,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
         }
         item(key = "signature") {
             Column(Modifier.fillMaxWidth().padding(top = Space.XXL), horizontalAlignment = Alignment.CenterHorizontally) {
-                AuroraMark(28.dp)
+                app.aurora.ui.components.AuroraLogo(112.dp)
                 Spacer(Modifier.height(Space.S))
                 Text(stringResource(R.string.settings_take_back_your_attention), color = colors.textTertiary, style = AuroraType.Caption)
             }
