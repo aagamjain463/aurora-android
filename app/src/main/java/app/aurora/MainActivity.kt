@@ -3,7 +3,6 @@ package app.aurora
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import android.os.Process
 import android.os.SystemClock
 import android.view.ViewTreeObserver
 import android.view.accessibility.AccessibilityManager
@@ -52,11 +51,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // The splash started with the process, or with this activity if Shield had the process running already.
         val created = SystemClock.elapsedRealtime()
-        val forked = Process.getStartElapsedRealtime()
-        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && created - forked < ColdStartMs) forked else created
-        // Nothing to draw until the preferences say which screen it is: the splash keeps running over that moment.
+        // Nothing to draw until the preferences say which screen it is: the empty splash stays over that moment.
         window.decorView.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
                 val go = ready || SystemClock.elapsedRealtime() - created > ReadyWaitMs
@@ -66,7 +62,7 @@ class MainActivity : ComponentActivity() {
         })
         val away = if (lastSeenAt == 0L) null else SystemClock.elapsedRealtime() - lastSeenAt
         val exploring = getSystemService(AccessibilityManager::class.java)?.isTouchExplorationEnabled == true
-        if (opensWithFirstLight(savedInstanceState != null, away, exploring)) Opening.play(started) else Opening.finish()
+        if (opensWithFirstLight(savedInstanceState != null, away, exploring)) Opening.play() else Opening.finish()
         val aurora = application as AuroraApplication
         val preferences = aurora.preferences
 
@@ -107,6 +103,5 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private const val ColdStartMs = 5000L
 private const val ReadyWaitMs = 1000L
 private const val PageRiseDp = 18

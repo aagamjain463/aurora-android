@@ -5,7 +5,6 @@ import android.graphics.BitmapShader
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
-import android.os.SystemClock
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -59,13 +58,9 @@ object Opening {
     /** How far the page still has to rise into place, 1 to 0. Read it in a layer: it changes every frame. */
     var lift by mutableFloatStateOf(0f)
 
-    /** When the logo started forming on the system splash, on the elapsed-realtime clock. The opening carries on from there. */
-    var startedAt = 0L
-        private set
-
     /** Back to a running session: no formation, just the finished logo fading off the page. */
     var brief by mutableStateOf(false)
-    fun play(startedAt: Long = 0L) { this.startedAt = startedAt; brief = false; playing = true; covering = true; pageHidden = false; leaving = false; lift = 1f }
+    fun play() { brief = false; playing = true; covering = true; pageHidden = false; leaving = false; lift = 1f }
     fun hidePage() { pageHidden = true }
     fun part() { covering = false; pageHidden = false }
     fun leave() { leaving = true }
@@ -89,17 +84,15 @@ internal fun opensWithFirstLight(recreated: Boolean, awayMs: Long?, touchExplori
 internal fun stepOpening(p: Float, dt: Float, ms: Int): Float = (p + dt * 1000f / ms).coerceAtMost(1f)
 
 /**
- * First Light: the approved logo forms along its own ribbons on midnight green, holds a moment, and the night fades
- * off the real page as it rises into place. It takes up from where the system splash has got to, so a slow start
- * spends the formation instead of adding to it, and never spends more than [LatestStart] of it. A tap hurries it.
- * With reduced motion the finished logo fades straight away. It only ever draws, so nothing else waits on it.
+ * First Light: the approved logo forms along its own ribbons on midnight green, holds, and the night fades off the
+ * real page as it rises into place. This is the only place the logo animates: the system splash before it is empty
+ * midnight green, so the logo can't form twice. A tap hurries it. With reduced motion the finished logo fades straight
+ * away. It only ever draws, so nothing else waits on it.
  */
 @Composable
 fun AuroraUnveil(modifier: Modifier = Modifier) {
     val reduced = Aurora.reducedMotion
-    var p by remember {
-        mutableFloatStateOf(if (reduced) PartAt else ((SystemClock.elapsedRealtime() - Opening.startedAt).toFloat() / TotalMs).coerceIn(0f, LatestStart))
-    }
+    var p by remember { mutableFloatStateOf(if (reduced) PartAt else 0f) }
     var pace by remember { mutableIntStateOf(if (reduced) ReducedMs else TotalMs) }
     LaunchedEffect(Unit) {
         if (reduced) Opening.lift = 0f
@@ -198,29 +191,27 @@ private fun rememberReveal(logo: ImageBitmap): Reveal {
 private fun linear(image: ImageBitmap) =
     BitmapShader(image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { filterMode = BitmapShader.FILTER_MODE_LINEAR }
 
-private const val TotalMs = 1550
-private const val FormMs = 1000
+private const val TotalMs = 4500
+private const val FormMs = 3000
 private const val HurryMs = 350
-private const val ReducedMs = 700
+private const val ReducedMs = 1000
 private const val PageReadyFrames = 3
-/** A start slower than this still gets the end of the formation and the rest of the opening, never more. */
-private const val LatestStart = 0.60f
 /** The finished logo has held for its moment: the night starts to fade and the page rises. */
-private const val PartAt = 1150f / TotalMs
+private const val PartAt = 3700f / TotalMs
 /** The sky over the page can start to rise. */
-private const val LeaveAt = 1200f / TotalMs
+private const val LeaveAt = 3800f / TotalMs
 private const val RiseDp = 14f
 private const val HaloDp = 230f
 private const val ReopenAfterMs = 5 * 60 * 1000L
 
-// The same placement as the splash icon (brand/tools/final_logo.py), so the logo doesn't move at the handover.
+// The same size and centre as the still splash icon (brand/tools/final_logo.py).
 private const val LogoDpPerMasterPx = 1f / 5.625f
 private const val LogoMasterWidth = 980f
 private const val LogoMasterHeight = 844f
 private const val LogoCentreX = 485f
 private const val LogoCentreY = 382f
 
-/** The sums match frame() in brand/tools/first_light.py, which draws the splash icon. At p = 1 this is the raster, untouched. */
+/** Times come from brand/tools/first_light.py. At p = 1 this is the raster, untouched. */
 private const val UnveilSource = """
 uniform shader logo;
 uniform shader reveal;

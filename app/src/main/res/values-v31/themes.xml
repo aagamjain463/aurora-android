@@ -1,13 +1,12 @@
 <resources>
     <style name="Theme.Aurora" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/aurora_window</item>
-        <!-- Android 12+ splash: the approved symbol forms on the midnight green of its master; AuroraUnveil carries it on. -->
+        <!-- Android 12+ splash: empty midnight green. The logo forms once, in the opening (AuroraUnveil). -->
         <item name="android:windowSplashScreenBackground">@color/aurora_splash</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon_first_light</item>
-        <item name="android:windowSplashScreenAnimationDuration">1000</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
     </style>
 
-    <!-- With reduced motion: the finished symbol, still. The system remembers it for the next launch. -->
+    <!-- With reduced motion: the finished symbol, still. The opening shows the same still logo, so it never forms. -->
     <style name="Theme.Aurora.StillSplash">
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_symbol</item>
     </style>
