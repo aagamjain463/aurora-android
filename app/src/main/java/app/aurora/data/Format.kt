@@ -1,12 +1,13 @@
 package app.aurora.data
 
-/** "2h 14m", "14m", "<1m". Calm and glanceable; never seconds. */
+/** "2h 14m", "14m", "Under 1m". Calm and glanceable; never seconds. */
 fun formatDuration(ms: Long): String {
     val minutes = ms / 60_000
     val h = minutes / 60
     val m = minutes % 60
     return when {
-        minutes < 1 -> "<1m"
+        ms <= 0L -> "0m"
+        minutes < 1 -> "Under 1m"
         h == 0L -> "${m}m"
         m == 0L -> "${h}h"
         else -> "${h}h ${m}m"

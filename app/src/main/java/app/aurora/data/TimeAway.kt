@@ -1,16 +1,31 @@
 package app.aurora.data
 
+import java.time.DayOfWeek
+import java.time.LocalDate
+
 /*
- * Time away from protected apps: Today's main number (docs/PRODUCT.md "Time away"). Pure, unit tested
- * (TimeAwayTest).
+ * Time Reclaimed: Home's main numbers (docs/PRODUCT.md "Time away"). Pure, unit tested (TimeAwayTest).
  *
- * Definition. Take every span today when protection covered some apps (sessions, schedule windows,
+ * Definition. Take every span in a day when protection covered some apps (sessions, schedule windows,
  * Focus), clipped to [from, now). Their union is the protected time; overlapping protection is counted
  * once. Inside each span, subtract the moments one of *that span's* apps was in front, from Android's
  * usage records, including use during an access grant or an intentional session. What remains is time
- * away. Screen-off time counts as away: the protected apps weren't being used. It is not "time saved"
- * or "productive time", and the screen never calls it that.
+ * away, never the time someone set on a timer. Screen-off time counts as away: the protected apps
+ * weren't being used.
  */
+
+/** Past days measurable after the fact: Android keeps usage events for about a week. */
+const val UsageKeepDays = 6
+
+/** Time Reclaimed today, this week (from Monday) and overall. */
+data class Reclaimed(val todayMs: Long, val weekMs: Long, val overallMs: Long)
+
+/** Totals from [settled] past days (ISO date to time away) and today so far. */
+fun reclaimed(settled: Map<String, Long>, todayMs: Long, today: LocalDate): Reclaimed {
+    val past = settled.filterKeys { it < today.toString() }
+    val monday = today.with(DayOfWeek.MONDAY).toString()
+    return Reclaimed(todayMs, todayMs + past.filterKeys { it >= monday }.values.sum(), todayMs + past.values.sum())
+}
 
 /** A protection span over [keys]. */
 data class ProtectedSpan(val start: Long, val end: Long, val keys: Set<String>)

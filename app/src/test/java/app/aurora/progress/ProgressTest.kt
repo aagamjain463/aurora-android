@@ -1,7 +1,5 @@
 package app.aurora.progress
 
-import app.aurora.protect.Goal
-import app.aurora.protect.GoalKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -33,7 +31,7 @@ class ProgressTest {
 
     @Test
     fun levelsGrowGently() {
-        assertEquals(Level(1, "First light", 0, 100), levelFor(0))
+        assertEquals(Level(1, "First glow", 0, 100), levelFor(0))
         assertEquals(2, levelFor(100).number)
         assertEquals(3, levelFor(250).number)
         assertEquals(0.5f, levelFor(175).progress)
@@ -59,16 +57,39 @@ class ProgressTest {
         assertEquals(3, h.record(today) { it.copy(wentBack = 1) }.steadyDays(today))
     }
 
+
     @Test
-    fun goalsAreHonestAboutWhatIsMeasured() {
-        val focus = Goal("f", GoalKind.FocusAtLeast, 30)
-        assertEquals(GoalDay(20, null), focus.on(DayStats(focusMinutes = 20), null, null, dayOver = false))
-        assertEquals(GoalDay(20, false), focus.on(DayStats(focusMinutes = 20), null, null, dayOver = true))
-        assertEquals(GoalDay(30, true), focus.on(DayStats(focusMinutes = 30), null, null, dayOver = false))
-        val screen = Goal("s", GoalKind.ScreenTimeUnder, 120)
-        assertEquals(GoalDay(null, null), screen.on(DayStats(), screenMinutes = null, protectedMinutes = null, dayOver = true))
-        assertEquals(GoalDay(150, false), screen.on(DayStats(), 150, null, dayOver = false))
-        assertEquals(GoalDay(90, true), screen.on(DayStats(), 90, null, dayOver = true))
-        assertNull(Goal("o", GoalKind.OpensUnder, 2).on(DayStats(continued = 1), null, null, false).met)
+    fun reportedFocusEarnsXpOnceOnTheDayItBegan() {
+        val zone = java.time.ZoneOffset.UTC
+        val day = java.time.LocalDate.of(2026, 10, 20)
+        val start = day.atTime(23, 30).toInstant(zone).toEpochMilli()
+        val run = RunRecord("r", "c", "Study", start = start, end = start + 3_600_000L, focusTask = "Maths", focusPlannedMs = 3_600_000L)
+        val waiting = History().withRun(run, zone)
+        assertEquals(0, waiting.totalXp())
+        val done = waiting.withRun(run.copy(focus = app.aurora.protect.FocusOutcome.Completed), zone)
+        assertEquals(12, done.day(day).xp())
+        assertEquals(60, done.day(day).completedFocusMinutes)
+        assertEquals(1, done.day(day).focusSessions)
+        // Reporting again changes nothing; changing the answer takes the XP back.
+        assertEquals(done.days, done.withRun(done.runs.single(), zone).days)
+        val notDone = done.withRun(run.copy(focus = app.aurora.protect.FocusOutcome.NotCompleted), zone)
+        assertEquals(0, notDone.totalXp())
+        assertEquals(1, notDone.day(day).focusSessions)
+    }
+
+    @Test
+    fun replacingARunKeepsItsPlaceInTheList() {
+        val a = RunRecord("a", "c", "A", start = 0, end = 1)
+        val b = RunRecord("b", "c", "B", start = 2, end = 3)
+        val h = History().withRun(a).withRun(b).withRun(a.copy(name = "A2"))
+        assertEquals(listOf("A2", "B"), h.runs.map { it.name })
+    }
+
+    @Test
+    fun aRunSettledLateIsCorrectedToItsPlannedEnd() {
+        val late = RunRecord("a", "c", "A", start = 0, plannedEnd = 60_000, end = 1_000_000)
+        val off = RunRecord("b", "c", "B", start = 0, plannedEnd = 60_000, end = 10_000, turnedOff = true)
+        val always = RunRecord("d", "c", "D", start = 0, end = 1_000_000)
+        assertEquals(listOf(60_000L, 10_000L, 1_000_000L), History(runs = listOf(late, off, always)).withLateRunsCorrected().runs.map { it.end })
     }
 }

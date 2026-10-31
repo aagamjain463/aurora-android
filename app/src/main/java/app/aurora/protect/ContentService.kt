@@ -58,7 +58,7 @@ class ContentService : AccessibilityService() {
         val host = hostOf(bar.text?.toString() ?: return) ?: return
         val state = app.policySnapshot(emptySet(), emptyMap()) ?: return
         val key = webKeyFor(host, state.protectedPackages) ?: return
-        val decision = decide(key, System.currentTimeMillis(), state) as? Decision.Shield ?: return
+        val decision = decide(key, TrustedClock.wall(), state) as? Decision.Shield ?: return
         if (key == lastKey && now - lastAt < RepeatMs) return
         lastKey = key
         lastAt = now

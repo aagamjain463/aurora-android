@@ -27,16 +27,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.activate
 import app.aurora.alwaysBlockLeft
+import app.aurora.protect.strict
+import app.aurora.ui.strict.UninstallProtection
 import app.aurora.auroraViewModel
 import app.aurora.newId
 import app.aurora.protect.ActivationProblem
-import app.aurora.protect.BuiltIn
-import app.aurora.protect.BuiltInIntents
-import app.aurora.protect.BuiltInShields
 import app.aurora.protect.FocusPlan
-import app.aurora.protect.FrictionSettings
-import app.aurora.protect.IntentConfig
-import app.aurora.protect.IntentExpiry
 import app.aurora.protect.IntentPreset
 import app.aurora.protect.Mode
 import app.aurora.protect.ShieldPreset
@@ -66,7 +62,6 @@ import app.aurora.ui.components.clockTime
 import app.aurora.ui.components.minutesText
 import app.aurora.ui.library.PickRow
 import app.aurora.ui.library.StepFlow
-import app.aurora.ui.library.appChecklist
 import app.aurora.ui.library.shieldDetail
 import app.aurora.ui.library.stepTitle
 import app.aurora.ui.protect.IconStack
@@ -80,8 +75,6 @@ import app.aurora.ui.protect.daysText
 import app.aurora.ui.protect.intentSummary
 import app.aurora.ui.protect.minuteOfDay
 import app.aurora.ui.protect.modeColor
-import app.aurora.ui.protect.modeDescription
-import app.aurora.ui.protect.modeName
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
@@ -94,24 +87,25 @@ import java.time.format.FormatStyle
 
 enum class When { Now, Later, Recurring, Always }
 
-private enum class Step { Saved, Contents, ShieldApps, ShieldMode, IntentApps, Name, When, Timing, Focus, Review }
-
-/** The built-in Intent settings: a short pause and a reminder, or a longer pause and a cooldown. */
-private fun builtInIntentConfig(b: BuiltIn) = if (b.id == "builtin:mindful-social") IntentConfig(reflectionSeconds = 15)
-else IntentConfig(reflectionSeconds = 30, expiry = IntentExpiry.Cooldown, cooldownMinutes = 30)
+/**
+ * What (contents, and a name for a custom configuration), When (the timing and its settings on one
+ * screen), then Review (where Focus is an optional addition). A configuration made for a Goal is saved
+ * after What and Focus.
+ */
+private enum class Step { Saved, Contents, When, Focus, Review }
 
 /**
- * Home's one activation flow, for Normal Use ([custom] false: built-in presets, set for this use) and
- * Custom Configuration (saved presets, named and saved so it can be started again and linked to a Habit).
+ * Home's one activation flow. Normal Session ([custom] false) and Custom Session build from the same saved
+ * presets in the same steps; only a custom one is named and saved, to start again and link to a Goal.
  * Contents, when, how long, optional Focus, review. [createdShield]/[createdIntent] are presets the person
- * just made from here, selected on return. [forHabit]: save without starting is the main action.
+ * just made from here, selected on return. [forGoal]: save without starting is the main action.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ConfigureScreen(
     custom: Boolean,
     configId: String?,
-    forHabit: Boolean,
+    forGoal: Boolean,
     createdShield: String?,
     createdIntent: String?,
     onBack: () -> Unit,
@@ -126,8 +120,6 @@ fun ConfigureScreen(
 ) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
-    val apps by vm.apps.collectAsStateWithLifecycle()
-    val exempt by vm.exempt.collectAsStateWithLifecycle()
     val d = data ?: return
     val colors = Aurora.colors
     val zone = ZoneId.systemDefault()
@@ -138,14 +130,6 @@ fun ConfigureScreen(
     var name by rememberSaveable { mutableStateOf(start?.name.orEmpty()) }
     var shieldId by rememberSaveable { mutableStateOf(start?.shieldId) }
     var intentId by rememberSaveable { mutableStateOf(start?.intentId) }
-    // Normal Use: a built-in template, the apps for this use, and the mode.
-    var shieldBuiltIn by rememberSaveable { mutableStateOf<String?>(null) }
-    var intentBuiltIn by rememberSaveable { mutableStateOf<String?>(null) }
-    var shieldKeys by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var intentKeys by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var mode by rememberSaveable { mutableStateOf(Mode.Flexible) }
-    var wait by rememberSaveable { mutableStateOf<Int?>(1) }
-    var query by rememberSaveable { mutableStateOf("") }
 
     var whenKind by rememberSaveable { mutableStateOf(startWhen) }
     var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -163,24 +147,17 @@ fun ConfigureScreen(
     var focusMinutes by rememberSaveable { mutableStateOf(start?.focus?.minutes) }
     var committed by rememberSaveable { mutableStateOf(false) }
     var problem by rememberSaveable { mutableStateOf<ActivationProblem?>(null) }
-    var step by rememberSaveable { mutableStateOf(startStep?.let { Step.valueOf(it) } ?: if (custom && start == null && saved.isNotEmpty() && !forHabit) Step.Saved else Step.Contents) }
+    var step by rememberSaveable { mutableStateOf(startStep?.let { Step.valueOf(it) } ?: if (custom && start == null && saved.isNotEmpty() && !forGoal) Step.Saved else Step.Contents) }
 
     var deleting by remember { mutableStateOf<UsageConfig?>(null) }
     LaunchedEffect(createdShield) { if (createdShield != null) shieldId = createdShield }
     LaunchedEffect(createdIntent) { if (createdIntent != null) intentId = createdIntent }
 
-    val installed = apps?.map { it.packageName }?.toSet()
-    fun suggested(b: BuiltIn) = b.suggested.filter { installed == null || it in installed }
-
-    // The configuration as it stands, built from either the saved presets or the built-ins.
-    val shield: ShieldPreset? = if (custom) shieldId?.let { s -> d.rules.shields.find { it.id == s } }
-    else shieldBuiltIn?.let { b -> BuiltInShields.find { it.id == b } }?.let { b ->
-        ShieldPreset(b.id, b.name, shieldKeys, mode, FrictionSettings(), wait ?: 1)
-    }
-    val intent: IntentPreset? = if (custom) intentId?.let { s -> d.rules.intentPresets.find { it.id == s } }
-    else intentBuiltIn?.let { b -> BuiltInIntents.find { it.id == b } }?.let { b -> IntentPreset(b.id, b.name, intentKeys, builtInIntentConfig(b)) }
+    // The configuration as it stands. A Normal Session carries its own copies, so it leaves nothing saved behind.
+    val shield: ShieldPreset? = shieldId?.let { s -> d.rules.shields.find { it.id == s } }
+    val intent: IntentPreset? = intentId?.let { s -> d.rules.intentPresets.find { it.id == s } }
     val focus = if (focusOn && whenKind != When.Always && task.isNotBlank()) FocusPlan(task.trim(), description.trim(), goal.trim(), if (focusWindow) null else focusMinutes) else null
-    val configName = if (custom) name.trim() else listOfNotNull(shield?.name, intent?.name).joinToString(" + ").ifEmpty { "Normal Use" }
+    val configName = if (custom) name.trim() else listOfNotNull(shield?.name, intent?.name).joinToString(" + ").ifEmpty { stringResource(R.string.home_normal_title) }
     val config = UsageConfig(
         id, configName, custom,
         shieldId = if (custom) shield?.id else null, intentId = if (custom) intent?.id else null,
@@ -188,6 +165,8 @@ fun ConfigureScreen(
         focus = focus, createdAt = start?.createdAt ?: System.currentTimeMillis(),
     )
     val alwaysBlock = shield?.mode == Mode.AlwaysBlock
+    // Always Block, Cooldown and Friction: no early exit, no Always timing, and a commitment to confirm.
+    val strict = shield?.mode?.strict == true
     val laterStart = LocalDateTime.of(LocalDate.parse(laterDay), java.time.LocalTime.of(laterMinute / 60, laterMinute % 60)).atZone(zone).toInstant().toEpochMilli()
     val timing: Timing? = when (whenKind) {
         When.Now -> minutes?.let { Timing.Now(it) }
@@ -198,32 +177,24 @@ fun ConfigureScreen(
     }
 
     val steps = buildList {
-        if (custom && saved.isNotEmpty() && !forHabit) add(Step.Saved)
+        if (custom && saved.isNotEmpty() && !forGoal) add(Step.Saved)
         add(Step.Contents)
-        if (!custom && shield != null) { add(Step.ShieldApps); add(Step.ShieldMode) }
-        if (!custom && intent != null) add(Step.IntentApps)
-        if (custom) add(Step.Name)
-        if (!forHabit) {
-            add(Step.When)
-            if (whenKind != When.Always) add(Step.Timing)
-            if (whenKind != When.Always) add(Step.Focus)
-            add(Step.Review)
-        } else add(Step.Focus)
+        if (!forGoal) { add(Step.When); add(Step.Review) } else add(Step.Focus)
     }
     val index = steps.indexOf(step).coerceAtLeast(0)
     val back = { problem = null; if (index == 0) onBack() else step = steps[index - 1] }
     val hasContent = (shield?.keys?.isNotEmpty() == true) || (intent?.keys?.isNotEmpty() == true)
+    val focusValid = !focusOn || (task.isNotBlank() && (focusWindow || focusMinutes != null))
     val canNext = when (step) {
         Step.Saved -> true
-        Step.Contents -> if (custom) shield != null || intent != null else shield != null || intent != null
-        Step.ShieldApps -> shieldKeys.isNotEmpty()
-        Step.ShieldMode -> mode != Mode.Cooldown || wait != null
-        Step.IntentApps -> intentKeys.isNotEmpty()
-        Step.Name -> name.isNotBlank()
-        Step.When -> whenKind != null && !(whenKind == When.Always && alwaysBlock)
-        Step.Timing -> minutes != null && (whenKind != When.Later || laterStart > System.currentTimeMillis()) && (whenKind != When.Recurring || days.isNotEmpty())
-        Step.Focus -> !focusOn || (task.isNotBlank() && (focusWindow || focusMinutes != null))
-        Step.Review -> hasContent && (!alwaysBlock || committed)
+        Step.Contents -> (shield != null || intent != null) && (!custom || name.isNotBlank())
+        Step.When -> when (whenKind) {
+            null -> false
+            When.Always -> !strict
+            else -> minutes != null && (whenKind != When.Later || laterStart > System.currentTimeMillis()) && (whenKind != When.Recurring || days.isNotEmpty())
+        }
+        Step.Focus -> focusValid
+        Step.Review -> hasContent && (!strict || committed) && (whenKind == When.Always || focusValid)
     }
     // Both run in the ViewModel's scope (the main thread), so navigating afterwards is always safe.
     val saveOnly = {
@@ -232,18 +203,56 @@ fun ConfigureScreen(
             onDone(config.id)
         }
     }
+    // The first time protection starts, ask to show it in the notification shade (Android 13+).
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val confirm = {
         val t = timing
         if (t != null) vm.run {
             problem = vm.app.activate(config, t)
-            if (problem == null) onDone(config.id)
+            if (problem == null) {
+                if (android.os.Build.VERSION.SDK_INT >= 33 && !app.aurora.SessionNotification.allowed(context)) {
+                    runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
+                }
+                onDone(config.id)
+            }
+        }
+    }
+
+    // Focus: optional, offered at Review (or as its own step when saving for a Goal).
+    val focusItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+        item(key = "focus-on") {
+            Row(
+                Modifier.fillMaxWidth().auroraSurface(colors).toggleable(focusOn, role = Role.Switch) { focusOn = it }.padding(Space.M),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(R.string.cfg_focus_on), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                AuroraSwitch(focusOn)
+            }
+        }
+        if (focusOn) {
+            item(key = "task") { AuroraTextField(task, { task = it.take(80) }, stringResource(R.string.cfg_focus_task), capitalization = KeyboardCapitalization.Sentences) }
+            item(key = "desc") { AuroraTextField(description, { description = it.take(200) }, stringResource(R.string.cfg_focus_desc), capitalization = KeyboardCapitalization.Sentences, singleLine = false) }
+            item(key = "goal") { AuroraTextField(goal, { goal = it.take(120) }, stringResource(R.string.cfg_focus_goal), capitalization = KeyboardCapitalization.Sentences) }
+            item(key = "window") {
+                Row(
+                    Modifier.fillMaxWidth().auroraSurface(colors).toggleable(focusWindow, role = Role.Checkbox) { focusWindow = it }.padding(Space.M),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
+                ) {
+                    SelectionMark(focusWindow)
+                    Text(stringResource(R.string.cfg_focus_use_window), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                }
+            }
+            if (!focusWindow) item(key = "focus-target") {
+                DurationPicker(focusMinutes, { focusMinutes = it }, listOf(25, 45, 60, 90), title = stringResource(R.string.cfg_focus_custom_target), max = minutes ?: (24 * 60))
+            }
         }
     }
 
     StepFlow(
         steps.size, index, back,
         primary = when {
-            step == Step.Focus && forHabit -> stringResource(R.string.action_save)
+            step == Step.Focus && forGoal -> stringResource(R.string.action_save)
             step != Step.Review -> stringResource(R.string.action_next)
             whenKind == When.Now -> stringResource(R.string.cfg_start)
             whenKind == When.Always -> stringResource(R.string.cfg_turn_on)
@@ -252,7 +261,7 @@ fun ConfigureScreen(
         primaryEnabled = canNext,
         onPrimary = {
             when {
-                step == Step.Focus && forHabit -> saveOnly()
+                step == Step.Focus && forGoal -> saveOnly()
                 step == Step.Review -> confirm()
                 else -> step = steps[index + 1]
             }
@@ -264,7 +273,7 @@ fun ConfigureScreen(
                     AuroraButton(stringResource(R.string.plus_see), onPlus, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                 }
             }
-            if (custom && !forHabit && (step == Step.Name || step == Step.Review) && name.isNotBlank() && (shield != null || intent != null)) {
+            if (custom && !forGoal && (step == Step.Contents || step == Step.Review) && name.isNotBlank() && (shield != null || intent != null)) {
                 AuroraButton(stringResource(R.string.cfg_save_for_later), { saveOnly() }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
             }
         },
@@ -290,56 +299,31 @@ fun ConfigureScreen(
                 }
             }
             Step.Contents -> {
-                stepTitle(R.string.cfg_contents_title, if (custom) R.string.cfg_contents_body else R.string.cfg_normal_contents_body)
-                item(key = "shield-label") { Label(stringResource(R.string.cfg_shield)) }
-                item(key = "shield-none") { PickRow(stringResource(R.string.cfg_none), "", if (custom) shieldId == null else shieldBuiltIn == null, { if (custom) shieldId = null else shieldBuiltIn = null }) }
+                stepTitle(R.string.cfg_contents_title, R.string.cfg_contents_body)
                 if (custom) {
-                    items(d.rules.shields.sortedByDescending { it.createdAt }, key = { "s-" + it.id }) { p ->
-                        PickRow(p.name, shieldDetail(p), shieldId == p.id, { shieldId = p.id }, leading = { ModeChip(p.mode, label = "") })
-                    }
-                    item(key = "shield-create") {
-                        Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                            if (d.rules.shields.isEmpty()) Text(stringResource(R.string.cfg_no_shields), color = colors.textSecondary, style = AuroraType.Secondary)
-                            AuroraButton(stringResource(R.string.cfg_create_shield), onCreateShield, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
-                        }
-                    }
-                } else items(BuiltInShields, key = { "bs-" + it.id }) { b ->
-                    PickRow(b.name, builtInLine(suggested(b).size), shieldBuiltIn == b.id, { shieldBuiltIn = b.id; shieldKeys = suggested(b) })
+                    item(key = "name-label") { Label(stringResource(R.string.cfg_name_title)) }
+                    item(key = "name") { AuroraTextField(name, { name = it.take(40) }, stringResource(R.string.cfg_name_placeholder), capitalization = KeyboardCapitalization.Words) }
                 }
-                item(key = "intent-label") { Label(stringResource(R.string.cfg_intent)) }
-                item(key = "intent-none") { PickRow(stringResource(R.string.cfg_none), "", if (custom) intentId == null else intentBuiltIn == null, { if (custom) intentId = null else intentBuiltIn = null }) }
-                if (custom) {
-                    items(d.rules.intentPresets.sortedByDescending { it.createdAt }, key = { "i-" + it.id }) { p ->
-                        PickRow(p.name, intentSummary(p.config), intentId == p.id, { intentId = p.id })
-                    }
-                    item(key = "intent-create") {
-                        Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                            if (d.rules.intentPresets.isEmpty()) Text(stringResource(R.string.cfg_no_intents), color = colors.textSecondary, style = AuroraType.Secondary)
-                            AuroraButton(stringResource(R.string.cfg_create_intent), onCreateIntent, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
-                        }
-                    }
-                } else items(BuiltInIntents, key = { "bi-" + it.id }) { b ->
-                    PickRow(b.name, intentSummary(builtInIntentConfig(b)), intentBuiltIn == b.id, { intentBuiltIn = b.id; intentKeys = suggested(b) })
+                item(key = "shield-label") { Label(stringResource(R.string.cfg_shield), none = shieldId == null) { shieldId = null } }
+                items(d.rules.shields.sortedByDescending { it.createdAt }, key = { "s-" + it.id }) { p ->
+                    PickRow(p.name, shieldDetail(p), shieldId == p.id, { shieldId = if (shieldId == p.id) null else p.id }, tag = { ModeChip(p.mode) })
                 }
-            }
-            Step.ShieldApps -> {
-                stepTitle(R.string.cfg_shield_apps_title, R.string.shield_apps_body, shield?.name.orEmpty())
-                appChecklist(apps, exempt, shieldKeys.toSet(), query, { query = it }) { pkg -> shieldKeys = if (pkg in shieldKeys) shieldKeys - pkg else shieldKeys + pkg }
-            }
-            Step.ShieldMode -> {
-                stepTitle(R.string.cfg_mode_title, R.string.shield_type_body)
-                items(Mode.entries, key = { "m-" + it.name }) { m -> ChoiceCard(modeName(m), modeDescription(m), mode == m, { mode = m }, swatch = modeColor(m)) }
-                if (mode == Mode.Cooldown) item(key = "wait") {
-                    DurationPicker(wait, { wait = it }, app.aurora.ui.library.ShieldWaitPresets, Modifier.padding(top = Space.S), title = stringResource(R.string.duration_cooldown_prompt), hint = stringResource(R.string.shield_restart_note), max = 12 * 60)
+                item(key = "shield-create") {
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                        if (d.rules.shields.isEmpty()) Text(stringResource(R.string.cfg_no_shields), color = colors.textSecondary, style = AuroraType.Secondary)
+                        AuroraButton(stringResource(R.string.cfg_create_shield), onCreateShield, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
+                    }
                 }
-            }
-            Step.IntentApps -> {
-                stepTitle(R.string.cfg_intent_apps_title, R.string.intent_overview_body)
-                appChecklist(apps, exempt, intentKeys.toSet(), query, { query = it }) { pkg -> intentKeys = if (pkg in intentKeys) intentKeys - pkg else intentKeys + pkg }
-            }
-            Step.Name -> {
-                stepTitle(R.string.cfg_name_title, R.string.cfg_name_body)
-                item(key = "name") { AuroraTextField(name, { name = it.take(40) }, stringResource(R.string.cfg_name_placeholder), capitalization = KeyboardCapitalization.Words) }
+                item(key = "intent-label") { Label(stringResource(R.string.cfg_intent), none = intentId == null) { intentId = null } }
+                items(d.rules.intentPresets.sortedByDescending { it.createdAt }, key = { "i-" + it.id }) { p ->
+                    PickRow(p.name, intentSummary(p.config), intentId == p.id, { intentId = if (intentId == p.id) null else p.id })
+                }
+                item(key = "intent-create") {
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                        if (d.rules.intentPresets.isEmpty()) Text(stringResource(R.string.cfg_no_intents), color = colors.textSecondary, style = AuroraType.Secondary)
+                        AuroraButton(stringResource(R.string.cfg_create_intent), onCreateIntent, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
+                    }
+                }
             }
             Step.When -> {
                 stepTitle(R.string.cfg_when_title, null)
@@ -347,24 +331,16 @@ fun ConfigureScreen(
                 item(key = "later") { ChoiceCard(stringResource(R.string.when_later), stringResource(R.string.when_later_desc), whenKind == When.Later, { whenKind = When.Later }) }
                 item(key = "recurring") { ChoiceCard(stringResource(R.string.when_recurring), stringResource(R.string.when_recurring_desc), whenKind == When.Recurring, { whenKind = When.Recurring }) }
                 item(key = "always") {
-                    if (alwaysBlock) {
-                        // Always Block can't be scheduled as Always: shown, explained, not selectable.
+                    if (strict) {
+                        // A strict Shield can't be scheduled as Always: shown, explained, not selectable.
                         Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(Space.M), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(stringResource(R.string.when_always), color = colors.textTertiary, style = AuroraType.Title)
-                            Text(stringResource(R.string.when_always_blocked), color = colors.dawnText, style = AuroraType.Secondary)
+                            Text(stringResource(R.string.when_always_blocked), color = colors.textTertiary, style = AuroraType.Secondary)
                         }
                     } else ChoiceCard(stringResource(R.string.when_always), stringResource(R.string.when_always_desc), whenKind == When.Always, { whenKind = When.Always })
                 }
-            }
-            Step.Timing -> {
-                stepTitle(
-                    when (whenKind) {
-                        When.Later -> R.string.when_later
-                        When.Recurring -> R.string.when_recurring
-                        else -> R.string.when_now
-                    },
-                    null,
-                )
+                // The chosen timing's settings follow on the same screen.
+                if (whenKind == null || whenKind == When.Always) return@StepFlow
                 val allowance = if (alwaysBlock && whenKind == When.Now) vm.app.alwaysBlockLeft() else null
                 val max = allowance ?: (24 * 60)
                 if (whenKind == When.Later) {
@@ -393,7 +369,7 @@ fun ConfigureScreen(
                     )
                 }
                 if (allowance != null) item(key = "allowance") {
-                    Text(stringResource(R.string.start_always_block_allowance, minutesText(allowance)), color = colors.dawnText, style = AuroraType.Secondary)
+                    Text(stringResource(R.string.start_always_block_allowance, minutesText(allowance)), color = colors.violetText, style = AuroraType.Secondary)
                 }
                 if (whenKind == When.Later) item(key = "later-end") {
                     val m = minutes
@@ -417,42 +393,21 @@ fun ConfigureScreen(
             }
             Step.Focus -> {
                 stepTitle(R.string.cfg_focus_title, R.string.cfg_focus_body)
-                item(key = "focus-on") {
-                    Row(
-                        Modifier.fillMaxWidth().auroraSurface(colors).toggleable(focusOn, role = Role.Switch) { focusOn = it }.padding(Space.M),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(stringResource(R.string.cfg_focus_on), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                        AuroraSwitch(focusOn)
-                    }
-                }
-                if (focusOn) {
-                    item(key = "task") { AuroraTextField(task, { task = it.take(80) }, stringResource(R.string.cfg_focus_task), capitalization = KeyboardCapitalization.Sentences) }
-                    item(key = "desc") { AuroraTextField(description, { description = it.take(200) }, stringResource(R.string.cfg_focus_desc), capitalization = KeyboardCapitalization.Sentences, singleLine = false) }
-                    item(key = "goal") { AuroraTextField(goal, { goal = it.take(120) }, stringResource(R.string.cfg_focus_goal), capitalization = KeyboardCapitalization.Sentences) }
-                    item(key = "window") {
-                        Row(
-                            Modifier.fillMaxWidth().auroraSurface(colors).toggleable(focusWindow, role = Role.Checkbox) { focusWindow = it }.padding(Space.M),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
-                        ) {
-                            SelectionMark(focusWindow)
-                            Text(stringResource(R.string.cfg_focus_use_window), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                        }
-                    }
-                    if (!focusWindow) item(key = "focus-target") {
-                        DurationPicker(focusMinutes, { focusMinutes = it }, listOf(25, 45, 60, 90), title = stringResource(R.string.cfg_focus_custom_target), max = minutes ?: (24 * 60))
-                    }
-                }
+                focusItems()
             }
             Step.Review -> {
                 stepTitle(R.string.cfg_review_title, R.string.cfg_snapshot_note)
                 item(key = "summary") { Summary(d, configName, shield, intent, focus, timing, zone) }
+                if (whenKind != When.Always) {
+                    item(key = "focus-label") { Label(stringResource(R.string.cfg_focus_label)) }
+                    focusItems()
+                }
                 val overlap = d.rules.copy(shields = d.rules.shields + listOfNotNull(shield), intentPresets = d.rules.intentPresets + listOfNotNull(intent))
                     .overlaps(config, vm.app.runsNow(d.time))
                 if (overlap.isNotEmpty()) item(key = "overlap") {
                     Text(stringResource(R.string.cfg_overlap, overlap.joinToString(", ") { d.label(it).ifBlank { it.removePrefix("web:") } }), color = colors.textSecondary, style = AuroraType.Secondary)
                 }
-                if (alwaysBlock) item(key = "commit") {
+                if (strict) item(key = "commit") {
                     Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
                         Text(stringResource(R.string.start_commit_body), color = colors.textSecondary, style = AuroraType.Body)
                         Row(
@@ -463,6 +418,7 @@ fun ConfigureScreen(
                             Text(stringResource(R.string.always_block_confirm), color = colors.textPrimary, style = AuroraType.BodyStrong)
                         }
                         Text(stringResource(R.string.start_commit_limits), color = colors.textTertiary, style = AuroraType.Caption)
+                        UninstallProtection()
                         AuroraButton(stringResource(R.string.cfg_strict_link), onStrict, kind = ButtonKind.Quiet)
                     }
                 }
@@ -470,27 +426,27 @@ fun ConfigureScreen(
         }
     }
     deleting?.let { c ->
-        val habits = d.rules.habits.filter { it.configId == c.id && !it.archived }
+        val goals = d.rules.trackGoals.filter { it.configId == c.id }
         AuroraDialog(
             stringResource(R.string.config_delete_title, c.name), { deleting = null },
-            stringResource(if (habits.isEmpty()) R.string.preset_delete else R.string.config_delete_archive),
+            stringResource(if (goals.isEmpty()) R.string.preset_delete else R.string.config_delete_archive),
             {
                 deleting = null
-                vm.run { vm.app.deleteConfig(c.id, archiveHabits = true) }
+                vm.run { vm.app.deleteConfig(c.id, removeGoals = true) }
             },
-            if (habits.isEmpty()) stringResource(R.string.config_delete_body) else stringResource(R.string.config_delete_habits, habits.joinToString(", ") { it.name }) + " " + stringResource(R.string.config_delete_body),
+            if (goals.isEmpty()) stringResource(R.string.config_delete_body) else stringResource(R.string.config_delete_habits, goals.joinToString(", ") { it.name }) + " " + stringResource(R.string.config_delete_body),
             stringResource(R.string.action_cancel),
         )
     }
 }
 
 @Composable
-private fun builtInLine(found: Int): String =
-    if (found == 0) stringResource(R.string.cfg_builtin_choose) else pluralStringResource(R.plurals.count_apps, found, found) + " · " + stringResource(R.string.cfg_builtin_found)
-
-@Composable
-private fun Label(text: String) {
-    Text(text, Modifier.padding(top = Space.S), color = Aurora.colors.textSecondary, style = AuroraType.Eyebrow)
+private fun Label(text: String, none: Boolean? = null, onNone: () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth().padding(top = Space.S), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, Modifier.weight(1f), color = Aurora.colors.textSecondary, style = AuroraType.Eyebrow)
+        // "None" is a quiet way back beside the heading, offered only once something is chosen.
+        if (none == false) Chip(stringResource(R.string.cfg_none), false, onClick = onNone)
+    }
 }
 
 /** Today, tomorrow and the next twelve days as chips: enough for "tomorrow at 7" and next week. */
@@ -523,10 +479,8 @@ private fun Summary(d: ProtectData, name: String, shield: ShieldPreset?, intent:
     Column(Modifier.fillMaxWidth().auroraSurface(colors, edge = shield?.let { modeColor(it.mode) }).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
         Text(name, color = colors.textPrimary, style = AuroraType.Headline)
         if (shield != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-                ModeChip(shield.mode)
-                Text(shield.name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
-            }
+            ModeChip(shield.mode)
+            if (shield.name != name) Text(shield.name, color = colors.textPrimary, style = AuroraType.BodyStrong)
             IconStack(shield.keys, d, max = 7)
         }
         if (intent != null) {

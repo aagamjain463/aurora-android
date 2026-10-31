@@ -1,10 +1,13 @@
 package app.aurora.protect
 
+import androidx.compose.animation.core.animateFloat
+import app.aurora.ui.components.RollingClock
+import app.aurora.ui.components.rise
 import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.Sky
 import app.aurora.ui.components.AuroraIcons
-import app.aurora.ui.components.FirstLightBackdrop
+import app.aurora.ui.components.AuroraBackdrop
 import app.aurora.ui.components.LitBadge
-import app.aurora.ui.components.Wordmark
 import app.aurora.ui.components.auroraSurface
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -26,6 +29,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -43,7 +47,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,8 +77,6 @@ import app.aurora.reflectionStart
 import app.aurora.startIntent
 import app.aurora.wentBack
 import app.aurora.ui.components.AuroraButton
-import app.aurora.ui.components.AuroraLandscape
-import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Chip
@@ -91,6 +92,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
 import kotlin.random.Random
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.widthIn
+import app.aurora.ui.components.ContentMaxWidth
 
 /*
  * What the Shield overlay shows, for every reason (docs/SHIELD.md). One composable per moment; the
@@ -108,7 +112,7 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
     val prefs by app.preferences.preferences.collectAsStateWithLifecycle(null)
     // The Shield is always night: the same sky as Today's hero, whatever the theme. It reads as aurora at
     // once, and never flashes white over a dark app.
-    AuroraTheme(darkTheme = true, reduceMotion = prefs?.reduceMotion == true) {
+    AuroraTheme(reduceMotion = prefs?.reduceMotion == true) {
         val pkg = request.packageName
         val website = pkg.startsWith(WebPrefix)
         val label by produceState(if (website) pkg.removePrefix(WebPrefix) else "", pkg) {
@@ -117,14 +121,15 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
         val icon by produceState<ImageBitmap?>(null, pkg) {
             if (!website) value = app.catalog.app(pkg)?.icon
         }
-        val now by produceState(System.currentTimeMillis()) {
+        val now by produceState(TrustedClock.wall()) {
             while (true) {
-                value = System.currentTimeMillis()
+                value = TrustedClock.wall()
                 delay(500)
             }
         }
         LaunchedEffect(request.eventUptime) {
-            if (request.fresh) runCatching {
+            // Settings locked by a commitment isn't a protected app being opened.
+            if (request.fresh && request.reason != ShieldReason.Locked) runCatching {
                 app.record { s ->
                     s.copy(
                         shields = s.shields + 1,
@@ -136,9 +141,9 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
         }
         val decision = request.decision ?: Decision.Shield(pkg, request.reason, request.until)
         val home = { close(true) }
-        ShieldFrame(label, icon) {
+        ShieldFrame(label, icon, showName = website) {
             when (decision.reason) {
-                ShieldReason.AlwaysBlock, ShieldReason.Flexible, ShieldReason.Focus, ShieldReason.Limit, ShieldReason.IntentCooldown ->
+                ShieldReason.AlwaysBlock, ShieldReason.Flexible, ShieldReason.Focus, ShieldReason.Limit, ShieldReason.IntentCooldown, ShieldReason.Locked ->
                     Blocked(decision, label, now, home, onEnded = { close(false) })
                 ShieldReason.Cooldown -> CooldownFlow(app, decision, label, now, home, onOpen = { close(false) })
                 ShieldReason.Friction -> FrictionFlow(app, decision, label, home, onOpen = { close(false) })
@@ -153,43 +158,75 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
  * halo at the centre, and the moment's content set centred beneath it.
  */
 @Composable
-private fun ShieldFrame(label: String, icon: ImageBitmap?, content: @Composable () -> Unit) {
+private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, content: @Composable () -> Unit) {
     val colors = Aurora.colors
+    val reduced = Aurora.reducedMotion
+    // The stage arrives as first light does: the art brightens, then the app rises into its halo.
+    val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Gentle, easing = app.aurora.ui.theme.Motion.Ease)) }
+    // The app lands in its halo on a soft spring, and the halo then breathes while the person decides.
+    val land = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0.82f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) land.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 240f)) }
+    val breath = if (reduced) null else androidx.compose.animation.core.rememberInfiniteTransition(label = "halo").animateFloat(
+        0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Breath, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "breath",
+    )
+    app.aurora.ui.components.ProvideIntro {
     Box(Modifier.fillMaxSize().background(colors.background)) {
-        FirstLightBackdrop(ArtTier.Immersive)
-        Column(
+        // Protection is answering: the sky is lit and holds still while the person decides.
+        AuroraBackdrop(ArtTier.Stage, Modifier.graphicsLayer { alpha = shown.value }, sky = Sky.Lit)
+        androidx.compose.foundation.layout.BoxWithConstraints(
             Modifier
+                .align(Alignment.TopCenter)
+                .widthIn(max = ContentMaxWidth)
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .imePadding()
+                .imePadding(),
+        ) {
+        Column(
+            Modifier
                 .verticalScroll(rememberScrollState())
+                .fillMaxWidth()
+                .heightIn(min = maxHeight)
                 .padding(horizontal = Space.Gutter),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Bottom,
         ) {
-            Row(Modifier.fillMaxWidth().padding(top = Space.S), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-                AuroraMark(30.dp)
-                Wordmark()
-            }
-            Spacer(Modifier.height(104.dp))
-            Box(contentAlignment = Alignment.Center) {
-                Box(Modifier.size(132.dp).background(Brush.radialGradient(listOf(colors.sun.copy(alpha = 0.28f), Color.Transparent))))
+            // Clears the ring when the content is tall; otherwise everything sits low on the lake.
+            Spacer(Modifier.height(StageClearance))
+            Box(Modifier.graphicsLayer { alpha = shown.value; translationY = (1f - shown.value) * 18.dp.toPx() }, contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(112.dp).graphicsLayer {
+                        val b = breath?.value ?: 0.5f
+                        scaleX = 0.92f + 0.16f * b; scaleY = scaleX; alpha = 0.75f + 0.25f * b
+                    }.background(Brush.radialGradient(listOf(colors.accent.copy(alpha = 0.26f), Color.Transparent))),
+                )
+                val iconLanding = Modifier.size(60.dp).graphicsLayer { scaleX = land.value; scaleY = land.value }.clip(RoundedCornerShape(16.dp))
                 if (icon != null) {
-                    Image(icon, null, Modifier.size(76.dp).clip(RoundedCornerShape(22.dp)))
+                    Image(icon, label, iconLanding)
                 } else {
-                    Box(Modifier.size(76.dp).clip(RoundedCornerShape(22.dp)).background(colors.elevated))
+                    Box(iconLanding.background(colors.elevated))
                 }
             }
-            Text(label, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+            // The icon names an app; a website has only its name.
+            if (showName) Text(label, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(Space.S))
+            Column(Modifier.rise(), horizontalAlignment = Alignment.CenterHorizontally) { content() }
             Spacer(Modifier.height(Space.M))
-            content()
-            Spacer(Modifier.height(Space.XL))
         }
+        }
+        // The northern lights sweep across as the block lands: Shield answering, felt.
+        app.aurora.ui.components.AuroraSweep(play = true, modifier = Modifier.fillMaxSize())
+    }
     }
 }
 
+private val StageClearance = 196.dp
+
 @Composable
 private fun Eyebrow(text: String, warm: Boolean = false) {
-    Text(text, Modifier.fillMaxWidth(), color = if (warm) Aurora.colors.sun else Aurora.colors.accent, style = AuroraType.Eyebrow, textAlign = TextAlign.Center)
+    Text(text, Modifier.fillMaxWidth(), color = if (warm) Aurora.colors.rose else Aurora.colors.accent, style = AuroraType.Eyebrow, textAlign = TextAlign.Center)
 }
 
 /** The Shield's question. The app's name, when it appears, is lit in First Light cream. */
@@ -222,10 +259,10 @@ private fun PauseRing(leftMs: Long, totalMs: Long) {
             val box = androidx.compose.ui.geometry.Size(size.width - 2 * inset, size.height - 2 * inset)
             val tl = androidx.compose.ui.geometry.Offset(inset, inset)
             drawArc(colors.hairline, 0f, 360f, false, tl, box, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-            drawArc(Brush.sweepGradient(listOf(colors.accent, colors.cta.last(), colors.accent)), -90f, 360f * (1f - fraction), false, tl, box,
+            drawArc(colors.accent, -90f, 360f * (1f - fraction), false, tl, box,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
         }
-        Text(if (seconds > 0) "${seconds}s" else "✓", color = colors.textPrimary, style = AuroraType.Title)
+        Text(if (seconds > 0) "${seconds}s" else "✓", Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.textPrimary, style = AuroraType.Title)
     }
 }
 
@@ -233,13 +270,8 @@ private fun PauseRing(leftMs: Long, totalMs: Long) {
 @Composable
 private fun Countdown(until: Long, now: Long, caption: String) {
     val colors = Aurora.colors
-    Column(Modifier.padding(vertical = Space.L), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            formatClock(until - now),
-            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            color = colors.textPrimary,
-            style = AuroraType.Hero,
-        )
+    Column(Modifier.padding(top = Space.M, bottom = Space.S), horizontalAlignment = Alignment.CenterHorizontally) {
+        RollingClock(formatClock(until - now), colors.textPrimary, AuroraType.Hero, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         Text(caption, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
     }
 }
@@ -249,8 +281,8 @@ private fun Countdown(until: Long, now: Long, caption: String) {
 private fun RestartNote() {
     Text(
         stringResource(R.string.shield_restart_note),
-        Modifier.fillMaxWidth().padding(top = Space.XS).clip(Radius.Pill).background(Aurora.colors.dawnSoft).padding(horizontal = Space.M, vertical = 10.dp),
-        color = Aurora.colors.dawnText,
+        Modifier.fillMaxWidth().padding(top = Space.XS).clip(Radius.Pill).background(Aurora.colors.violetSoft).padding(horizontal = Space.M, vertical = 10.dp),
+        color = Aurora.colors.violetText,
         style = AuroraType.Label,
         textAlign = TextAlign.Center,
     )
@@ -258,7 +290,7 @@ private fun RestartNote() {
 
 @Composable
 private fun Actions(content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) { content() }
+    Column(Modifier.fillMaxWidth().padding(top = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) { content() }
 }
 
 // ---- Blocks: no way through -------------------------------------------------------------------
@@ -296,6 +328,11 @@ private fun Blocked(decision: Decision.Shield, label: String, now: Long, home: (
             Eyebrow(stringResource(R.string.focus_name))
             Headline(stringResource(R.string.shield_focus_title))
             Body(stringResource(R.string.shield_focus_body, label))
+        }
+        ShieldReason.Locked -> {
+            Eyebrow(stringResource(R.string.strict_title), warm = true)
+            Headline(stringResource(R.string.shield_locked_title, label), label)
+            Body(stringResource(R.string.shield_locked_body))
         }
         ShieldReason.Limit -> {
             Eyebrow(stringResource(R.string.limits_name))
@@ -335,7 +372,8 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
     }
     val readyAt = stored ?: decision.readyAt
     val ready = readyAt?.let { now >= it } == true
-    val scope = rememberCoroutineScope()
+    // The app's scope: going home closes this overlay, and what was just chosen must still be stored.
+    val scope = app.scope
     val haptics = LocalHapticFeedback.current
     if (!ready) {
         Eyebrow(stringResource(R.string.mode_cooldown))
@@ -373,7 +411,7 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
 private fun UsageChoice(label: String, decision: Decision.Shield, initial: Int? = null, onBack: (() -> Unit)?, onChoose: (Int) -> Unit) {
     var minutes by remember { mutableStateOf(initial) }
     // Never longer than the protection that's running: access can't outlast the restriction anyway.
-    val max = decision.until?.let { ((it - System.currentTimeMillis()) / 60_000).toInt().coerceIn(1, 24 * 60) } ?: (24 * 60)
+    val max = decision.until?.let { ((it - TrustedClock.wall()) / 60_000).toInt().coerceIn(1, 24 * 60) } ?: (24 * 60)
     if (onBack != null) BackHandler(onBack = onBack)
     DurationPicker(
         minutes, { minutes = it }, UsagePresets.filter { it <= max }.ifEmpty { listOf(max) },
@@ -400,7 +438,8 @@ private enum class FrictionStep { Task, Usage }
 private fun FrictionFlow(app: AuroraApplication, decision: Decision.Shield, label: String, home: () -> Unit, onOpen: () -> Unit) {
     val settings = decision.restriction?.friction ?: FrictionSettings()
     var step by remember { mutableStateOf(FrictionStep.Task) }
-    val scope = rememberCoroutineScope()
+    // The app's scope: going home closes this overlay, and what was just chosen must still be stored.
+    val scope = app.scope
     val goHome = {
         scope.launch { runCatching { app.wentBack(intent = false) } }
         home()
@@ -509,7 +548,7 @@ private fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () ->
             onDone = check,
         )
         if (misses > 0) {
-            Text(stringResource(R.string.friction_math_wrong), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.dawnText, style = AuroraType.Secondary)
+            Text(stringResource(R.string.friction_math_wrong), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.violetText, style = AuroraType.Secondary)
         }
         AuroraButton(stringResource(R.string.friction_math_check), check, Modifier.fillMaxWidth(), enabled = answer.isNotBlank())
     }
@@ -568,10 +607,10 @@ private fun ReflectionTask(app: AuroraApplication, key: String, seconds: Int, on
             Text(q, color = colors.textPrimary, style = AuroraType.Title)
             answers.forEach { a -> Chip(a, selected = false, modifier = Modifier.fillMaxWidth()) { step++ } }
         } else {
-            val start by produceState<Long?>(null, key) { value = try { app.reflectionStart("friction:$key") } catch (_: IOException) { System.currentTimeMillis() } }
-            val now by produceState(System.currentTimeMillis()) {
+            val start by produceState<Long?>(null, key) { value = try { app.reflectionStart("friction:$key") } catch (_: IOException) { TrustedClock.wall() } }
+            val now by produceState(TrustedClock.wall()) {
                 while (true) {
-                    value = System.currentTimeMillis()
+                    value = TrustedClock.wall()
                     delay(250)
                 }
             }
@@ -594,7 +633,8 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
     val rules by app.rules.state.collectAsStateWithLifecycle()
     val config = decision.intent ?: rules?.value?.apps?.get(pkg)?.intent ?: IntentConfig()
     val use = app.runtime.value?.intentUses?.get(pkg)
-    val scope = rememberCoroutineScope()
+    // The app's scope: going home closes this overlay, and what was just chosen must still be stored.
+    val scope = app.scope
     val haptics = LocalHapticFeedback.current
     var step by remember { mutableStateOf(IntentStep.Reflect) }
     val start = { minutes: Int ->
@@ -632,7 +672,7 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
         IntentStep.Reflect -> {
             val pauseStart by produceState<Long?>(null, pkg) {
                 value = if (config.reflectionSeconds <= 0) 0L
-                else try { app.reflectionStart(pkg) } catch (_: IOException) { System.currentTimeMillis() }
+                else try { app.reflectionStart(pkg) } catch (_: IOException) { TrustedClock.wall() }
             }
             val left = pauseStart?.let { it + config.reflectionSeconds * 1000L - now } ?: (config.reflectionSeconds * 1000L)
             // Without an explicit confirmation, the time choice follows as soon as the pause is over.
@@ -648,15 +688,6 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
             }
             if (config.alternative.isNotBlank()) {
                 ReasonCard(AuroraIcons.Target, stringResource(R.string.intent_instead), config.alternative, warm = true)
-            }
-            if (config.reflectionSeconds > 0) {
-                Text(
-                    if (left > 0) stringResource(R.string.intent_pause_left, ((left + 999) / 1000).toInt()) else stringResource(R.string.intent_pause_done),
-                    Modifier.fillMaxWidth().padding(top = Space.M).semantics { liveRegion = LiveRegionMode.Polite },
-                    color = colors.textSecondary,
-                    style = AuroraType.Secondary,
-                    textAlign = TextAlign.Center,
-                )
             }
             Actions {
                 AuroraButton(stringResource(R.string.shield_return_home), {
@@ -697,7 +728,7 @@ private fun ReasonCard(icon: androidx.compose.ui.graphics.vector.ImageVector, la
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.M),
     ) {
-        LitBadge(icon, tint = if (warm) colors.sun else colors.accent, size = 52)
+        LitBadge(icon, tint = if (warm) colors.rose else colors.accent, size = 52)
         Column(Modifier.weight(1f)) {
             Text(label, color = colors.textSecondary, style = AuroraType.Caption)
             Text(text, color = colors.textPrimary, style = AuroraType.Title)

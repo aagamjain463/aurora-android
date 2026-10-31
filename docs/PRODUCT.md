@@ -1,6 +1,6 @@
 # aurora product reinvention
 
-The current Home/Shield/Intent/Track model, including Habits, is described in
+The current Home/Shield/Intent/Track model, including Goals, is described in
 [CONFIGURATIONS.md](CONFIGURATIONS.md). It supersedes this earlier
 `feat/aurora-product-reinvention` navigation and activation flow.
 The previous product and validation records remain in Git history. Brand details are in
@@ -77,13 +77,15 @@ window. Existing commitments survive downgrade.
 Focus fully blocks its apps/group for the selected duration. Ending early records that outcome.
 Daily limits use measured foreground usage, require Usage access and reset at local midnight.
 
-## Today and progress
+## Home and progress
 
-The approved headline is “Make room for what matters.” The main number is “Time away from protected
-apps”. It is the union of today's protection spans, minus intervals when an app covered by each
-span was in front. Overlaps count once. Access granted during protection still counts as use.
-Screen-off time counts as away. The UI explains this and does not call it time saved or productive
-time. Missing Usage access is shown honestly rather than inventing measured use.
+The approved headline is “Your phone. Your rules.” Below it sits “Reclaim your time and own
+your attention.” The main numbers are “Time Reclaimed”: Today, This week (from Monday) and Overall.
+Each is the union of the day's protection spans, minus intervals when an app covered by each span
+was in front. Overlaps count once. Access granted during protection still counts as use. Screen-off
+time counts as away. Finished days are stored in `History.reclaimed`, measured while Android still
+holds their usage records (about a week); days Aurora could not measure in that time are not
+counted. Missing Usage access is shown honestly rather than inventing measured use.
 
 Protection status and progress are separate pillars. Aurora Light reflects XP/history, not the
 away metric. Insights excludes aurora and launcher time from screen time. Android's retained usage
@@ -114,8 +116,8 @@ adds 30-day Insights. Paused items remain saved after downgrade; restoring them 
 Play Billing uses the configured subscription product and Play-formatted prices, acknowledges
 purchases and restores by querying Play. Pending purchases do not grant Plus. Cached Plus lasts up
 to seven days offline. Play Console products, license testers, purchase lifecycle checks, signing,
-server verification and accessibility policy approval remain launch requirements. Release APKs here
-are unsigned. The manifest removes INTERNET/ACCESS_NETWORK_STATE from Billing diagnostics; purchase
+server verification and accessibility policy approval remain launch requirements. Release builds are
+signed with the upload key when `keystore.properties` exists (docs/RELEASE.md); CI builds stay unsigned. The manifest removes INTERNET/ACCESS_NETWORK_STATE from Billing diagnostics; purchase
 flows with those removals need license-tester validation.
 
 ## Validation and launch gates

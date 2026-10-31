@@ -15,8 +15,8 @@ Status: **APPROVED — FOUNDER**.
 | `mode_cooldown_desc` | Wait before you can open this app. |
 | `mode_always_block_desc` | No in-app early exit. Protection ends when your timer does. |
 | `always_block_confirm` | I'm ready to commit |
-| `today_headline` | Make room for what matters. |
-| `today_metric_label` | Time away from protected apps |
+| `today_headline` | Your phone. Your rules. |
+| `today_metric_label` | Time Reclaimed |
 | `protect_headline` | Never get distracted from what matters. |
 
 ## Intentional App Opening
@@ -34,7 +34,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `intent_prompt_question` | Is this how you want to spend your time? |
 | `intent_your_reason` | Your reason |
 | `intent_instead` | Instead, you could |
-| `intent_pause_left` | Take a moment · %1$d s |
 | `intent_continue` | Continue intentionally |
 | `intent_reminder_title` | Your %1$s are up. |
 | `intent_reminder_body` | That's the time you chose for %1$s. |
@@ -43,8 +42,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `intent_expiry_note_reminder` | When your time is up, aurora reminds you. |
 | `intent_expiry_note_cooldown` | When your time is up, the app closes for %1$s. |
 | `intent_card_eyebrow` | Pause · Decide · Set a time |
-| `intent_card_body` | Before an app opens, decide whether you really want it, and for how long. |
-| `intent_card_set_up` | Set it up |
 | `intent_card_on [one]` | On for %d app |
 | `intent_card_on [other]` | On for %d apps |
 | `intent_overview_body` | For the apps you open without thinking. aurora asks first, you choose how long, and it follows through when the time is up. |
@@ -58,31 +55,12 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `intent_step_use_body` | Only time with the app in front counts. |
 | `intent_step_follow` | Follow through |
 | `intent_step_follow_body` | A reminder, or a cooldown, when your time is up. |
-| `intent_now` | In progress |
-| `intent_state_in_use` | In use |
-| `intent_state_paused` | Not in front |
-| `intent_session_line` | %1$s used of %2$s · %3$s left |
-| `intent_cooldown_until` | Cooldown until %1$s |
-| `intent_tracking_note` | Time counts only while the app is in front and the screen is on, as seen by aurora Shield. |
-| `intent_tracking_estimate` | Estimated from the apps aurora Shield sees in front. Allow usage access in Settings for exact times. |
-| `intent_pause_done` | You can decide now. |
-| `intent_apps` | Apps · %1$s on |
-| `intent_empty_title` | Add an app first |
-| `intent_empty_body` | Choose the apps you open out of habit. |
 | `intent_off` | Off |
-| `intent_paused_free` | Paused · aurora Free includes 3 apps |
 | `intent_no_pause` | No pause |
 | `intent_pause_of` | %1$s pause |
 | `intent_expiry_reminder` | Reminder |
 | `intent_expiry_cooldown` | Cooldown |
 | `intent_expiry_cooldown_short` | %1$s cooldown |
-| `intent_today` | Today |
-| `intent_stat_prompts` | Intentional opening prompts: %1$d |
-| `intent_stat_let_go` | Let go: %1$d · sessions started: %2$d |
-| `intent_stat_minutes` | %1$d min chosen · %2$d min measured |
-| `intent_stat_within` | Within your time: %1$d · reminders: %2$d · cooldowns: %3$d |
-| `intent_toggle` | Ask before it opens |
-| `intent_toggle_hint` | Opening this app shows a pause and asks how long. |
 | `intent_reflection_title` | Pause before deciding |
 | `intent_reflection_hint` | “Continue intentionally” becomes available after this pause. Return home is always available. |
 | `intent_seconds_placeholder` | Seconds |
@@ -102,7 +80,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `intent_cooldown_hint` | How long the app stays closed after your time is up. |
 | `intent_fresh_title` | Decide again every time |
 | `intent_fresh_hint` | Leaving the app ends the session, so every opening starts with a fresh decision. |
-| `intent_settings_note` | Changes apply from the next opening. A session or cooldown that's already running keeps the settings it started with. Intentional App Opening never overrides Shield: blocked apps stay blocked. |
 | `usage_records_unavailable_title` | Usage records aren't available |
 | `usage_records_unavailable_body` | Android couldn't provide usage records right now. Try again later. |
 
@@ -118,14 +95,11 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `content_service_label` | aurora Web & content Shield |
 | `content_service_description` | Optional. Lets aurora pause websites you protect in supported browsers, and leave YouTube Shorts or Instagram Reels if you turned that on. It reads the address shown in the browser's address bar and the names of on-screen elements in those apps. It doesn't read messages, passwords or what you type, it doesn't store or send anything, and nothing leaves your phone. Turn it off here at any time. |
 | `tab_today` | Today |
-| `tab_protect` | Protect |
 | `tab_insights` | Insights |
-| `shield_name` | Shield |
 | `focus_name` | Focus |
 | `schedules_name` | Schedules |
 | `limits_name` | Daily limits |
 | `groups_name` | Groups |
-| `protected_apps_name` | Protected apps |
 | `mode_flexible` | Flexible |
 | `mode_friction` | Friction |
 | `mode_cooldown` | Cooldown |
@@ -140,11 +114,8 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `duration_problem_minutes` | Minutes go up to 59. Use hours for more. |
 | `duration_problem_short` | Choose at least %1$s. |
 | `duration_problem_long` | The longest is %1$s. |
-| `duration_protection_prompt` | How long should protection last? |
-| `duration_protection_hint` | Protection ends on its own when this time is up. |
 | `duration_cooldown_prompt` | How long should you wait before access? |
 | `duration_cooldown_hint` | The wait starts each time you try to open the app. Then you choose how long to use it. |
-| `shield_brand` | aurora Shield |
 | `shield_return_home` | Return home |
 | `shield_open_app` | Open %1$s |
 | `shield_blocked_title` | %1$s is blocked. |
@@ -206,7 +177,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `action_cancel` | Cancel |
 | `action_close` | Close |
 | `action_continue` | Continue |
-| `action_keep_on` | Keep it on |
 | `action_next` | Next |
 | `action_not_now` | Not now |
 | `action_ok` | OK |
@@ -214,53 +184,18 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `settings_title` | Settings |
 | `plus_name` | aurora plus |
 | `plus_see` | See aurora plus |
-| `today_metric_detail` | %1$s protected today · %2$s spent in protected apps |
-| `today_metric_definition` | Measured from your phone's usage records while protection was on. Time with the screen off counts as time away. |
 | `today_metric_no_access` | Allow usage access so aurora can measure this. It's read on this phone only. |
 | `today_metric_not_measured` | Not measured yet |
 | `today_metric_allow` | Allow usage access |
-| `today_metric_none` | Nothing was protected yet today. Start protection, a schedule or Focus, and this starts counting. |
-| `today_light_description` | Aurora Light, drawn from your progress this week |
-| `today_focus_start` | Start Focus · %1$s |
-| `today_focus_running` | Return to Focus |
 | `today_protection_title` | Protection |
-| `today_nothing_protected` | Nothing is protected right now. |
-| `today_no_schedule` | No schedule is coming up. |
-| `today_next_schedule` | Next: %1$s at %2$s |
-| `today_progress_title` | Your progress |
-| `today_progress_body` | How things are changing, day by day. |
-| `today_light_level` | Level %1$d · %2$s |
-| `today_xp_today` | %1$d XP today |
-| `today_xp_next` | XP to the next level: %1$d · active days this week: %2$d |
-| `today_steady` | Days in a row: %1$d |
-| `today_xp_how` | XP comes only from completed Focus, choosing not to open an app, and committed Always Block time. |
-| `today_goals` | Goals |
-| `goal_met` | Met |
-| `goal_missed` | Missed |
-| `goal_so_far` | %1$d so far |
-| `goal_unavailable` | Unavailable |
-| `today_insight_line` | Today · Shields shown: %1$d · choices to leave: %2$d |
-| `today_see_insights` | See Insights |
-| `protect_active_now` | Active now |
-| `protect_start` | Start protection |
-| `protect_start_needs_apps` | Add an app below first. |
-| `protect_paused` | Paused · tap to choose |
 | `protect_add_apps` | Add apps |
-| `protect_add_website` | Add a website |
-| `protect_more` | Rules |
-| `protect_schedules_sub` | Protection that starts on its own |
 | `protect_schedules_on [one]` | %d schedule on |
 | `protect_schedules_on [other]` | %d schedules on |
-| `protect_limits_sub` | How long an app gets each day |
-| `protect_groups_sub` | Protect related apps together |
-| `protect_plus_sub` | Unlimited apps, schedules and Always Block |
 | `session_ends_at` | Ends at %1$s |
 | `session_turn_off` | Turn off protection |
 | `session_turn_off_title` | Turn off protection? |
 | `session_turn_off_body` | These apps will open normally again. You can start protection again at any time. |
 | `session_ends_automatically` | Protection ends automatically |
-| `schedule_running_until` | Running until %1$s |
-| `schedule_skip_today` | Turn off for now |
 | `status_off_short` | No apps protected |
 | `status_active_short` | Shield is on and running |
 | `status_permission_short` | Shield is off · turn it on in Protect |
@@ -311,67 +246,15 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `item_remove_title` | Remove %1$s? |
 | `item_remove_body` | It leaves your protected apps, and any protection you can turn off. |
 | `item_remove_body_committed` | It leaves your protected apps. Always Block keeps it blocked until that protection ends. |
-| `start_apps_title` | Which apps? |
-| `start_apps_body` | Choose from your protected apps. |
-| `start_mode_title` | How should aurora protect them? |
-| `start_mode_body` | Choose one of the four modes. |
 | `start_friction_title` | Choose the task |
 | `start_friction_body` | It has to be completed before every access. |
-| `start_review_title` | Ready to start |
-| `start_review_sentence` | %1$s, for %2$s. |
-| `start_review_friction` | Task: %1$s. Then you choose how long to use the app. |
 | `start_review_cooldown` | Wait: %1$s before each access. Then you choose how long to use the app. |
 | `start_commit_body` | Once it starts, nothing in aurora can end it early. Editing apps, schedules or groups won't end it either. |
 | `start_commit_limits` | Android always lets you reach Settings, calls and emergency services. aurora never blocks them. |
 | `start_always_block_allowance` | %1$s of Always Block left today on aurora Free. |
-| `start_over_allowance` | That's more Always Block time than you have left today. Choose less time, or another mode. |
-| `schedules_subtitle` | Protection that starts and ends on its own. |
-| `schedules_empty_title` | No schedules yet |
-| `schedules_empty_body` | Protect your study hours, your work day or your evenings, every week. |
-| `schedules_note` | When schedules overlap, the strongest mode wins. A schedule window that's already running with Always Block keeps going if you edit or delete the schedule. |
-| `schedule_new` | New schedule |
-| `schedule_on` | On |
-| `schedule_off` | Off |
-| `schedule_paused_free` | Paused · aurora Free includes 1 schedule |
-| `schedule_next` | Next at %1$s |
 | `schedule_every_day` | Every day |
 | `schedule_weekdays` | Every weekday |
 | `schedule_weekends` | Weekends |
-| `schedule_no_apps` | No apps |
-| `schedule_apps_more` | %1$s · additional apps: %2$d |
-| `schedule_sentence` | %1$s will be protected with %2$s %3$s, %4$s–%5$s. |
-| `schedule_step_name` | Name your schedule |
-| `schedule_step_name_body` | Something you'll recognise at a glance. |
-| `schedule_name_placeholder` | Schedule name |
-| `schedule_name_study` | Study hours |
-| `schedule_name_work` | Work day |
-| `schedule_name_sleep` | Wind down |
-| `schedule_name_morning` | Slow morning |
-| `schedule_step_days` | Which days? |
-| `schedule_step_times` | When does it start and end? |
-| `schedule_step_times_body` | An end before the start runs overnight. |
-| `schedule_start` | Start |
-| `schedule_end` | End |
-| `schedule_length` | %1$s each time |
-| `schedule_length_overnight` | %1$s each time, overnight |
-| `schedule_length_day` | 24 hours each time |
-| `schedule_step_apps` | Which apps? |
-| `schedule_step_apps_body` | Choose apps, groups, or both. |
-| `schedule_step_mode` | How should they be protected? |
-| `schedule_step_mode_body` | This mode applies for the whole window. |
-| `schedule_mode_flexible` | Blocked for the whole window. You can turn it off from aurora. |
-| `schedule_mode_friction` | A task before each access, then the time you choose. |
-| `schedule_mode_cooldown` | A wait before each access, then the time you choose. |
-| `schedule_mode_always_block` | Blocked for the whole window. It can't be turned off in aurora once it starts. |
-| `schedule_mode_always_block_free` | Blocked for the whole window. On aurora Free, up to 2 hours a day can't be turned off; the rest can. |
-| `schedule_friction_usage_note` | After the task, you choose how long to use the app each time. |
-| `schedule_step_summary` | Here's your schedule |
-| `schedule_edit_committed` | This schedule is running now with Always Block. The current window keeps going; changes apply from the next one. |
-| `schedule_save` | Save schedule |
-| `schedule_delete` | Delete schedule |
-| `schedule_delete_title` | Delete this schedule? |
-| `schedule_delete_body` | It won't start again. |
-| `schedule_delete_body_committed` | It won't start again. The window running now keeps going until it ends. |
 | `limits_subtitle` | Time per app per day, measured from real use. Resets at midnight. |
 | `limits_empty_title` | Add an app first |
 | `limits_empty_body` | Limits apply to your protected apps. |
@@ -380,20 +263,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `limits_paused` | %1$s a day · paused on aurora Free |
 | `limits_per_day` | %1$s a day |
 | `limits_note` | Measured from Android's usage records, so it needs usage access. aurora checks again at least once a minute while a limited app is open. |
-| `groups_subtitle` | Protect related apps together. |
-| `groups_empty_title` | No groups yet |
-| `groups_empty_body` | Start with one of these, or make your own. |
-| `group_social` | Social |
-| `group_entertainment` | Entertainment |
-| `group_games` | Games |
-| `groups_yours` | Your groups |
-| `groups_no_items` | No protected apps yet |
-| `groups_new` | New group |
-| `groups_edit` | Edit group |
-| `groups_default_name` | Group |
-| `groups_name_placeholder` | Name |
-| `groups_protect_first` | Add some protected apps first, then add them here. |
-| `groups_delete` | Delete group |
 | `onb_begin` | Begin |
 | `onb_finish` | Go to Today |
 | `onb_skip` | Skip for now |
@@ -440,7 +309,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `onb_first_light_body [one]` | %d app saved. Start protection from Today or Protect whenever you're ready. |
 | `onb_first_light_body [other]` | %d apps saved. Start protection from Today or Protect whenever you're ready. |
 | `focus_length_prompt` | How long do you want to focus? |
-| `focus_length_caption` | of focus |
 | `settings_allowed` | Allowed |
 | `settings_plan` | Plan |
 | `settings_aurora_free` | aurora Free |
@@ -448,7 +316,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `settings_full_strength_protection_with_a_few_limits_see_what_plus_adds` | Full-strength protection, with a few limits. See what plus adds. |
 | `settings_plus` | plus |
 | `settings_appearance` | Appearance |
-| `settings_theme` | Theme |
 | `settings_reduce_motion` | Reduce motion |
 | `settings_on_because_animations_are_off_in_android_settings` | On, because animations are off in Android settings. |
 | `settings_no_ambient_movement_or_sliding_transitions` | No ambient movement or sliding transitions. |
@@ -500,34 +367,19 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `settings_4_on_android_13_and_later_apps_installed_outside_the_play_store` | 4. On Android 13 and later, apps installed outside the Play Store may show “Restricted setting”. Open aurora's app info, tap ⋮, then “Allow restricted settings”.<br><br> |
 | `settings_5_after_a_restart_android_starts_shield_a_few_moments_after_you` | 5. After a restart, Android starts Shield a few moments after you unlock.<br><br> |
 | `settings_shield_diagnostics_shows_what_aurora_can_see_on_this_phone` | Shield diagnostics shows what aurora can see on this phone. |
-| `settings_aurora_doesn_t_send_any_notifications_yet_so_there_s_nothing_to` | aurora doesn't send any notifications yet, so there's nothing to allow. Focus and protection sessions keep time on their own and show their result the next time you open aurora. |
 | `settings_manrope_typeface_the_manrope_project_authors_sil_open_font_licen` | Manrope typeface, © The Manrope Project Authors. SIL Open Font License 1.1.<br><br> |
 | `settings_jetpack_compose_androidx_kotlin_kotlinx_serialization_and_google` | Jetpack Compose, AndroidX, Kotlin, kotlinx.serialization and Google Play Billing Library. Apache License 2.0 and the Android SDK License. |
-| `insights_measured_on_this_phone_nothing_leaves_it` | Measured on this phone. Nothing leaves it. |
 | `insights_see_where_your_time_goes` | See where your time goes |
 | `insights_with_usage_access_aurora_can_show_how_long_you_spend_in_each_app` | With usage access, aurora can show how long you spend in each app. It's calculated on this phone and never leaves it. What aurora counts itself is below either way. |
 | `insights_screen_time_since_midnight` | screen time since midnight |
 | `insights_a_quiet_day_so_far` | A quiet day so far |
 | `insights_there_s_no_screen_time_to_show_since_midnight_yet` | There's no screen time to show since midnight yet. |
 | `insights_most_used` | Most used |
-| `insights_counted_by_aurora` | Counted by aurora |
-| `insights_add_a_goal` | Add a goal |
-| `insights_progress` | Progress |
-| `insights_xp_comes_only_from_completed_focus_stepping_back_at_a_shield_or` | XP comes only from completed Focus, stepping back at a Shield or an intentional opening, and committed Always Block time, with a daily cap.  |
-| `insights_aurora_can_t_see_whether_you_were_truly_focused_so_leaving_a_tim` | aurora can't see whether you were truly focused, so leaving a timer running earns no more than the cap. |
 | `insights_screen_time_is_calculated_on_this_phone_from_android_s_usage_rec` | Screen time is calculated on this phone from Android's usage records, which Android keeps for a limited time.  |
-| `insights_days_without_records_show_totals_can_differ_slightly_from_digita` | Days without records show “—”. Totals can differ slightly from Digital Wellbeing. |
 | `insights_30_days_is_part_of_plus` | 30 days is part of plus |
 | `insights_aurora_free_shows_today_and_the_last_7_days_aurora_plus_adds_a_3` | aurora Free shows today and the last 7 days. aurora plus adds a 30-day view. |
 | `insights_about_aurora_plus` | About aurora plus |
-| `insights_remove` | Remove |
 | `insights_needs_usage_access_to_measure` | Needs usage access to measure |
-| `insights_a_goal_for_each_day` | A goal for each day |
-| `insights_add_goal` | Add goal |
-| `insights_less_screen_time` | Less screen time |
-| `insights_less_time_in_protected_apps` | Less time in protected apps |
-| `insights_more_focus` | More focus |
-| `insights_fewer_unplanned_openings` | Fewer unplanned openings |
 | `insights_protected` | protected |
 | `focus_begin_focus` | Begin focus |
 | `focus_end_session` | End session |
@@ -540,7 +392,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `focus_shield_is_holding` | Shield is holding |
 | `focus_timer_only_shield_is_off` | Timer only · Shield is off |
 | `focus_focus_session` | Focus session |
-| `focus_remaining` | remaining |
 | `focus_you_can_leave_this_screen_aurora_keeps_time` | You can leave this screen. aurora keeps time. |
 | `focus_minutes_focused` | minutes focused |
 | `focus_time_well_spent` | Time well spent. |
@@ -583,11 +434,7 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `insights_average_days` | Daily average · measured days: %1$d of %2$d |
 | `insights_choices_body [one]` | When aurora asked, you stepped back %1$d of %2$d time. Chosen time is what you picked at the Shield; aurora doesn't claim it as time saved. |
 | `insights_choices_body [other]` | When aurora asked, you stepped back %1$d of %2$d times. Chosen time is what you picked at the Shield; aurora doesn't claim it as time saved. |
-| `insights_level` | %1$s · level %2$d |
 | `insights_xp_today` | XP today: %1$d |
-| `insights_progress_detail` | XP to the next level: %1$d of %2$d · days in a row: %3$d · light from days this week: %4$d of 7 |
-| `insights_goal_met` | Goal met · measured days: %1$d of %2$d |
-| `insights_goal_today` | Today: %1$d of %2$d%3$s |
 | `plus_compare_items` | Protected apps and sites |
 | `plus_compare_always` | Always Block time each day |
 | `plus_compare_intent` | Apps with Intentional App Opening |
@@ -628,10 +475,6 @@ Status: **PROPOSED — FOUNDER REVIEW PENDING**.
 | `web_invalid` | That doesn't look like a website. Try something like reddit.com. |
 | `web_duplicate` | %1$s is already protected. |
 | `insights_other_apps` | Other apps |
-| `insights_metric_focus` | focus |
-| `insights_metric_shields` | times aurora stepped in |
-| `insights_metric_back` | times you stepped back |
-| `insights_metric_chosen` | time you chose in protected apps |
 | `insights_no_data` | no data |
 | `insights_protected_suffix` | ", protected" |
 
@@ -642,3 +485,66 @@ Free includes 120 Always Block minutes per day. A scheduled Always Block window 
 ## Review limits
 
 This table inventories XML string and plural resources. App names, user-entered reasons, schedule/group/profile names, runtime durations and Android/Play-owned text are dynamic. Remaining Kotlin-owned labels are tracked separately during the source copy review.
+
+## Track and Goals
+
+| Key | Text |
+|---|---|
+| `track_recent_runs` | Recent sessions |
+| `track_no_runs` | No finished sessions yet. |
+| `track_headline` | See your progress. Own your growth. |
+| `track_tab_progress` | Progress |
+| `track_tab_goals` | Goals |
+| `track_tab_usage` | Usage |
+| `track_level` | Level %1$d |
+| `track_xp` | %1$d of %2$d XP |
+| `track_stat_sessions` | Sessions started |
+| `track_stat_succeeded` | Succeeded |
+| `track_stat_time_set` | Time set |
+| `track_screen_time` | Screen time |
+| `goal_create` | Create a Goal |
+| `goal_empty_title` | No goals yet |
+| `goal_empty_body` | Link a goal to a custom session, or limit an app or your screen time. |
+| `goal_on_track` | On track |
+| `goal_achieved` | Achieved |
+| `goal_failed` | Failed |
+| `goal_used` | %1$s used |
+| `goal_done` | %1$s done |
+| `goal_left` | %1$s left |
+| `goal_over` | %1$s over |
+| `goal_sessions_done` | %1$d of %2$d sessions |
+| `goal_per_week` | %1$s a week |
+| `goal_record_days` | Last %1$d days |
+| `goal_record_weeks` | Last %1$d weeks |
+| `goal_record_line` | Met: %1$d · Failed: %2$d · Streak: %3$d |
+| `goal_delete` | Delete goal |
+| `goal_delete_body` | Its track record is removed. Your sessions and apps aren't affected. |
+| `goal_name_title` | Name your goal |
+| `goal_name_placeholder` | e.g. Daily Study |
+| `goal_link_title` | What is this goal for? |
+| `goal_link_session` | A custom session |
+| `goal_link_session_desc` | Track how much you complete and how often you succeed. |
+| `goal_link_limit` | A time limit |
+| `goal_link_limit_desc` | Stay under a limit on apps or your whole screen time. |
+| `goal_session_title` | Choose a custom session |
+| `goal_session_none` | No custom sessions yet. Build one on Home; this goal waits for you. |
+| `goal_session_create` | Build one on Home |
+| `goal_track_title` | How do you want to track it? |
+| `goal_track_daily` | Every day |
+| `goal_track_daily_desc` | Complete a set amount of time each day. |
+| `goal_track_weekly` | Every week |
+| `goal_track_weekly_desc` | Complete a set amount of time each week. Resets every Monday. |
+| `goal_track_sessions` | Sessions per week |
+| `goal_track_sessions_desc` | Succeed in a number of sessions each week. Resets every Monday. |
+| `goal_time_day` | How much time a day? |
+| `goal_time_week` | How much time a week? |
+| `goal_what_title` | What do you want to limit? |
+| `goal_what_whole` | Whole screen time |
+| `goal_what_whole_desc` | Every app, added together. |
+| `goal_what_apps` | Specific apps |
+| `goal_what_apps_desc` | One app, or a set of apps added together. |
+| `goal_limit_title` | Set your limit |
+| `goal_per_day_pill` | Per day |
+| `goal_per_week_pill` | Per week |
+| `goal_limit_note` | Weeks reset every Monday. A goal tracks your use and doesn't block anything; Shield does that. |
+| `goal_save` | Create goal |

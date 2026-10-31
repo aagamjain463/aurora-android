@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A pane of glass over the wallpaper, like glass() in the app: translucent night, a soft streak of light, a bright edge. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="24dp" />
+            <gradient
+                android:angle="270"
+                android:endColor="@color/widget_bottom"
+                android:startColor="@color/widget_top" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="24dp" />
+            <gradient
+                android:angle="315"
+                android:centerColor="#00FFFFFF"
+                android:centerX="0.42"
+                android:endColor="#00FFFFFF"
+                android:startColor="#1AFFFFFF" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/widget_edge" />
+        </shape>
+    </item>
+</layer-list>

@@ -49,7 +49,7 @@ data class FocusPlan(val task: String, val description: String = "", val goal: S
 
 /**
  * A complete setup made on Home. A custom configuration ([custom]) references saved presets by id and can
- * be linked to a Habit. Normal Use carries its own copies of the built-in presets ([shield], [intent]),
+ * be linked to a Goal. A Normal Session carries its own copies of the presets ([shield], [intent]),
  * set for that use without changing the built-in defaults.
  */
 @Serializable
@@ -127,8 +127,16 @@ data class ConfigRun(
     fun isOver(t: DeviceTime): Boolean = time?.isOver(t) ?: (end != null && t.wall >= end)
     fun covers(t: DeviceTime): Boolean = t.wall >= startAt(t) && !isOver(t)
 
-    /** Always Block can't be turned off in Aurora until its committed part is over. */
-    fun cancellable(t: DeviceTime): Boolean = shield?.mode != Mode.AlwaysBlock || committedUntil?.let { t.wall >= it } == true
+    /**
+     * A strict run (Always Block, Cooldown, Friction) can't be turned off in Aurora until it ends, or for
+     * Always Block on Free, until its committed part is over. An Always run (no end) made before strict
+     * Cooldown and Friction stays cancellable: a permanent commitment is never made by accident.
+     */
+    fun cancellable(t: DeviceTime): Boolean = when {
+        shield?.mode?.strict != true || end == null -> true
+        shield.mode == Mode.AlwaysBlock -> committedUntil?.let { t.wall >= it } == true
+        else -> false
+    }
 
     fun restrictions(t: DeviceTime): List<Restriction> {
         val s = shield ?: return emptyList()
@@ -137,10 +145,11 @@ data class ConfigRun(
         val base = Restriction(
             s.mode.reason, s.keys.toSet(), from, to, id,
             friction = s.friction, cooldownWaitMs = s.cooldownWaitMinutes * 60_000L, sessionId = id, label = name,
+            locks = !cancellable(t),
         )
         val c = committedUntil
         return if (s.mode == Mode.AlwaysBlock && c != null && c < to) {
-            listOf(base.copy(end = maxOf(from, c)), base.copy(reason = ShieldReason.Flexible, start = maxOf(from, c), id = "$id:flex"))
+            listOf(base.copy(end = maxOf(from, c)), base.copy(reason = ShieldReason.Flexible, start = maxOf(from, c), id = "$id:flex", locks = false))
         } else listOf(base)
     }
 }
@@ -271,15 +280,15 @@ fun intentsNow(runs: List<ConfigRun>, t: DeviceTime): Map<String, IntentConfig> 
 enum class ActivationProblem { Empty, AlwaysWithAlwaysBlock, InThePast, NoDays, TooShort, OverItems, OverIntentApps, OverSchedules, OverAlwaysBlockAllowance }
 
 /**
- * Checks [timing] for configuration [c]. Always scheduling isn't offered for an Always Block Shield: a
- * permanent commitment must never be created by accident. Free limits count what is actually enforced:
+ * Checks [timing] for configuration [c]. Always scheduling isn't offered for a strict Shield (Always
+ * Block, Cooldown, Friction): a permanent commitment must never be created by accident. Free limits count what is actually enforced:
  * running runs and entitled activations, plus this one.
  */
 fun Rules.problem(c: UsageConfig, timing: Timing, plan: Plan, running: List<ConfigRun>, now: Long): ActivationProblem? {
     val shield = shieldOf(c)
     val intent = intentOf(c)
     if ((shield == null || shield.keys.isEmpty()) && (intent == null || intent.keys.isEmpty()) && c.focus == null) return ActivationProblem.Empty
-    if (timing is Timing.Always && shield?.mode == Mode.AlwaysBlock) return ActivationProblem.AlwaysWithAlwaysBlock
+    if (timing is Timing.Always && shield?.mode?.strict == true) return ActivationProblem.AlwaysWithAlwaysBlock
     when (timing) {
         is Timing.Now -> if (timing.minutes <= 0) return ActivationProblem.TooShort
         is Timing.Later -> {
@@ -315,21 +324,3 @@ fun Rules.overlaps(c: UsageConfig, running: List<ConfigRun>): Set<String> {
     val others = running.flatMap { it.shield?.keys.orEmpty() + it.intent?.keys.orEmpty() }.toSet()
     return inside + (mine intersect others)
 }
-
-/**
- * Built-in presets for Normal Use. Templates only: choosing one copies it into the configuration, so the
- * defaults never change. [suggested] packages are preselected when installed.
- */
-data class BuiltIn(val id: String, val name: String, val suggested: List<String>)
-
-val BuiltInShields = listOf(
-    BuiltIn("builtin:social", "Social Media", listOf("com.instagram.android", "com.zhiliaoapp.musically", "com.ss.android.ugc.trill", "com.facebook.katana", "com.snapchat.android", "com.twitter.android", "com.reddit.frontpage", "com.pinterest")),
-    BuiltIn("builtin:entertainment", "Entertainment", listOf("com.google.android.youtube", "com.netflix.mediaclient", "com.amazon.avod.thirdpartyclient", "com.disney.disneyplus", "tv.twitch.android.app", "com.spotify.music")),
-    BuiltIn("builtin:gaming", "Gaming", listOf("com.supercell.clashofclans", "com.supercell.clashroyale", "com.king.candycrushsaga", "com.roblox.client", "com.mojang.minecraftpe", "com.activision.callofduty.shooter")),
-    BuiltIn("builtin:news", "News & Browsing", listOf("com.google.android.apps.magazines", "flipboard.app", "com.android.chrome")),
-)
-
-val BuiltInIntents = listOf(
-    BuiltIn("builtin:mindful-social", "Mindful Social Media", BuiltInShields[0].suggested),
-    BuiltIn("builtin:intentional-video", "Intentional Video", listOf("com.google.android.youtube", "com.netflix.mediaclient", "tv.twitch.android.app")),
-)

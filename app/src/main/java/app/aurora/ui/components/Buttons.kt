@@ -1,6 +1,10 @@
 package app.aurora.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,9 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,10 +33,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
-import app.aurora.ui.theme.Motion
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
-import app.aurora.ui.theme.auroraTween
 
 enum class ButtonKind {
     /** One per screen: the thing aurora suggests you do next. */
@@ -65,31 +65,31 @@ fun AuroraButton(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed && !Aurora.reducedMotion) 0.97f else 1f,
-        auroraTween(Motion.Quick),
+        if (pressed && !Aurora.reducedMotion) 0.94f else 1f,
+        if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.5f, stiffness = 700f),
         label = "press",
     )
+    // The suggested next step answers with a light tick under the finger.
+    val haptics = LocalHapticFeedback.current
     val (container, content) = when (kind) {
-        ButtonKind.Primary -> colors.accent to colors.onAccent
-        ButtonKind.Secondary -> colors.elevated.copy(alpha = if (colors.isDark) 0.72f else 1f) to colors.textPrimary
+        ButtonKind.Primary -> if (enabled) colors.cta.first() to colors.onAccent else Color.Transparent to colors.textTertiary
+        ButtonKind.Secondary -> Color.Transparent to colors.textPrimary
         ButtonKind.Quiet -> Color.Transparent to colors.textPrimary
-        ButtonKind.Danger -> colors.danger.copy(alpha = 0.10f) to colors.danger
+        ButtonKind.Danger -> Color.Transparent to colors.danger
     }
-    // The primary action carries First Light: emerald warming to sunrise, with a soft glow beneath.
-    val fill = if (kind == ButtonKind.Primary) Brush.horizontalGradient(colors.cta) else SolidColor(container)
-    val glow = kind == ButtonKind.Primary && enabled && colors.isDark
+    val fill = if (kind == ButtonKind.Primary && enabled) androidx.compose.ui.graphics.Brush.horizontalGradient(colors.cta) else SolidColor(container)
     Box(
         modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else 0.4f }
-            .heightIn(min = if (kind == ButtonKind.Quiet || compact) 48.dp else 58.dp)
-            .then(if (glow) Modifier.shadow(18.dp, Radius.Pill, ambientColor = colors.accent, spotColor = colors.accent) else Modifier)
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled || kind == ButtonKind.Primary) 1f else 0.4f }
+            .heightIn(min = if (kind == ButtonKind.Quiet || compact) 48.dp else 56.dp)
             .clip(Radius.Pill)
             .background(fill)
             .then(
                 when (kind) {
-                    ButtonKind.Secondary -> Modifier.border(1.dp, colors.hairline, Radius.Pill)
-                    ButtonKind.Danger -> Modifier.border(1.dp, colors.danger.copy(alpha = 0.45f), Radius.Pill)
-                    else -> Modifier
+                    ButtonKind.Primary -> if (enabled) Modifier.ribbonKnot().gloss(Radius.Pill) else Modifier.glass(colors, Radius.Pill)
+                    ButtonKind.Secondary -> Modifier.glass(colors, Radius.Pill)
+                    ButtonKind.Danger -> Modifier.glass(colors, Radius.Pill, tint = colors.danger)
+                    ButtonKind.Quiet -> Modifier
                 },
             )
             .clickable(
@@ -97,14 +97,14 @@ fun AuroraButton(
                 indication = ripple(color = content),
                 enabled = enabled,
                 role = Role.Button,
-                onClick = onClick,
+                onClick = { if (kind == ButtonKind.Primary) haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onClick() },
             )
             .padding(horizontal = if (compact) Space.M else Space.L),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
             if (icon != null) Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(20.dp))
-            Text(text, color = content, style = AuroraType.Label)
+            Text(text, color = content, style = AuroraType.Label, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }
@@ -115,8 +115,7 @@ fun AuroraIconButton(icon: ImageVector, label: String, onClick: () -> Unit, modi
     Box(
         modifier
             .size(48.dp)
-            .clip(Radius.Pill)
-            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+            .pressable(Radius.Pill, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = label, tint = Aurora.colors.textPrimary, modifier = Modifier.size(24.dp))

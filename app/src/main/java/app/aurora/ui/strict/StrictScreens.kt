@@ -1,29 +1,40 @@
 package app.aurora.ui.strict
 
+import app.aurora.ui.components.RollingClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.data.formatClock
 import app.aurora.protect.FocusOutcome
+import app.aurora.protect.UninstallGuard
+import app.aurora.protect.lockedUntil
 import app.aurora.reportFocusNow
 import app.aurora.runsNow
+import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.Sky
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraScreen
 import app.aurora.ui.components.ButtonKind
-import app.aurora.ui.components.LightRing
 import app.aurora.ui.components.SectionLabel
 import app.aurora.ui.components.Tag
 import app.aurora.ui.components.auroraSurface
@@ -35,23 +46,17 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
 import kotlinx.coroutines.launch
 
-/** Where a capability stands on an ordinary phone (docs/CONFIGURATIONS.md "Always Block"). */
-enum class Capability { Works, Managed, NotConsumer, Policy }
+/** Whether a lock works on its own, or needs uninstall protection turned on (docs/CONFIGURATIONS.md "Strict protection"). */
+enum class Capability { Works, Setup }
 
-/**
- * Always Block, honestly: what the commitment really does, and what Android keeps in the person's hands.
- * No switches: nothing here can be turned on that doesn't work.
- */
+/** What Always Block, Cooldown and Friction lock while they run. Only Flexible can be undone. */
 val StrictCapabilities = listOf(
     Triple(R.string.strict_cancel, R.string.strict_cancel_body, Capability.Works),
     Triple(R.string.strict_weaker, R.string.strict_weaker_body, Capability.Works),
+    Triple(R.string.strict_settings, R.string.strict_settings_body, Capability.Works),
+    Triple(R.string.strict_uninstall, R.string.strict_uninstall_body, Capability.Setup),
     Triple(R.string.strict_restart, R.string.strict_restart_body, Capability.Works),
     Triple(R.string.strict_clock, R.string.strict_clock_body, Capability.Works),
-    Triple(R.string.strict_permission, R.string.strict_permission_body, Capability.Works),
-    Triple(R.string.strict_uninstall, R.string.strict_uninstall_body, Capability.Managed),
-    Triple(R.string.strict_time, R.string.strict_time_body, Capability.Managed),
-    Triple(R.string.strict_settings, R.string.strict_settings_body, Capability.Policy),
-    Triple(R.string.strict_permissions, R.string.strict_permissions_body, Capability.NotConsumer),
 )
 
 @Composable
@@ -65,22 +70,42 @@ fun StrictModeScreen(onBack: () -> Unit) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
                     Text(stringResource(title), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
-                    Tag(
-                        stringResource(
-                            when (cap) {
-                                Capability.Works -> R.string.strict_works
-                                Capability.Managed -> R.string.strict_managed
-                                Capability.NotConsumer -> R.string.strict_not_consumer
-                                Capability.Policy -> R.string.strict_policy
-                            },
-                        ),
-                        accent = cap == Capability.Works,
-                    )
+                    Tag(stringResource(if (cap == Capability.Works) R.string.strict_works else R.string.strict_setup), accent = cap == Capability.Works)
                 }
                 Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
             }
         }
-        item(key = "limits") { Text(stringResource(R.string.start_commit_limits), Modifier.padding(Space.Gutter), color = colors.textTertiary, style = AuroraType.Caption) }
+        item(key = "admin") { UninstallProtection(Modifier.padding(horizontal = Space.M)) }
+        item(key = "limits") { Text(stringResource(R.string.strict_limits), Modifier.padding(Space.Gutter), color = colors.textTertiary, style = AuroraType.Caption) }
+    }
+}
+
+/**
+ * Uninstall protection (UninstallGuard): turned on through Android's own screen, before a commitment
+ * starts (Settings, where that screen lives, is locked during one). Turned off here only while nothing
+ * strict is running.
+ */
+@Composable
+fun UninstallProtection(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val app = context.applicationContext as AuroraApplication
+    val colors = Aurora.colors
+    var active by remember { mutableStateOf(UninstallGuard.active(context)) }
+    LifecycleResumeEffect(Unit) {
+        active = UninstallGuard.active(context)
+        onPauseOrDispose {}
+    }
+    // Read so a commitment starting or ending recomposes this.
+    app.runtime.state.collectAsStateWithLifecycle().value
+    val strictNow = app.policySnapshot(emptySet(), emptyMap())?.lockedUntil(app.now().wall) != null
+    Column(modifier.fillMaxWidth().auroraSurface(colors, warm = active).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        Text(stringResource(R.string.strict_admin_title), color = colors.textPrimary, style = AuroraType.Title)
+        Text(stringResource(if (active) R.string.strict_admin_on else R.string.strict_admin_off), color = colors.textSecondary, style = AuroraType.Secondary)
+        when {
+            !active -> AuroraButton(stringResource(R.string.strict_admin_enable), { runCatching { context.startActivity(UninstallGuard.enableIntent(context)) } }, Modifier.fillMaxWidth())
+            strictNow -> Text(stringResource(R.string.strict_admin_locked), color = colors.textTertiary, style = AuroraType.Caption)
+            else -> AuroraButton(stringResource(R.string.strict_admin_disable), { UninstallGuard.disable(context); active = false }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+        }
     }
 }
 
@@ -93,11 +118,24 @@ fun FocusRunScreen(runId: String, onBack: () -> Unit) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val colors = Aurora.colors
-    val scope = rememberCoroutineScope()
+    val scope = vm.app.scope
     val d = data
     val run = d?.let { vm.app.runsNow(it.time).find { r -> r.id == runId } }
     val focus = run?.focus
-    AuroraScreen(title = focus?.task.orEmpty(), subtitle = run?.name, onBack = onBack) {
+    val progress = if (d != null && run != null && focus != null) {
+        val target = focus.minutes?.let { it * 60_000L } ?: ((run.endAt(d.time) ?: d.time.wall) - run.startAt(d.time))
+        ((d.time.wall - run.startAt(d.time)).toFloat() / target.coerceAtLeast(1)).coerceIn(0f, 1f)
+    } else null
+    AuroraScreen(
+        title = focus?.task.orEmpty(), onBack = onBack, art = ArtTier.Immersive, sky = Sky.Alive, arc = progress,
+        // The title sits on the lake, under the thread the time is running along.
+        header = {
+            androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = Space.Gutter).padding(top = 164.dp)) {
+                Text(focus?.task.orEmpty(), color = colors.headlineLead, style = AuroraType.Display)
+                run?.name?.let { Text(it, color = colors.textSecondary, style = AuroraType.Body) }
+            }
+        },
+    ) {
         if (d == null || run == null || focus == null) return@AuroraScreen
         val end = run.endAt(d.time)
         val start = run.startAt(d.time)
@@ -105,11 +143,9 @@ fun FocusRunScreen(runId: String, onBack: () -> Unit) {
         val elapsed = (d.time.wall - start).coerceIn(0, target.coerceAtLeast(1))
         item(key = "ring") {
             Column(Modifier.fillMaxWidth().padding(vertical = Space.L), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                LightRing(elapsed.toFloat() / target.coerceAtLeast(1)) {
-                    Text(formatClock(target - elapsed), color = colors.textPrimary, style = AuroraType.Hero)
-                    Text(stringResource(R.string.focusrun_target, minutesText((target / 60_000).toInt())), color = colors.textSecondary, style = AuroraType.Secondary)
-                }
-                if (focus.goal.isNotBlank()) Text(focus.goal, color = colors.sun, style = AuroraType.BodyStrong)
+                RollingClock(formatClock(target - elapsed), colors.textPrimary, AuroraType.Hero)
+                Text(stringResource(R.string.focusrun_target, minutesText((target / 60_000).toInt())), color = colors.textSecondary, style = AuroraType.Secondary)
+                if (focus.goal.isNotBlank()) Text(focus.goal, color = colors.rose, style = AuroraType.BodyStrong)
                 if (focus.description.isNotBlank()) Text(focus.description, Modifier.padding(horizontal = Space.Gutter), color = colors.textSecondary, style = AuroraType.Body)
                 end?.let { Text(stringResource(R.string.focusrun_protection, clockTime(it)), color = colors.textTertiary, style = AuroraType.Caption) }
             }

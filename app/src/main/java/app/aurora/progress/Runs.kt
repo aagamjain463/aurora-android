@@ -32,6 +32,12 @@ data class ServiceSpan(val start: Long, val seen: Long, val closed: Boolean = fa
 fun verifiedWithin(spans: List<ServiceSpan>, from: Long, to: Long): Long =
     unionLength(spans.mapNotNull { s -> (maxOf(s.start, from) to minOf(s.seen, to)).takeIf { it.second > it.first } })
 
+/** While the service is still bound at [now], its open span reaches now, however old its last heartbeat is. */
+fun List<ServiceSpan>.reaching(now: Long, connected: Boolean): List<ServiceSpan> {
+    val last = lastOrNull()
+    return if (!connected || last == null || last.closed || last.seen >= now) this else dropLast(1) + last.copy(seen = now)
+}
+
 /**
  * Protection over a planned window: completed with the service verified for 90% of it, partly verified,
  * or turned off early. Below half verified, Aurora can't say: unverified, never a guessed success.
@@ -58,7 +64,7 @@ fun FocusOutcome?.outcome(): Outcome = when (this) {
     null -> Outcome.Unverified
 }
 
-/** One finished (or turned off) configuration run, as Track and Habits read it. */
+/** One finished (or turned off) configuration run, as Track and Goals read it. */
 @Serializable
 data class RunRecord(
     val id: String,
@@ -88,6 +94,9 @@ data class RunRecord(
 
     /** Focus time counted once the person reported on it: the planned length, cut short if the run was. */
     val focusMs: Long get() = if (focus == null || focus == FocusOutcome.NotCompleted) 0 else minOf(focusPlannedMs, end - start).coerceAtLeast(0)
+    val focusMinutes: Int get() = (focusMs / 60_000).toInt()
+    /** Only Focus the person called done earns XP, as a Focus session that ran to the end does. */
+    val completedFocusMinutes: Int get() = if (focus == FocusOutcome.Completed) focusMinutes else 0
 }
 
 /** The record for a run that ended at [end] (turned off early when [turnedOff] and before its planned end). */

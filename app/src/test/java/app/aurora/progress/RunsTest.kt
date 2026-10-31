@@ -19,6 +19,16 @@ class RunsTest {
     }
 
     @Test
+    fun anUntouchedSessionIsVerifiedWhileTheServiceStaysBound() {
+        // Last heartbeat at the screen going off, ten minutes in; nothing happened until the session ended.
+        val spans = listOf(ServiceSpan(0, 10 * 60_000L))
+        assertEquals(Outcome.Succeeded, run(spans.reaching(2 * h, connected = true)).outcome)
+        assertEquals(Outcome.Unverified, run(spans.reaching(2 * h, connected = false)).outcome)
+        // A span the service closed stays closed: it was not bound after that.
+        assertEquals(Outcome.Unverified, run(listOf(ServiceSpan(0, 10 * 60_000L, closed = true)).reaching(2 * h, connected = true)).outcome)
+    }
+
+    @Test
     fun turnedOffEarlyIsNotAchieved() {
         assertEquals(Outcome.NotAchieved, run(listOf(ServiceSpan(0, 3 * h)), end = h, turnedOff = true).outcome)
     }

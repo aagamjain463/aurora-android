@@ -46,3 +46,8 @@ Newest last. Each entry: decision, then why.
     token JSON and the Compose components are the editable sources.
 20. **`DesignTokensTest`** keeps the JSON tokens and the Kotlin palette equal, so the brand file can't
     silently drift from the app.
+21. **The living sky (`AuroraSky`) is Aurora's signature motion.** Where a rival brand owns an object, Aurora
+    owns a sky that answers to protection: quiet, lit, alive, flare. It is drawn live in a shader rather
+    than shipped as video or Lottie, so it is crisp at every size, costs 6 KB of masks, follows the theme
+    and reacts to real state. It never moves unless a session runs, so motion keeps its meaning and the
+    battery cost stays bounded.

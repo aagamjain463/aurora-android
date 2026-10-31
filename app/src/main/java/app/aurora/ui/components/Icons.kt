@@ -158,6 +158,16 @@ object AuroraIcons {
         moveTo(5f, 19f); lineTo(5.75f, 15.5f); lineTo(15.5f, 5.75f); lineTo(18.25f, 8.5f); lineTo(8.5f, 18.25f); close()
         moveTo(13.5f, 7.75f); lineTo(16.25f, 10.5f)
     }
+    /** More: three points on the horizon line. */
+    val More = icon("more") {
+        moveTo(5.5f, 12f); horizontalLineTo(5.55f)
+        moveTo(12f, 12f); horizontalLineTo(12.05f)
+        moveTo(18.5f, 12f); horizontalLineTo(18.55f)
+    }
+    val Copy = icon("copy") {
+        moveTo(9f, 9f); horizontalLineTo(18f); verticalLineTo(19f); horizontalLineTo(9f); close()
+        moveTo(6f, 15f); verticalLineTo(5f); horizontalLineTo(15f)
+    }
 }
 
 private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) {

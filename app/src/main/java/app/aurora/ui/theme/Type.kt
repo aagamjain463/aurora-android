@@ -10,17 +10,34 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.aurora.R
 
-private fun manrope(weight: Int) = Font(
-    resId = R.font.manrope,
+private fun geist(weight: Int) = Font(
+    resId = R.font.geist,
     weight = FontWeight(weight),
     variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
 )
 
-/** Manrope (SIL OFL), bundled as one variable font. */
-val Manrope = FontFamily(manrope(300), manrope(400), manrope(450), manrope(500), manrope(550), manrope(560), manrope(600), manrope(620), manrope(650), manrope(700), manrope(800))
+/** Geist (SIL OFL), bundled as one variable font: crisp, quiet, tabular. The voice of the interface. */
+val Geist = FontFamily(geist(400), geist(420), geist(500), geist(560))
+
+/**
+ * Cormorant Garamond (SIL OFL): headlines and every big number. Its fine strokes are light on a night sky.
+ * Its letters are small for their size, so it is set larger than most serifs, and never below [AuroraType.DisplayS].
+ */
+val Cormorant = FontFamily(Font(
+    R.font.cormorant,
+    weight = FontWeight.Medium,
+    variationSettings = FontVariation.Settings(FontVariation.weight(500)),
+))
+
+/** The lighter cut, for numbers so large they read as engraved, not as a stopwatch. */
+val CormorantNumerals = FontFamily(Font(
+    R.font.cormorant,
+    weight = FontWeight.Normal,
+    variationSettings = FontVariation.Settings(FontVariation.weight(400)),
+))
 
 private fun style(size: Int, line: Int, weight: Int, tracking: Double = 0.0, features: String? = null) = TextStyle(
-    fontFamily = Manrope,
+    fontFamily = Geist,
     fontSize = size.sp,
     lineHeight = line.sp,
     fontWeight = FontWeight(weight),
@@ -29,29 +46,29 @@ private fun style(size: Int, line: Int, weight: Int, tracking: Double = 0.0, fea
 )
 
 /**
- * aurora's type scale. Big, confident numbers; firm headlines; body text that is easy to read at arm's
- * length. Nothing below 13sp, and supporting text is never faded to a whisper.
+ * aurora's type scale. A fine serif for what the screen is about, a crisp sans for everything you act on. Nothing below
+ * 13sp, and supporting text is never faded to a whisper.
  */
 object AuroraType {
-    /** The one number a screen is about. Tabular so digits don't jitter. */
-    val Metric = style(56, 60, 500, -0.035, "tnum")
-    /** Timers on the Shield and in Focus. */
-    val Hero = style(60, 64, 500, -0.04, "tnum")
-    /** One-word screen titles set large over the artwork: "Focus". */
-    val DisplayXL = style(56, 60, 500, -0.04)
+    /** The one number a screen is about. Lining and tabular, so digits line up and don't jitter. */
+    val Metric = style(66, 68, 400, -0.015, "lnum, tnum").copy(fontFamily = CormorantNumerals)
+    /** Timers on the Shield and in Focus: the signature of the app. */
+    val Hero = style(92, 94, 400, -0.02, "lnum, tnum").copy(fontFamily = CormorantNumerals)
+    /** One-word screen titles set large over the artwork: "Track". */
+    val DisplayXL = style(68, 70, 500, -0.02, "lnum").copy(fontFamily = Cormorant)
     /** Hero headlines, usually two-tone ([TwoToneHeadline]). Confident but not heavy. */
-    val Display = style(36, 42, 500, -0.018)
-    val Headline = style(26, 32, 620, -0.02)
-    val Title = style(19, 25, 620, -0.012)
-    val Body = style(16, 24, 450)
-    val BodyStrong = style(16, 22, 620, -0.005)
-    val Secondary = style(15, 21, 450)
-    val Label = style(16, 20, 620, -0.005)
-    val Caption = style(13, 18, 550, 0.005)
+    val Display = style(50, 52, 500, -0.018, "lnum").copy(fontFamily = Cormorant)
+    /** Step titles in setup flows (tokens: display-s). */
+    val DisplayS = style(36, 40, 500, -0.012, "lnum").copy(fontFamily = Cormorant)
+    val Headline = style(24, 30, 560, -0.022)
+    val Title = style(18, 24, 560, -0.014)
+    val Body = style(16, 24, 420, -0.004)
+    val BodyStrong = style(16, 22, 560, -0.008)
+    val Secondary = style(15, 21, 420, -0.002)
+    val Label = style(16, 20, 560, -0.008)
+    val Caption = style(13, 18, 500, 0.002, "tnum")
     /** Section labels: sentence case, tracked, firm. */
-    val Eyebrow = style(13, 16, 650, 0.04)
-    /** "Aurora", title case, set beside the symbol. */
-    val Wordmark = style(24, 28, 500, -0.01)
+    val Eyebrow = style(13, 16, 560, 0.018)
 }
 
 val MaterialTypography = Typography(

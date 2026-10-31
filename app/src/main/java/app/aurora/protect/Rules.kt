@@ -37,6 +37,9 @@ import java.time.ZoneId
  * - [Cooldown]: a wait *before* access. When it ends, a timed access grant.
  * - [AlwaysBlock]: fully blocked, and no in-app way to end it early. It ends when its timer does.
  *
+ * All but Flexible are strict ([strict]): they can't be turned off early, and while they run Settings and
+ * uninstalling are locked.
+ *
  * Phase 3 stored "Block" (always shielded) and "RulesOnly" (no everyday Shield). Neither exists now:
  * protection only runs inside a session or window, so both read as the safe, cancellable [Flexible].
  */
@@ -138,20 +141,12 @@ data class DailyLimit(val key: String, val minutes: Int, val enabled: Boolean = 
 data class FocusProfile(val id: String, val name: String, val minutes: Int = 25, val groupId: String? = null)
 
 @Serializable
-enum class GoalKind { ScreenTimeUnder, ProtectedTimeUnder, FocusAtLeast, OpensUnder }
-
-/** [target] is minutes per day, or openings per day for [GoalKind.OpensUnder]. */
-@Serializable
-data class Goal(val id: String, val kind: GoalKind, val target: Int)
-
-@Serializable
 data class Rules(
     val apps: Map<String, AppRule> = emptyMap(),
     val groups: List<Group> = emptyList(),
     val schedules: List<Schedule> = emptyList(),
     val limits: List<DailyLimit> = emptyList(),
     val profiles: List<FocusProfile> = listOf(DefaultProfile),
-    val goals: List<Goal> = emptyList(),
     /** What the person wants more time for (onboarding). Shown back to them, never sent anywhere. */
     val motivations: List<String> = emptyList(),
     val defaultRule: AppRule = AppRule(),
@@ -163,7 +158,7 @@ data class Rules(
     val intentPresets: List<IntentPreset> = emptyList(),
     val configs: List<UsageConfig> = emptyList(),
     val activations: List<Activation> = emptyList(),
-    val habits: List<app.aurora.progress.Habit> = emptyList(),
+    val trackGoals: List<app.aurora.progress.Goal> = emptyList(),
 ) {
     fun rule(key: String): AppRule = apps[key] ?: defaultRule
 
@@ -219,8 +214,9 @@ data class Session(
     fun remaining(t: DeviceTime): Long = (durationMs - elapsed(t)).coerceIn(0L, durationMs)
     fun progress(t: DeviceTime): Float = if (durationMs <= 0L) 1f else 1f - remaining(t).toFloat() / durationMs
     fun isOver(t: DeviceTime): Boolean = remaining(t) == 0L
-    fun endWall(t: DeviceTime): Long = t.wall + remaining(t)
-    fun startedWall(t: DeviceTime): Long = t.wall - elapsed(t).coerceAtMost(durationMs)
+    /** When it ends or ended, the same however late it is asked: a session settled hours later still lasted its length. */
+    fun endWall(t: DeviceTime): Long = startedWall(t) + durationMs
+    fun startedWall(t: DeviceTime): Long = t.wall - elapsed(t)
 
     companion object {
         fun start(t: DeviceTime, minutes: Int, groupId: String? = null, profileId: String? = null, intention: String = "") =
@@ -243,8 +239,8 @@ data class ProtectionSession(
     val cooldownWaitMinutes: Int = 15,
     val scheduleId: String? = null,
 ) {
-    /** Only Always Block can't be turned off in aurora. */
-    val cancellable: Boolean get() = mode != Mode.AlwaysBlock
+    /** Only Flexible can be turned off in aurora: Always Block, Cooldown and Friction run to their end. */
+    val cancellable: Boolean get() = !mode.strict
 }
 
 @Serializable
@@ -424,14 +420,14 @@ fun policyState(
     val restrictions = buildList {
         for (run in runs) addAll(run.restrictions(time))
         runtime.lockdown?.takeUnless { it.isOver(time) }?.let {
-            add(Restriction(ShieldReason.AlwaysBlock, rules.cover(it.groupId, active), it.startedWall(time), it.endWall(time), "lockdown-${it.startWall}"))
+            add(Restriction(ShieldReason.AlwaysBlock, rules.cover(it.groupId, active), it.startedWall(time), it.endWall(time), "lockdown-${it.startWall}", locks = true))
         }
         for (s in runtime.sessions) {
             if (s.time.isOver(time)) continue
             add(
                 Restriction(
                     s.mode.reason, s.keys, s.time.startedWall(time), s.time.endWall(time), s.id,
-                    friction = s.friction, cooldownWaitMs = s.cooldownWaitMinutes * 60_000L, sessionId = s.id,
+                    friction = s.friction, cooldownWaitMs = s.cooldownWaitMinutes * 60_000L, sessionId = s.id, locks = !s.cancellable,
                 ),
             )
         }

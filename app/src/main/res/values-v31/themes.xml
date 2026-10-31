@@ -1,10 +1,13 @@
 <resources>
-    <style name="Theme.Aurora" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Aurora" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/aurora_window</item>
-        <!-- Android 12+ splash: the mark on its night circle, over aurora's own background. -->
-        <item name="android:windowSplashScreenBackground">@color/aurora_window</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">@color/aurora_icon_background</item>
+        <!-- Android 12+ splash: empty midnight green. The logo forms once, in the opening (AuroraUnveil). -->
+        <item name="android:windowSplashScreenBackground">@color/aurora_splash</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
     </style>
 
+    <!-- With reduced motion: the finished symbol, still. The opening shows the same still logo, so it never forms. -->
+    <style name="Theme.Aurora.StillSplash">
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_symbol</item>
+    </style>
 </resources>

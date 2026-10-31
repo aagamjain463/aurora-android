@@ -191,9 +191,7 @@ private fun NumberBox(text: String, onChange: (String) -> Unit, unit: String, mo
     val colors = Aurora.colors
     Column(
         modifier
-            .clip(Radius.M)
-            .background(colors.elevated)
-            .border(1.dp, colors.hairline, Radius.M)
+            .glass(colors, Radius.M)
             .padding(horizontal = Space.M, vertical = Space.S),
     ) {
         BasicTextField(
@@ -226,8 +224,7 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, spoken:
         modifier
             .heightIn(min = 44.dp)
             .clip(Radius.Pill)
-            .background(bg)
-            .border(1.dp, if (selected) Color.Transparent else colors.hairline, Radius.Pill)
+            .then(if (selected) Modifier.background(bg).gloss(Radius.Pill) else Modifier.glass(colors, Radius.Pill))
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics { this.selected = selected; contentDescription = spoken }
             .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -262,14 +259,15 @@ fun ChoiceCard(
     badge: String? = null,
 ) {
     val colors = Aurora.colors
-    val border by animateColorAsState(if (selected) colors.accent else colors.hairline, auroraTween(), label = "cardBorder")
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Row(
         modifier
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(if (selected) colors.elevated else colors.surface)
-            .border(if (selected) 2.dp else 1.dp, border, Radius.L)
-            .clickable(role = Role.RadioButton, onClick = onClick)
+            .pressable(Radius.L, Role.RadioButton) {
+                if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+                onClick()
+            }
+            .glass(colors, Radius.L, tint = if (selected) colors.accent else null)
             .semantics(mergeDescendants = true) { this.selected = selected }
             .padding(Space.M),
         horizontalArrangement = Arrangement.spacedBy(Space.M),
@@ -304,7 +302,7 @@ fun BigMetric(value: String, label: String, modifier: Modifier = Modifier, note:
     val colors = Aurora.colors
     Column(modifier.semantics(mergeDescendants = true) { if (spoken != null) contentDescription = "$label: $spoken" }) {
         Text(label, color = colors.textSecondary, style = AuroraType.BodyStrong)
-        Text(value, color = colors.textPrimary, style = AuroraType.Metric)
+        CountUpText(value, colors.textPrimary, AuroraType.Metric)
         if (note != null) Text(note, color = colors.textTertiary, style = AuroraType.Caption)
     }
 }
@@ -317,9 +315,8 @@ fun Card(modifier: Modifier = Modifier, tint: Color? = null, content: @Composabl
         modifier
             .padding(horizontal = Space.M)
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(tint ?: colors.surface)
-            .border(1.dp, colors.hairline, Radius.L)
+            .glass(colors, Radius.L)
+            .then(if (tint != null) Modifier.background(tint) else Modifier)
             .padding(Space.L),
     ) { content() }
 }
@@ -329,7 +326,7 @@ fun Card(modifier: Modifier = Modifier, tint: Color? = null, content: @Composabl
 fun PillarHeading(title: String, body: String, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
     Column(modifier.padding(start = Space.Gutter, end = Space.Gutter, top = Space.XXL, bottom = Space.M)) {
-        Box(Modifier.width(40.dp).heightIn(min = 3.dp).clip(Radius.Pill).background(colors.dawn))
+        Box(Modifier.width(40.dp).heightIn(min = 3.dp).clip(Radius.Pill).background(colors.violet))
         Spacer(Modifier.size(Space.M))
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
         Text(body, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Start)

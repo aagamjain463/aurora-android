@@ -1,5 +1,7 @@
 package app.aurora.ui.protect
 
+import app.aurora.ui.components.glass
+import app.aurora.ui.components.RollingClock
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,8 +55,8 @@ fun modeColor(mode: Mode): Color {
     return when (mode) {
         // Flexible is the calm default; the others each carry one First Light hue (brand bible: Modes).
         Mode.Flexible -> Aurora.colors.textSecondary
-        Mode.Friction -> Aurora.colors.sun
-        Mode.Cooldown -> if (dark) app.aurora.ui.theme.Palette.Glacier400 else app.aurora.ui.theme.Palette.Glacier700
+        Mode.Friction -> Aurora.colors.rose
+        Mode.Cooldown -> if (dark) app.aurora.ui.theme.Palette.Glacier400 else app.aurora.ui.theme.Palette.Glacier400
         Mode.AlwaysBlock -> Aurora.colors.accent
     }
 }
@@ -72,7 +74,7 @@ fun modeIcon(mode: Mode): androidx.compose.ui.graphics.vector.ImageVector = when
 fun ModeChip(mode: Mode, modifier: Modifier = Modifier, label: String = modeName(mode)) {
     val tint = modeColor(mode)
     Row(
-        modifier.clip(Radius.Pill).background(tint.copy(alpha = 0.08f)).border(1.dp, tint.copy(alpha = 0.55f), Radius.Pill)
+        modifier.glass(Aurora.colors, Radius.Pill, tint = tint)
             .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -169,9 +171,7 @@ fun SessionCard(session: ProtectionSession, data: ProtectData, onTurnOff: () -> 
         modifier
             .padding(horizontal = Space.M)
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(colors.surface)
-            .border(1.dp, tint.copy(alpha = 0.45f), Radius.L)
+            .glass(colors, Radius.L, tint = tint)
             .padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
@@ -181,12 +181,7 @@ fun SessionCard(session: ProtectionSession, data: ProtectData, onTurnOff: () -> 
             Box(Modifier.weight(1f))
             IconStack(session.keys.toList(), data)
         }
-        Text(
-            formatClock(left),
-            Modifier,
-            color = colors.textPrimary,
-            style = AuroraType.Hero,
-        )
+        RollingClock(formatClock(left), colors.textPrimary, AuroraType.Hero)
         Text(
             stringResource(R.string.session_ends_at, clockTime(session.time.endWall(data.time))) + if (names.isNotEmpty()) " · " + names.joinToString(", ") else "",
             color = colors.textSecondary,
@@ -196,12 +191,12 @@ fun SessionCard(session: ProtectionSession, data: ProtectData, onTurnOff: () -> 
             AuroraButton(stringResource(R.string.session_turn_off), onTurnOff, Modifier.fillMaxWidth().padding(top = Space.XS), kind = ButtonKind.Secondary)
         } else {
             Row(
-                Modifier.padding(top = Space.XS).fillMaxWidth().clip(Radius.Pill).background(colors.dawnSoft).padding(horizontal = Space.M, vertical = 12.dp),
+                Modifier.padding(top = Space.XS).fillMaxWidth().clip(Radius.Pill).background(colors.violetSoft).padding(horizontal = Space.M, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
-                Icon(AuroraIcons.Lock, null, tint = colors.dawnText, modifier = Modifier.size(18.dp))
-                Text(stringResource(R.string.session_ends_automatically), color = colors.dawnText, style = AuroraType.Label)
+                Icon(AuroraIcons.Lock, null, tint = colors.violetText, modifier = Modifier.size(18.dp))
+                Text(stringResource(R.string.session_ends_automatically), color = colors.violetText, style = AuroraType.Label)
             }
         }
     }

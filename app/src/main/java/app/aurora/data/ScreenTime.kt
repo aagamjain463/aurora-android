@@ -45,7 +45,7 @@ class ScreenTimeRepository(private val context: Context) {
 
     /** Foreground time per package since local midnight, excluding the home screen. */
     suspend fun today(now: Long = System.currentTimeMillis()): Map<String, Long> =
-        between(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(), now) ?: emptyMap()
+        between(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(), now, finished = false) ?: emptyMap()
 
     /**
      * Foreground time per package on [date] (local), up to now for today. Null when Android has no
@@ -54,8 +54,9 @@ class ScreenTimeRepository(private val context: Context) {
     suspend fun day(date: LocalDate, now: Long = System.currentTimeMillis()): Map<String, Long>? {
         val zone = ZoneId.systemDefault()
         val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
-        val to = minOf(date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), now)
-        return if (from >= to) null else between(from, to)
+        val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = minOf(end, now)
+        return if (from >= to) null else between(from, to, finished = end <= now)
     }
 
     /**
@@ -66,25 +67,28 @@ class ScreenTimeRepository(private val context: Context) {
         if (!hasAccess() || from >= to) return@withContext null
         // Shield doesn't pause the app beneath it, so seed its earlier resume before clipping.
         // shortcut: one prior day seeds foreground; extend for uninterrupted multi-day app use.
-        records((from - 86_400_000L).coerceAtLeast(0), to)?.let { foregroundIntervals(it.signals, from, to) }
+        records(from, to, seedMs = 86_400_000L)?.let { foregroundIntervals(it.signals, from, to) }
     }
 
     private data class Records(val signals: List<UsageSignal>, val any: Boolean)
 
-    /** Hour-sized reads avoid Android 16's large UsageEvents Binder transfer failure. */
-    private fun records(from: Long, to: Long): Records? {
+    /**
+     * Hour-sized reads avoid Android 16's large UsageEvents Binder transfer failure. [seedMs] reads that much
+     * earlier too, to find the app already in front at [from]; [Records.any] still means records within the window.
+     */
+    private fun records(from: Long, to: Long, seedMs: Long): Records? {
         val manager = context.getSystemService(UsageStatsManager::class.java)
         val event = UsageEvents.Event()
         val signals = ArrayList<UsageSignal>()
         var any = false
-        var cursor = from
+        var cursor = (from - seedMs).coerceAtLeast(0)
         try {
             while (cursor < to) {
                 val end = minOf(cursor + 3_600_000L, to)
                 val events = manager.queryEvents(cursor, end) ?: return null
                 while (events.hasNextEvent()) {
                     events.getNextEvent(event)
-                    any = true
+                    if (event.timeStamp >= from) any = true
                     val kind = when (event.eventType) {
                         RESUMED -> UsageSignal.Kind.Start
                         PAUSED -> UsageSignal.Kind.Stop
@@ -103,11 +107,12 @@ class ScreenTimeRepository(private val context: Context) {
         return Records(signals, any)
     }
 
-    private suspend fun between(from: Long, to: Long): Map<String, Long>? = withContext(usageIo) {
+    private suspend fun between(from: Long, to: Long, finished: Boolean): Map<String, Long>? = withContext(usageIo) {
         if (!hasAccess()) return@withContext null
-        val records = records(from, to) ?: return@withContext null
-        // No events at all: Android has nothing for this window. Today counts as zero (a quiet morning).
-        if (!records.any && to - from > 86_000_000L) return@withContext null
+        // ponytail: six hours finds an app open across midnight; one left open longer starts at its next event.
+        val records = records(from, to, seedMs = 6 * 3_600_000L) ?: return@withContext null
+        // No events at all: Android has nothing for this finished day. Today counts as zero (a quiet morning).
+        if (!records.any && finished) return@withContext null
         foregroundTime(records.signals, from, to) - setOfNotNull(homePackage(), context.packageName)
     }
 

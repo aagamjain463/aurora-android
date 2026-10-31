@@ -28,15 +28,17 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import app.aurora.ui.components.rememberGlassSource
+import app.aurora.ui.components.glassSource
 import app.aurora.AuroraApplication
 import app.aurora.adoptOnboarding
 import app.aurora.R
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraNavBar
 import app.aurora.ui.components.NavItem
+import app.aurora.ui.components.TabArrival
 import app.aurora.ui.focus.FocusScreen
 import app.aurora.ui.home.HomeScreen
-import app.aurora.ui.insights.InsightsScreen
 import app.aurora.ui.onboarding.OnboardingScreen
 import android.net.Uri
 import app.aurora.ui.plus.PlusScreen
@@ -51,8 +53,8 @@ import app.aurora.ui.library.ShieldEditorScreen
 import app.aurora.ui.library.ShieldLibraryScreen
 import app.aurora.ui.strict.FocusRunScreen
 import app.aurora.ui.strict.StrictModeScreen
-import app.aurora.ui.track.HabitEditorScreen
-import app.aurora.ui.track.HabitScreen
+import app.aurora.ui.track.GoalEditorScreen
+import app.aurora.ui.track.TrackScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.ui.protect.WebScreen
 import app.aurora.ui.settings.SettingsScreen
@@ -71,8 +73,7 @@ object Routes {
     const val Configure = "configure"
     const val ShieldEdit = "shield-edit"
     const val IntentEdit = "intent-edit"
-    const val HabitEdit = "habit-edit"
-    const val Habit = "habit"
+    const val GoalEdit = "goal-edit"
     const val Strict = "strict"
     const val FocusRun = "focus-run"
 }
@@ -87,10 +88,13 @@ private val Tabs = listOf(
 private val TabRoutes = Tabs.map { it.route }.toSet()
 
 /** Tabs keep their own scroll and state; Home is always the root of the back stack. */
-private fun NavHostController.selectTab(route: String) = navigate(route) {
-    popUpTo(Routes.Home) { saveState = true }
-    launchSingleTop = true
-    restoreState = true
+private fun NavHostController.selectTab(route: String) {
+    TabArrival.fresh = currentDestination?.route != route
+    navigate(route) {
+        popUpTo(Routes.Home) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
 }
 
 /** Hands [value] back to the screen below (a flow that sent the person to create something), then returns. */
@@ -111,31 +115,44 @@ fun AuroraNavHost(startOnboarded: Boolean) {
     fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch() =
         initialState.destination.route in TabRoutes && targetState.destination.route in TabRoutes
 
+    val glass = rememberGlassSource()
+    val push = tween<Float>(Motion.Gentle, easing = Motion.Ease)
+    val slide = tween<androidx.compose.ui.unit.IntOffset>(Motion.Gentle, easing = Motion.Ease)
     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) {
         NavHost(
             navController = nav,
             startDestination = if (startOnboarded) Routes.Home else Routes.Onboarding,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().glassSource(glass),
+            // Tabs share one sky: the new one fades in over the old, so the light never dips, while the
+            // new page's blocks climb in over it ([rise]).
+            // Screens pushed on top slide in from the right while the one below sinks back, so depth
+            // reads at a glance. Reduced motion keeps only the fades.
             enterTransition = {
                 when {
-                    reduced || isTabSwitch() -> fadeIn(tween(Motion.Standard))
-                    else -> fadeIn(tween(Motion.Standard)) +
-                        slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { it / 12 }
+                    reduced -> fadeIn(tween(Motion.Standard))
+                    isTabSwitch() -> fadeIn(tween(Motion.Standard, easing = Motion.Ease))
+                    else -> fadeIn(tween(Motion.Standard)) + slideInHorizontally(slide) { it / 2 }
                 }
             },
-            exitTransition = { fadeOut(tween(Motion.Quick)) },
+            exitTransition = {
+                when {
+                    reduced -> fadeOut(tween(Motion.Quick))
+                    isTabSwitch() -> ExitTransition.KeepUntilTransitionsFinished
+                    else -> fadeOut(push) + scaleOut(push, targetScale = SunkScale) + slideOutHorizontally(slide) { -it / 8 }
+                }
+            },
             popEnterTransition = {
                 when {
-                    reduced || isTabSwitch() -> fadeIn(tween(Motion.Standard))
-                    else -> fadeIn(tween(Motion.Standard)) +
-                        slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { -it / 12 }
+                    reduced -> fadeIn(tween(Motion.Standard))
+                    isTabSwitch() -> fadeIn(tween(Motion.Standard, easing = Motion.Ease))
+                    else -> fadeIn(push) + scaleIn(push, initialScale = SunkScale) + slideInHorizontally(slide) { -it / 8 }
                 }
             },
             popExitTransition = {
                 when {
-                    reduced || isTabSwitch() -> fadeOut(tween(Motion.Quick))
-                    else -> fadeOut(tween(Motion.Quick)) +
-                        slideOutHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { it / 12 }
+                    reduced -> fadeOut(tween(Motion.Quick))
+                    isTabSwitch() -> ExitTransition.KeepUntilTransitionsFinished
+                    else -> fadeOut(tween(Motion.Standard)) + slideOutHorizontally(slide) { it / 2 }
                 }
             },
         ) {
@@ -158,7 +175,6 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onCustom = { nav.navigate("${Routes.Configure}?custom=true") },
                     onOpenFocus = { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") },
                     onOpenLegacyFocus = { nav.navigate(Routes.Focus) },
-                    onOpenTrack = { nav.selectTab(Routes.Track) },
                     onOpenSettings = settings,
                 )
             }
@@ -180,19 +196,19 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             composable("${Routes.IntentEdit}?id={id}") { e ->
                 IntentEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdIntent", id) })
             }
-            composable("${Routes.Configure}?custom={custom}&config={config}&habit={habit}") { e ->
+            composable("${Routes.Configure}?custom={custom}&config={config}&goal={goal}") { e ->
                 val handle = e.savedStateHandle
                 val createdShield by handle.getStateFlow<String?>("createdShield", null).collectAsStateWithLifecycle()
                 val createdIntent by handle.getStateFlow<String?>("createdIntent", null).collectAsStateWithLifecycle()
-                val forHabit = e.arguments?.getString("habit") == "true"
+                val forGoal = e.arguments?.getString("goal") == "true"
                 ConfigureScreen(
                     custom = e.arguments?.getString("custom") != "false",
                     configId = e.arguments?.getString("config"),
-                    forHabit = forHabit,
+                    forGoal = forGoal,
                     createdShield = createdShield,
                     createdIntent = createdIntent,
                     onBack = back,
-                    onDone = { id -> if (forHabit) nav.returnWith("createdConfig", id) else nav.popBackStack(Routes.Home, inclusive = false) },
+                    onDone = { id -> if (forGoal) nav.returnWith("createdConfig", id) else nav.popBackStack(Routes.Home, inclusive = false) },
                     onCreateShield = { nav.navigate(Routes.ShieldEdit) },
                     onCreateIntent = { nav.navigate(Routes.IntentEdit) },
                     onStrict = { nav.navigate(Routes.Strict) },
@@ -200,23 +216,11 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 )
             }
             composable(Routes.Track) {
-                InsightsScreen(
-                    onPlus = plus, onOpenSettings = settings,
-                    onCreateHabit = { nav.navigate(Routes.HabitEdit) },
-                    onOpenHabit = { id -> nav.navigate("${Routes.Habit}/$id") },
-                )
+                TrackScreen(onPlus = plus, onOpenSettings = settings, onCreateGoal = { nav.navigate(Routes.GoalEdit) })
             }
-            composable("${Routes.HabitEdit}?id={id}") { e ->
+            composable(Routes.GoalEdit) { e ->
                 val createdConfig by e.savedStateHandle.getStateFlow<String?>("createdConfig", null).collectAsStateWithLifecycle()
-                HabitEditorScreen(
-                    e.arguments?.getString("id"), createdConfig, back,
-                    onSaved = { id -> nav.popBackStack(); if (e.arguments?.getString("id") == null) nav.navigate("${Routes.Habit}/$id") },
-                    onCreateConfig = { nav.navigate("${Routes.Configure}?custom=true&habit=true") },
-                )
-            }
-            composable("${Routes.Habit}/{id}") { e ->
-                val id = e.arguments?.getString("id").orEmpty()
-                HabitScreen(id, back, onEdit = { nav.navigate("${Routes.HabitEdit}?id=$id") })
+                GoalEditorScreen(createdConfig, back, onSaved = back, onCreateConfig = { nav.navigate("${Routes.Configure}?custom=true&goal=true") })
             }
             composable(Routes.Strict) { StrictModeScreen(back) }
             composable("${Routes.FocusRun}/{id}") { e -> FocusRunScreen(Uri.decode(e.arguments?.getString("id").orEmpty()), back) }
@@ -252,19 +256,21 @@ fun AuroraNavHost(startOnboarded: Boolean) {
         AnimatedVisibility(
             visible = route in TabRoutes,
             modifier = Modifier.align(Alignment.BottomCenter),
-            enter = fadeIn(tween(Motion.Standard)) + if (reduced) EnterTransition.None else slideInVertically { it / 2 },
-            exit = fadeOut(tween(Motion.Quick)) + if (reduced) ExitTransition.None else slideOutVertically { it / 2 },
+            enter = fadeIn(tween(Motion.Standard)) + if (reduced) EnterTransition.None else slideInVertically(tween(Motion.Gentle, easing = Motion.Ease)) { it },
+            exit = fadeOut(tween(Motion.Quick)) + if (reduced) ExitTransition.None else slideOutVertically(tween(Motion.Standard, easing = Motion.Ease)) { it },
         ) {
-            AuroraNavBar(Tabs, route) { nav.selectTab(it) }
+            AuroraNavBar(Tabs, route, glass) { nav.selectTab(it) }
         }
     }
 }
 
+private const val SunkScale = 0.92f
+
 /** Focus rises gently into view, the one moment aurora allows itself a little ceremony. */
 private fun focusEnter(reduced: Boolean): EnterTransition =
     if (reduced) fadeIn(tween(Motion.Standard))
-    else fadeIn(tween(Motion.Gentle)) + scaleIn(tween(Motion.Gentle, easing = Motion.Ease), initialScale = 0.96f)
+    else fadeIn(tween(Motion.Gentle)) + scaleIn(tween(Motion.Reveal, easing = Motion.Ease), initialScale = 0.86f)
 
 private fun focusExit(reduced: Boolean): ExitTransition =
     if (reduced) fadeOut(tween(Motion.Quick))
-    else fadeOut(tween(Motion.Standard)) + scaleOut(tween(Motion.Standard, easing = Motion.Ease), targetScale = 0.98f)
+    else fadeOut(tween(Motion.Standard)) + scaleOut(tween(Motion.Standard, easing = Motion.Ease), targetScale = 0.92f)

@@ -83,13 +83,15 @@ class NavigationTest {
         launch(onboarded = false)
         compose.onNodeWithText("Begin").performClick()
         // What matters, apps, modes, Intentional App Opening, Shield, keeping it running: nothing is required.
+        // Until Shield is on, its step offers only "Turn on Shield" and a quiet skip.
         repeat(6) {
-            awaitText("Continue")
-            compose.onNodeWithText("Continue").performClick()
+            compose.waitUntil(5_000) { listOf("Continue", "Skip for now").any { t -> compose.onAllNodesWithText(t).fetchSemanticsNodes().isNotEmpty() } }
+            val next = if (compose.onAllNodesWithText("Continue").fetchSemanticsNodes().isNotEmpty()) "Continue" else "Skip for now"
+            compose.onNodeWithText(next).performClick()
         }
         awaitText("Go to Home")
         compose.onNodeWithText("Go to Home").performClick()
-        scrollTo("How do you want to use Aurora?").assertIsDisplayed()
+        scrollTo("Normal Session").assertIsDisplayed()
         tab("Home").assertIsSelected()
     }
 
@@ -97,18 +99,18 @@ class NavigationTest {
     fun fourTabs() {
         launch(onboarded = true)
         tab("Shield").performClick()
-        compose.onNode(hasText("Never get distracted from what matters.") and isHeading()).assertIsDisplayed()
+        compose.onNode(hasText("Shield yourself from distractions.") and isHeading()).assertIsDisplayed()
         tab("Shield").assertIsSelected()
 
         tab("Intent").performClick()
-        compose.onNode(hasText("Open apps on purpose.") and isHeading()).assertIsDisplayed()
+        compose.onNode(hasText("Use with purpose. Not impulse.") and isHeading()).assertIsDisplayed()
 
         tab("Track").performClick()
-        compose.onNode(hasText("Track") and isHeading()).assertIsDisplayed()
+        compose.onNode(hasText("See your progress. Own your growth.") and isHeading()).assertIsDisplayed()
         tab("Track").assertIsSelected()
 
         tab("Home").performClick()
-        scrollTo("Custom Configuration").assertIsDisplayed()
+        scrollTo("Custom Session").assertIsDisplayed()
     }
 
     /**
@@ -123,17 +125,18 @@ class NavigationTest {
             app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social")))) }
         }
         launch(onboarded = true)
-        scrollTo("Custom Configuration").performClick()
-        awaitText("Test Shield")
+        // The 320x470 JVM viewport can put the row centre behind the floating dock.
+        scrollTo("Custom Session").performSemanticsAction(SemanticsActions.OnClick)
+        // What: the name and the Shield on one step; When: the timing and its length; then Review.
+        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Study")
+        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(hasText("Test Shield"))
         compose.onNodeWithText("Test Shield").performClick()
         compose.onNodeWithText("Next").performClick()
-        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Study")
-        compose.onNodeWithText("Next").performClick()
         compose.onNodeWithText("Start now").performClick()
-        compose.onNodeWithText("Next").performClick()
+        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(hasText("15 min"))
         compose.onNodeWithText("15 min").performClick()
         compose.onNodeWithText("Next").performClick()
-        compose.onNodeWithText("Next").performClick() // no Focus
         compose.onNodeWithText("Start").performClick()
         // Fetching nodes syncs with the main thread, where each step of the activation resumes.
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() && app.runtime.value?.runs?.size == 1 }
@@ -146,39 +149,38 @@ class NavigationTest {
     }
 
     @Test
-    fun habitCanBeCreatedArchivedAndRestoredWithoutStartingProtection() {
+    fun goalCanBeCreatedAndDeletedWithoutStartingProtection() {
         val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
-        val config = UsageConfig("habit-test", "Habit Study", focus = FocusPlan("Study"))
+        val config = UsageConfig("goal-test", "Goal Study", focus = FocusPlan("Study"))
         runBlocking {
-            app.rules.update { r -> r.copy(
-                version = 1,
-                configs = r.configs.filterNot { it.id == config.id } + config,
-                habits = r.habits.filterNot { it.configId == config.id },
-            ) }
+            app.rules.update { r -> r.copy(version = 1, configs = r.configs.filterNot { it.id == config.id } + config, trackGoals = emptyList()) }
         }
         launch(onboarded = true)
         val runsBefore = app.runtime.value!!.runs
         tab("Track").performClick()
-        scrollTo("Create Habit").performSemanticsAction(SemanticsActions.OnClick)
-        awaitText("Name your habit")
+        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Goals")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Goals")).performClick()
+        awaitText("Create a Goal")
+        compose.onNodeWithText("Create a Goal").performClick()
+        awaitText("Name your goal")
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Daily learning")
         compose.onNodeWithText("Next").performClick()
-        awaitText("Habit Study")
-        compose.onNodeWithText("Habit Study").performClick()
+        compose.onNodeWithText("A custom session").performClick()
         compose.onNodeWithText("Next").performClick()
-        compose.onNodeWithText("Whenever I use it").performScrollTo().performClick()
+        awaitText("Goal Study")
+        compose.onNodeWithText("Goal Study").performClick()
         compose.onNodeWithText("Next").performClick()
-        compose.onNodeWithText("Save habit").performClick()
-        awaitText("Linked to Habit Study")
-        val habit = app.rules.value!!.habits.single { it.configId == config.id }
-        org.junit.Assert.assertTrue(habit.target.onDemand)
+        compose.onNodeWithText("Sessions per week").performClick()
+        compose.onNodeWithText("Create goal").performClick()
+        awaitText("Daily learning")
+        val goal = app.rules.value!!.trackGoals.single()
+        org.junit.Assert.assertEquals(3, goal.sessions)
+        org.junit.Assert.assertEquals(config.id, goal.configId)
         org.junit.Assert.assertEquals(runsBefore, app.runtime.value!!.runs)
         org.junit.Assert.assertTrue(app.rules.value!!.activations.none { it.configId == config.id })
-        scrollTo("Archive").performClick()
-        awaitText("Restore")
-        org.junit.Assert.assertTrue(app.rules.value!!.habits.single { it.id == habit.id }.archived)
-        scrollTo("Restore").performClick()
-        awaitText("Archive")
-        org.junit.Assert.assertFalse(app.rules.value!!.habits.single { it.id == habit.id }.archived)
+        scrollTo("Delete goal").performSemanticsAction(SemanticsActions.OnClick)
+        awaitText("Delete Daily learning?")
+        compose.onNodeWithText("Delete").performClick()
+        compose.waitUntil(5_000) { app.rules.value!!.trackGoals.isEmpty() }
     }
 }

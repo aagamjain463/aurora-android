@@ -50,6 +50,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.aurora.ui.components.PageGlow
+import app.aurora.ui.components.glass
 import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.auroraViewModel
@@ -66,9 +68,11 @@ import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.ArtTier
-import app.aurora.ui.components.FirstLightBackdrop
+import app.aurora.ui.components.Sky
+import app.aurora.ui.components.AuroraBackdrop
 import app.aurora.ui.components.TwoToneHeadline
 import app.aurora.ui.components.AuroraMark
+import app.aurora.ui.components.LockupMark
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Chip
@@ -91,6 +95,14 @@ import app.aurora.ui.theme.Motion
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.remember
+import app.aurora.ui.components.BrandEyebrow
+import app.aurora.ui.components.LitBadge
+import app.aurora.ui.components.AuroraIcons
+import androidx.compose.foundation.layout.widthIn
+import app.aurora.ui.components.ContentMaxWidth
 
 private const val PageCount = 8
 
@@ -113,31 +125,35 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val notice by vm.notice.collectAsStateWithLifecycle()
     BackHandler(enabled = page > 0) { page-- }
     val p = page.coerceAtLeast(0)
+    val shieldOn = rememberAccess(Access.Accessibility) == AccessState.Granted
 
     Box(Modifier.fillMaxSize().background(colors.background)) {
         // First Light opens and closes onboarding; the steps between are quiet.
         androidx.compose.animation.AnimatedVisibility(p == 0 || p == PageCount - 1, enter = fadeIn(tween(Motion.Gentle)), exit = fadeOut(tween(Motion.Standard))) {
-            FirstLightBackdrop(ArtTier.Immersive)
+            // The sky lights on the first page and surges on the last, when Aurora is ready.
+            AuroraBackdrop(ArtTier.Immersive, sky = if (p == PageCount - 1) Sky.Flare else Sky.Lit)
         }
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+        PageGlow()
+        Column(Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
-                AuroraMark(30.dp)
+                AuroraMark(LockupMark)
                 Spacer(Modifier.width(Space.S))
                 Wordmark(Modifier.weight(1f))
-                PageDots(p)
+                // The art pages keep the sky clear; the steps between show where you are.
+                if (p in 1 until PageCount - 1) PageDots(p)
             }
             AnimatedContent(
                 targetState = p,
                 modifier = Modifier.weight(1f),
                 transitionSpec = {
                     val enter = if (reduced) fadeIn(tween(Motion.Standard)) else
-                        fadeIn(tween(Motion.Gentle)) + slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (targetState > initialState) it / 10 else -it / 10 }
+                        fadeIn(tween(Motion.Gentle)) + slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (targetState > initialState) it / 3 else -it / 3 }
                     enter togetherWith fadeOut(tween(Motion.Quick))
                 },
                 label = "page",
             ) { step ->
                 when (step) {
-                    0 -> Page { Welcome() }
+                    0 -> Welcome()
                     1 -> Page { Motivation(vm) }
                     2 -> Apps(vm)
                     3 -> Page { Modes(vm) }
@@ -153,13 +169,15 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     PageCount - 1 -> stringResource(R.string.onb_finish)
                     else -> stringResource(R.string.action_continue)
                 }
-                AuroraButton(label, {
+                // One filled action per step: until Shield is on, "Turn on Shield" is it, and skipping stays quiet.
+                val waitingForShield = p == 5 && !shieldOn
+                if (!waitingForShield) AuroraButton(label, {
                     if (p == PageCount - 1) {
                         app.scope.launch { runCatching { app.preferences.setOnboardingStep(0) } }
                         onFinish()
                     } else page = p + 1
                 }, Modifier.fillMaxWidth())
-                if (p in 1..6) AuroraButton(stringResource(R.string.onb_skip), { page = p + 1 }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                if (p in 1..6 && !(p == 5 && shieldOn)) AuroraButton(stringResource(R.string.onb_skip), { page = p + 1 }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
             }
         }
     }
@@ -194,12 +212,49 @@ private fun Title(eyebrow: String, title: String, body: String?) {
     Spacer(Modifier.height(Space.S))
 }
 
+/**
+ * The promise sits low over the lake, then the three things Aurora does arrive one by one. The column
+ * fills the screen so the type rests near the action, and scrolls when text is large.
+ */
 @Composable
 private fun Welcome() {
     val colors = Aurora.colors
-    Spacer(Modifier.height(230.dp))
-    TwoToneHeadline(stringResource(R.string.today_headline))
-    Text(stringResource(R.string.onb_welcome_body), color = colors.textSecondary, style = AuroraType.Body)
+    val reduced = Aurora.reducedMotion
+    val pillars = listOf(
+        Triple(AuroraIcons.Protect, R.string.onb_pillar_shield, R.string.onb_pillar_shield_body),
+        Triple(AuroraIcons.Intent, R.string.onb_pillar_intent, R.string.onb_pillar_intent_body),
+        Triple(AuroraIcons.Track, R.string.onb_pillar_track, R.string.onb_pillar_track_body),
+    )
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
+            verticalArrangement = Arrangement.spacedBy(Space.S),
+        ) {
+            Spacer(Modifier.weight(1f).heightIn(min = 160.dp))
+            BrandEyebrow(stringResource(R.string.onb_welcome_eyebrow))
+            TwoToneHeadline(stringResource(R.string.today_headline))
+            Text(stringResource(R.string.onb_welcome_body), color = colors.textSecondary, style = AuroraType.Body)
+            Spacer(Modifier.height(Space.S))
+            pillars.forEachIndexed { i, (icon, title, body) ->
+                val shown = remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
+                LaunchedEffect(Unit) {
+                    if (!reduced) shown.animateTo(1f, tween(Motion.Gentle, delayMillis = 260 + 140 * i, easing = Motion.Ease))
+                }
+                Row(
+                    Modifier.fillMaxWidth().graphicsLayer { alpha = shown.value; translationY = (1f - shown.value) * 24f },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Space.M),
+                ) {
+                    LitBadge(icon, size = 44, tint = if (i == 2) colors.rose else colors.accent)
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(title), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                        Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
+                    }
+                }
+            }
+            Spacer(Modifier.height(Space.S))
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -231,12 +286,12 @@ private fun Apps(vm: ProtectModel) {
     var query by rememberSaveable { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize()) {
         item {
-            Column(Modifier.padding(horizontal = Space.Gutter)) {
+            Column(Modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.S)) {
                 Title(stringResource(R.string.onb_apps_eyebrow), stringResource(R.string.onb_apps_title), stringResource(R.string.onb_apps_body))
             }
         }
         item {
-            AuroraTextField(query, { query = it }, stringResource(R.string.picker_search), Modifier.padding(horizontal = Space.M, vertical = Space.XS), icon = app.aurora.ui.components.AuroraIcons.Search)
+            AuroraTextField(query, { query = it }, stringResource(R.string.picker_search), Modifier.padding(horizontal = Space.Gutter, vertical = Space.XS), icon = app.aurora.ui.components.AuroraIcons.Search)
         }
         appList(apps, data, exempt, query) { pkg -> ProtectedItem.App.of(pkg)?.let { vm.toggle(it) } }
     }
@@ -275,8 +330,7 @@ private fun Intent(vm: ProtectModel) {
     apps.forEach { key ->
         val enabled = key in on
         Row(
-            Modifier.fillMaxWidth().clip(Radius.M).background(if (enabled) colors.elevated else colors.surface)
-                .border(1.dp, if (enabled) colors.accent else colors.hairline, Radius.M)
+            Modifier.fillMaxWidth().glass(colors, Radius.M, tint = if (enabled) colors.accent else null)
                 .clickable(role = Role.Checkbox) {
                     if (enabled) vm.edit { r -> r.copy(apps = r.apps + (key to r.rule(key).copy(intent = r.rule(key).intent?.copy(enabled = false)))) }
                     else vm.enableWithin(Allowance.IntentApps, on.size) { r ->
@@ -339,7 +393,7 @@ private fun FirstLight(vm: ProtectModel) {
     val data by vm.data.collectAsStateWithLifecycle()
     val colors = Aurora.colors
     Spacer(Modifier.height(260.dp))
-    Text(stringResource(R.string.onb_first_light_eyebrow), color = colors.dawnText, style = AuroraType.Eyebrow)
+    Text(stringResource(R.string.onb_first_light_eyebrow), color = colors.violetText, style = AuroraType.Eyebrow)
     Text(stringResource(R.string.onb_first_light_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
     val count = data?.list?.items?.size ?: 0
     Text(

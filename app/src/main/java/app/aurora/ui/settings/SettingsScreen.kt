@@ -1,5 +1,7 @@
 package app.aurora.ui.settings
 
+import app.aurora.ui.theme.Radius
+import app.aurora.ui.components.pressable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -28,7 +30,6 @@ import app.aurora.data.Access
 import app.aurora.data.AccessState
 import app.aurora.data.Loaded
 import app.aurora.data.ProtectionStatus
-import app.aurora.data.ThemeMode
 import app.aurora.data.UserPreferences
 import app.aurora.data.openAccessSettings
 import app.aurora.deleteAllData
@@ -66,6 +67,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import app.aurora.ui.components.auroraSurface
 
 class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
     val prefs: StateFlow<UserPreferences?> =
@@ -75,10 +79,14 @@ class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
     val history: StateFlow<Loaded<History>?> = app.history.state
     val plan: StateFlow<Plan> = app.billing.plan
 
-    fun setTheme(mode: ThemeMode) = launch { app.preferences.setThemeMode(mode) }
     fun setReduceMotion(value: Boolean) = launch { app.preferences.setReduceMotion(value) }
     fun setDefaultMode(mode: Mode) = launch { app.rules.update { it.copy(defaultRule = it.defaultRule.copy(mode = mode)) } }
-    fun clearHistory() = launch { app.history.reset() }
+    /** Goals restart with the history they are judged from, so nothing cleared reads as failed. */
+    fun clearHistory() = launch {
+        app.history.reset()
+        val now = System.currentTimeMillis()
+        app.rules.update { r -> r.copy(trackGoals = r.trackGoals.map { it.copy(createdAt = now) }) }
+    }
     fun deleteAll(then: () -> Unit) = launch {
         app.deleteAllData()
         then()
@@ -89,7 +97,7 @@ class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
     }
 }
 
-private enum class Sheet { DefaultMode, Privacy, Stored, ClearHistory, DeleteAll, Help, Licenses, Disclosure, Diagnostics, Notifications }
+private enum class Sheet { DefaultMode, Privacy, Stored, ClearHistory, DeleteAll, Help, Licenses, Disclosure, Diagnostics }
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> Unit = {}, onOpenProtect: () -> Unit = {}, onOpenStrict: () -> Unit = {}) {
@@ -101,6 +109,11 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
     val plan by vm.plan.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val usageAccess = rememberAccess(Access.Usage)
+    var notificationsOn by remember { mutableStateOf(true) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        notificationsOn = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+        onPauseOrDispose { }
+    }
     val shieldAccess = rememberAccess(Access.Accessibility)
     val contentAccess = rememberAccess(Access.Content)
     val protection = rememberProtectionStatus(list)
@@ -117,24 +130,27 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
     AuroraScreen(title = stringResource(R.string.settings_title), onBack = onBack) {
         item(key = "plan") {
             SectionLabel(stringResource(R.string.settings_plan))
-            RowGroup {
-                AuroraRow(
-                    title = if (plan == Plan.Plus) stringResource(R.string.plus_name) else stringResource(R.string.settings_aurora_free),
-                    subtitle = if (plan == Plan.Plus) stringResource(R.string.settings_everything_unlocked_manage_or_restore_your_subscription) else stringResource(R.string.settings_full_strength_protection_with_a_few_limits_see_what_plus_adds),
-                    icon = AuroraIcons.Spark,
-                    onClick = onPlus,
-                    trailing = { if (plan == Plan.Plus) Tag(stringResource(R.string.settings_plus), accent = true); Chevron() },
-                )
+            // The plan is a warm card carrying the mark, not one more settings row.
+            Row(
+                Modifier.padding(horizontal = Space.M).fillMaxWidth().pressable(Radius.L, onClick = onPlus).auroraSurface(colors, warm = true).padding(Space.L),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.M),
+            ) {
+                app.aurora.ui.components.AuroraMark(36.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(if (plan == Plan.Plus) stringResource(R.string.plus_name) else stringResource(R.string.settings_aurora_free), color = colors.textPrimary, style = AuroraType.Title)
+                    Text(
+                        if (plan == Plan.Plus) stringResource(R.string.settings_everything_unlocked_manage_or_restore_your_subscription) else stringResource(R.string.settings_full_strength_protection_with_a_few_limits_see_what_plus_adds),
+                        color = colors.textSecondary, style = AuroraType.Secondary,
+                    )
+                }
+                if (plan == Plan.Plus) Tag(stringResource(R.string.settings_plus), accent = true)
+                Chevron()
             }
         }
         item(key = "appearance") {
             SectionLabel(stringResource(R.string.settings_appearance))
             RowGroup {
-                Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                    Text(stringResource(R.string.settings_theme), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                    ChoicePills(ThemeMode.entries, prefs.themeMode, vm::setTheme, fill = true, label = { it.name })
-                }
-                RowDivider()
                 ToggleRow(
                     title = stringResource(R.string.settings_reduce_motion),
                     subtitle = if (systemReduced) stringResource(R.string.settings_on_because_animations_are_off_in_android_settings) else stringResource(R.string.settings_no_ambient_movement_or_sliding_transitions),
@@ -208,8 +224,13 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
                     title = stringResource(R.string.settings_notifications),
                     subtitle = stringResource(R.string.settings_aurora_doesn_t_send_notifications_yet),
                     icon = AuroraIcons.Bell,
-                    onClick = { sheet = Sheet.Notifications },
-                    trailing = { Chevron() },
+                    onClick = {
+                        context.startActivity(
+                            android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName),
+                        )
+                    },
+                    trailing = { Allowed(notificationsOn) },
                 )
             }
         }
@@ -241,7 +262,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
         }
         item(key = "signature") {
             Column(Modifier.fillMaxWidth().padding(top = Space.XXL), horizontalAlignment = Alignment.CenterHorizontally) {
-                AuroraMark(28.dp)
+                app.aurora.ui.components.AuroraLogo(112.dp)
                 Spacer(Modifier.height(Space.S))
                 Text(stringResource(R.string.settings_take_back_your_attention), color = colors.textTertiary, style = AuroraType.Caption)
             }
@@ -277,7 +298,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             body = buildString {
                 append(stringResource(R.string.settings_stored_items , list?.items?.size ?: 0))
                 append(stringResource(R.string.settings_stored_rules , rules.apps.size, rules.groups.size, rules.schedules.size, rules.limits.size))
-                append(stringResource(R.string.settings_stored_profiles , rules.profiles.size, rules.goals.size))
+                append(stringResource(R.string.settings_stored_profiles , rules.profiles.size, rules.trackGoals.size))
                 append(stringResource(R.string.settings_stored_history , history.days.size, history.focus.size))
                 if (rules.motivations.isNotEmpty()) append(stringResource(R.string.settings_stored_motivations , rules.motivations.joinToString(", ")))
                 append(stringResource(R.string.settings_theme_and_motion_preferences))
@@ -313,13 +334,6 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
                 stringResource(R.string.settings_5_after_a_restart_android_starts_shield_a_few_moments_after_you) +
                 stringResource(R.string.settings_shield_diagnostics_shows_what_aurora_can_see_on_this_phone),
             confirmLabel = stringResource(R.string.action_close),
-            onConfirm = close,
-            onDismiss = close,
-        )
-        Sheet.Notifications -> AuroraDialog(
-            title = stringResource(R.string.settings_notifications),
-            body = stringResource(R.string.settings_aurora_doesn_t_send_any_notifications_yet_so_there_s_nothing_to),
-            confirmLabel = stringResource(R.string.settings_got_it),
             onConfirm = close,
             onDismiss = close,
         )

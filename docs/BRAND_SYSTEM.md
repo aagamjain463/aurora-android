@@ -1,3 +1,6 @@
+> Current specification: [Aurora Brand Bible](design-studio/AURORA_BRAND_BIBLE.md). This earlier
+> reinvention reference is historical where typography, logo or components differ.
+
 # aurora brand system
 
 The current product uses the First Light symbol, a night-sky hero and a warm paper interface. The

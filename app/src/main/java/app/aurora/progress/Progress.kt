@@ -2,11 +2,11 @@
 
 package app.aurora.progress
 
-import app.aurora.protect.Goal
-import app.aurora.protect.GoalKind
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNames
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.math.min
 
 /*
@@ -74,14 +74,40 @@ data class History(
     @JsonNames("lockdowns") val committed: List<Long> = emptyList(),
     /** Newest last. Kept for [KeepDays]; time away is computed from these. */
     val protection: List<ProtectionRecord> = emptyList(),
-    /** Finished configuration runs, newest last (Runs.kt). Habits and Track read these. */
+    /** Finished configuration runs, newest last (Runs.kt). Goals and Track read these. */
     val runs: List<RunRecord> = emptyList(),
     /** When the Shield service was bound, newest last: the evidence for verified protection. */
     val service: List<ServiceSpan> = emptyList(),
+    /** Time Reclaimed per finished day, by ISO date: usage records don't last, so overall needs these. */
+    val reclaimed: Map<String, Long> = emptyMap(),
+    /** Each limit goal's foreground time per finished day (goal id, ISO date), for the same reason. */
+    val goalUsage: Map<String, Map<String, Long>> = emptyMap(),
 ) {
-    /** Adds or replaces the run record with [r]'s id. Kept for [KeepDays]. */
-    fun withRun(r: RunRecord): History =
-        copy(runs = (runs.filterNot { it.id == r.id } + r).filter { r.end - it.end < KeepDays * 86_400_000L }.takeLast(KeepSessions * 4))
+    /**
+     * Adds or replaces the run record with [r]'s id, in its place. Kept for [KeepDays]. Focus the person
+     * reported as done counts on the day the run began, once, however often the record changes.
+     */
+    fun withRun(r: RunRecord, zone: ZoneId = ZoneId.systemDefault()): History {
+        val old = runs.find { it.id == r.id }
+        val kept = copy(runs = (if (old == null) runs + r else runs.map { if (it.id == r.id) r else it }).filter { r.end - it.end < KeepDays * 86_400_000L }.takeLast(KeepSessions * 4))
+        val minutes = r.focusMinutes - (old?.focusMinutes ?: 0)
+        val completed = r.completedFocusMinutes - (old?.completedFocusMinutes ?: 0)
+        val sessions = (if (r.focus != null) 1 else 0) - (if (old?.focus != null) 1 else 0)
+        if (minutes == 0 && completed == 0 && sessions == 0) return kept
+        return kept.record(Instant.ofEpochMilli(r.start).atZone(zone).toLocalDate()) {
+            it.copy(
+                focusMinutes = it.focusMinutes + minutes,
+                completedFocusMinutes = it.completedFocusMinutes + completed,
+                focusSessions = it.focusSessions + sessions,
+            )
+        }
+    }
+
+    /** Early builds stored the moment a run was settled as its end. A run nobody turned off ended when it was planned to. */
+    fun withLateRunsCorrected(): History {
+        fun RunRecord.late() = !turnedOff && plannedEnd != null && end > plannedEnd
+        return if (runs.none { it.late() }) this else copy(runs = runs.map { if (it.late()) it.copy(end = it.plannedEnd!!) else it })
+    }
 
     /**
      * The service was bound at [now]: extends the current span, or starts one ([newSpan], or after a
@@ -152,7 +178,7 @@ data class Level(val number: Int, val name: String, val intoLevel: Int, val leve
     val progress: Float get() = intoLevel.toFloat() / levelSize
 }
 
-private val LevelNames = listOf("First light", "Dawn", "Daybreak", "Sunrise", "Morning", "Clear sky", "Daylight", "High sun")
+private val LevelNames = listOf("First glow", "Faint arc", "Rising band", "Curtains", "Corona", "Wide sky", "Full aurora", "Great storm")
 
 fun levelFor(xp: Int): Level {
     var n = 1
@@ -190,41 +216,4 @@ fun History.steadyDays(today: LocalDate): Int {
         d = d.minusDays(1)
     }
     return n
-}
-
-/**
- * How a goal stands on one day. [value] is what was measured, or null when aurora can't measure it
- * (no usage access, or Android no longer has that day's records).
- */
-data class GoalDay(val value: Int?, val met: Boolean?)
-
-/**
- * [screenMinutes] and [protectedMinutes] come from Android's usage records and are null when unavailable.
- * A goal for "under" counts as met only once the day is over ([dayOver]); until then it's "on track".
- */
-fun Goal.on(stats: DayStats, screenMinutes: Int?, protectedMinutes: Int?, dayOver: Boolean): GoalDay {
-    val value = when (kind) {
-        GoalKind.ScreenTimeUnder -> screenMinutes
-        GoalKind.ProtectedTimeUnder -> protectedMinutes
-        GoalKind.FocusAtLeast -> stats.focusMinutes
-        GoalKind.OpensUnder -> stats.continued + stats.intentSessions
-    } ?: return GoalDay(null, null)
-    val met = when (kind) {
-        GoalKind.FocusAtLeast -> if (value >= target) true else if (dayOver) false else null
-        else -> if (value > target) false else if (dayOver) true else null
-    }
-    return GoalDay(value, met)
-}
-
-fun GoalKind.title(target: Int): String = when (this) {
-    GoalKind.ScreenTimeUnder -> "Screen time under ${hm(target)}"
-    GoalKind.ProtectedTimeUnder -> "Protected apps under ${hm(target)}"
-    GoalKind.FocusAtLeast -> "Focus for ${hm(target)}"
-    GoalKind.OpensUnder -> if (target == 1) "Continue past a Shield at most once" else "Continue past a Shield at most $target times"
-}
-
-private fun hm(minutes: Int) = when {
-    minutes < 60 -> "$minutes min"
-    minutes % 60 == 0 -> "${minutes / 60} h"
-    else -> "${minutes / 60} h ${minutes % 60} min"
 }

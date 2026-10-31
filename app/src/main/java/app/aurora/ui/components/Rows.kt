@@ -51,12 +51,12 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 
 /** A soft surface holding related rows. Rows inside are separated by inset hairlines via [RowDivider]. */
 @Composable
-fun RowGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun RowGroup(modifier: Modifier = Modifier, edge: androidx.compose.ui.graphics.Color? = null, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier
             .padding(horizontal = Space.M)
             .fillMaxWidth()
-            .auroraSurface(Aurora.colors),
+            .auroraSurface(Aurora.colors, edge = edge),
         content = content,
     )
 }
@@ -150,10 +150,9 @@ fun ComingSoonRow(title: String, subtitle: String, icon: ImageVector) {
             Text(
                 "soon",
                 Modifier
-                    .clip(Radius.Pill)
-                    .background(colors.dawn.copy(alpha = 0.14f))
+                    .glass(colors, Radius.Pill, tint = colors.violet)
                     .padding(horizontal = 10.dp, vertical = 4.dp),
-                color = colors.dawnText,
+                color = colors.violetText,
                 style = AuroraType.Caption,
             )
         },

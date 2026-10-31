@@ -1,0 +1,26 @@
+launch-after-crash: opens=5 ok=3 timeout=2 missed=0 shield-not-in-front=0 within-300ms=0 (0.0% of all opens)
+  exposure n=5 median=1878.6 p90=>2000 p95=>2000 max=>2000
+  detect   n=3 median=101.0 p90=210.0 p95=210.0 max=210.0 (ok opens only)
+  present  n=3 median=1429.7 p90=1668.6 p95=1668.6 max=1668.6 (ok opens only)
+launch-cold: opens=20 ok=20 timeout=0 missed=0 shield-not-in-front=0 within-300ms=0 (0.0% of all opens)
+  exposure n=20 median=1002.7 p90=1458.9 p95=1513.9 max=1564.9
+  detect   n=20 median=5.0 p90=26.0 p95=45.0 max=161.0 (ok opens only)
+  present  n=20 median=994.7 p90=1403.9 p95=1454.9 max=1505.9 (ok opens only)
+launch-warm: opens=50 ok=46 timeout=4 missed=0 shield-not-in-front=0 within-300ms=0 (0.0% of all opens)
+  exposure n=50 median=1349.6 p90=1759.4 p95=>2000 max=>2000
+  detect   n=46 median=60.0 p90=173.0 p95=189.0 max=242.0 (ok opens only)
+  present  n=46 median=1247.4 p90=1519.5 p95=1591.4 max=1718.8 (ok opens only)
+rapid-0.4s: opens=21 ok=6 timeout=7 missed=8 shield-not-in-front=0 within-300ms=0 (0.0% of all opens)
+  exposure n=21 median=>2000 p90=>2000 p95=>2000 max=>2000
+  detect   n=6 median=26.0 p90=379.0 p95=379.0 max=379.0 (ok opens only)
+  present  n=6 median=1247.7 p90=1424.8 p95=1424.8 max=1424.8 (ok opens only)
+rapid-2.0s: opens=21 ok=20 timeout=1 missed=0 shield-not-in-front=0 within-300ms=0 (0.0% of all opens)
+  exposure n=21 median=1395.4 p90=1615.8 p95=1682.7 max=>2000
+  detect   n=20 median=27.0 p90=109.0 p95=127.0 max=315.0 (ok opens only)
+  present  n=20 median=1300.8 p90=1540.1 p95=1600.4 max=1679.7 (ok opens only)
+ALL: opens=117 ok=95 timeout=14 missed=8 shield-not-in-front=0 within-300ms=0 (0.0% of all opens)
+  exposure n=117 median=1376.1 p90=>2000 p95=>2000 max=>2000
+  detect   n=95 median=30.0 p90=173.0 p95=210.0 max=379.0 (ok opens only)
+  present  n=95 median=1255.2 p90=1505.9 p95=1600.4 max=1718.8 (ok opens only)
+extra Shields (same open shielded twice): 0
+files: g1-results/emulator-5554/launches.csv g1-results/emulator-5554/events.csv g1-results/emulator-5554/device.txt

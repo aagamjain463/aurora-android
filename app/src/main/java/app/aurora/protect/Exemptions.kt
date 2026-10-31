@@ -22,6 +22,26 @@ fun exemptPackages(context: Context): Set<String> {
     return SystemExempt + launchers + settings + listOfNotNull(keyboard(context), dialer, context.packageName)
 }
 
+/**
+ * Locked while a strict commitment runs ([PolicyState.locked]): this device's Settings apps, where the
+ * Shield service, permissions, uninstall protection, force stop and the date and time live, and the
+ * package installers that uninstall apps. Never the phone or emergency flows.
+ */
+fun lockedPackages(context: Context): Set<String> {
+    @Suppress("DEPRECATION")
+    fun handlers(intent: Intent) = context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY).map { it.activityInfo.packageName }
+    val settings = handlers(Intent(Settings.ACTION_SETTINGS)) + handlers(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) + handlers(Intent(Settings.ACTION_DATE_SETTINGS))
+    return (settings + LockedSystem - context.packageName).toSet()
+}
+
+val LockedSystem = setOf(
+    "com.android.settings",
+    "com.android.packageinstaller",
+    "com.google.android.packageinstaller",
+    "com.miui.securitycenter",
+    "com.google.android.apps.safetyhub",
+)
+
 /** Windows that can sit over the Shield without replacing it: the notification shade, system dialogs, the keyboard. */
 fun overlayPackages(context: Context): Set<String> = setOfNotNull("com.android.systemui", "android", keyboard(context))
 

@@ -37,6 +37,22 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import app.aurora.ui.theme.Aurora
@@ -52,6 +68,7 @@ fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
     val fill by animateColorAsState(if (selected) colors.accent else Color.Transparent, auroraTween(Motion.Quick), label = "fill")
     val checkAlpha by animateFloatAsState(if (selected) 1f else 0f, auroraTween(Motion.Quick), label = "check")
+    val pop by animateFloatAsState(if (selected) 1f else 0.6f, if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.55f, stiffness = 500f), label = "pop")
     Box(
         modifier
             .size(24.dp)
@@ -63,7 +80,7 @@ fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
         Icon(
             AuroraIcons.Check, null,
             tint = colors.onAccent,
-            modifier = Modifier.size(16.dp).graphicsLayer { alpha = checkAlpha },
+            modifier = Modifier.size(16.dp).graphicsLayer { alpha = checkAlpha; scaleX = pop; scaleY = pop },
         )
     }
 }
@@ -85,27 +102,62 @@ fun <T> ChoicePills(
     segmented: Boolean = false,
 ) {
     val colors = Aurora.colors
+    val reduced = Aurora.reducedMotion
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    // One lit pill slides between the options, stretching a little on the way, instead of each one blinking.
+    val spots = remember { mutableStateMapOf<Int, Rect>() }
+    val chosen = options.indexOf(selected)
+    val spot = spots[chosen]
+    val left = remember { Animatable(0f) }
+    val right = remember { Animatable(0f) }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(chosen, spot, reduced) {
+        if (spot == null) return@LaunchedEffect
+        if (!placed || reduced) {
+            left.snapTo(spot.left)
+            right.snapTo(spot.right)
+            placed = true
+        } else {
+            val forward = spot.left > left.value
+            launch { left.animateTo(spot.left, spring(dampingRatio = 0.86f, stiffness = if (forward) 260f else 520f)) }
+            launch { right.animateTo(spot.right, spring(dampingRatio = 0.86f, stiffness = if (forward) 520f else 260f)) }
+        }
+    }
+    val lit = colors.accentSoft
+    val edge = colors.accent.copy(alpha = 0.5f)
     Row(
         modifier
             .then(if (fill) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState()))
-            .then(if (segmented) Modifier.clip(Radius.Pill).background(colors.surface).border(1.dp, colors.hairline, Radius.Pill).padding(4.dp) else Modifier)
-            .selectableGroup(),
+            .then(if (segmented) Modifier.glass(colors, Radius.Pill).padding(4.dp) else Modifier)
+            .selectableGroup()
+            .drawBehind {
+                val stroke = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx())
+                fun pill(l: Float, r: Float, h: Float, color: Color, line: Color) {
+                    val corner = androidx.compose.ui.geometry.CornerRadius(h / 2f)
+                    drawRoundRect(color, Offset(l, 0f), Size(r - l, h), corner)
+                    drawRoundRect(line, Offset(l + 0.5f, 0.5f), Size(r - l - 1f, h - 1f), corner, style = stroke)
+                }
+                if (!segmented) spots.values.forEach { pill(it.left, it.right, it.height, colors.surface, colors.hairline) }
+                if (placed && spot != null) pill(left.value, right.value, spot.height, lit, edge)
+            },
         horizontalArrangement = Arrangement.spacedBy(if (segmented) 0.dp else Space.XS),
     ) {
-        options.forEach { option ->
+        options.forEachIndexed { i, option ->
             val isSelected = option == selected
-            val idle = if (segmented) androidx.compose.ui.graphics.Color.Transparent else colors.surface
-            val bg by animateColorAsState(if (isSelected) colors.accentSoft else idle, auroraTween(), label = "bg")
             val fg by animateColorAsState(if (isSelected) (if (segmented) colors.textPrimary else colors.accent) else colors.textSecondary, auroraTween(), label = "fg")
-            val stroke by animateColorAsState(if (isSelected) colors.accent.copy(alpha = 0.5f) else if (segmented) idle else colors.hairline, auroraTween(), label = "stroke")
             Box(
                 Modifier
                     .then(if (fill) Modifier.weight(1f) else Modifier)
                     .heightIn(min = 48.dp)
+                    .onPlaced { c ->
+                        val at = Rect(c.positionInParent(), Size(c.size.width.toFloat(), c.size.height.toFloat()))
+                        if (spots[i] != at) spots[i] = at
+                    }
                     .clip(Radius.Pill)
-                    .background(bg)
-                    .border(1.dp, stroke, Radius.Pill)
-                    .selectable(isSelected, role = Role.RadioButton, onClick = { onSelect(option) })
+                    .selectable(isSelected, role = Role.RadioButton, onClick = {
+                        if (!isSelected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+                        onSelect(option)
+                    })
                     .padding(horizontal = if (fill) 4.dp else 20.dp)
                     .semantics { contentDescription = spokenLabel(option) },
                 contentAlignment = Alignment.Center,
@@ -165,9 +217,7 @@ fun AuroraTextField(
             Row(
                 Modifier
                     .heightIn(min = 52.dp)
-                    .clip(Radius.Pill)
-                    .background(colors.elevated)
-                    .border(1.dp, colors.hairline, Radius.Pill)
+                    .glass(colors, Radius.Pill)
                     .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Space.S),

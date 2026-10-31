@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aurora Brand Specimen</title>
 <style>
+  @font-face { font-family: Newsreader; src: url("../../app/src/main/res/font/newsreader.ttf"); font-weight: 200 800; }
   @font-face { font-family: Manrope; src: url("../../app/src/main/res/font/manrope.ttf"); font-weight: 200 800; }
   :root { --night:#05100D; --sky:#031110; --surface:#0A1814; --hair:rgba(166,240,207,.12); --frost:#F1F6F3; --mist:#B4C2BC; --accent:#7BE3B6; --sun:#F3C77D; --lead:#E9DDBF; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--night); color:var(--frost); font-family:Manrope, system-ui, sans-serif; }
   main { max-width:1120px; margin:0 auto; padding:48px 16px 96px; }
-  h1 { font-weight:560; font-size:44px; letter-spacing:-.03em; margin:0 0 4px; }
+  h1 { font-family:Newsreader, Georgia, serif; font-weight:400; font-size:64px; letter-spacing:-.03em; margin:0 0 4px; }
   h1 span { color:var(--lead); }
   h2 { font-weight:620; font-size:15px; letter-spacing:.04em; color:var(--accent); margin:56px 0 16px; }
   p { color:var(--mist); line-height:1.5; max-width:62ch; }
@@ -25,36 +26,35 @@
   .art { width:100%; border-radius:26px; display:block; }
   .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
   .type div { margin:10px 0; }
-  .cta { height:56px; border-radius:28px; display:flex; align-items:center; justify-content:center; font-weight:620; font-size:17px; color:#05100D; background:linear-gradient(90deg,#5FD39B,#7BE3B6 55%,#DCE8A8); width:340px; }
+  .cta { height:56px; border-radius:28px; display:flex; align-items:center; justify-content:center; font-weight:620; font-size:17px; color:#05100D; background:linear-gradient(90deg,#A6F0CF,#7BE3B6 55%,#8BDEB5); width:min(340px,100%); }
 </style>
 </head>
 <body>
 <main>
-  <h1><span>Aurora</span> brand specimen</h1>
+  <h1><span>Make room for</span><br>what matters.</h1>
+  <p>AURORA · PHONE USE, ON YOUR TERMS.</p>
   <p>First Light. Generated from brand/tools/*.py and brand/tokens/aurora.tokens.json. Every asset on this page is a real file in the repository.</p>
 
   <h2>Symbol and lockups</h2>
   <div class="row">
-    <div class="card"><img src="../../brand/logo/aurora-lockup-on-night.svg" height="96" alt="Aurora lockup on night"></div>
-    <div class="card paper"><img src="../../brand/logo/aurora-lockup-on-paper.svg" height="96" alt="Aurora lockup on paper"></div>
+    <div class="card"><img src="../../brand/final/aurora-logo-full-transparent.png" height="96" alt="Aurora lockup on night"></div>
   </div>
   <div class="row" style="margin-top:16px">
-    <div class="card"><img src="../../brand/logo/aurora-symbol.svg" width="160" alt="Symbol"></div>
-    <div class="card"><img src="../../brand/logo/aurora-symbol-mono-white.svg" width="160" alt="Symbol, white"></div>
-    <div class="card paper"><img src="../../brand/logo/aurora-symbol-mono-black.svg" width="160" alt="Symbol, black"></div>
-    <div class="card"><img src="../../brand/logo/aurora-wordmark-light.svg" height="64" alt="Wordmark"></div>
+    <div class="card"><img src="../../brand/final/aurora-symbol-transparent.png" width="160" alt="Symbol"></div>
+    <div class="card"><img src="../../brand/final/aurora-symbol-mono.svg" width="160" alt="Symbol, white"></div>
+    <div class="card"><img src="../../brand/final/aurora-wordmark-transparent.png" height="64" alt="Wordmark"></div>
   </div>
 
   <h2>App icon at launcher scale</h2>
   <div class="row card">
-    <img class="icon" src="../../brand/logo/aurora-app-icon-512.svg" width="192" alt="">
-    <img class="icon" src="../../brand/logo/aurora-app-icon-512.svg" width="96" alt="">
-    <img class="icon" src="../../brand/logo/aurora-app-icon-512.svg" width="64" alt="">
-    <img class="icon" src="../../brand/logo/aurora-app-icon-512.svg" width="48" alt="">
-    <img class="icon" src="../../brand/logo/aurora-app-icon-512.svg" width="32" alt="">
-    <img class="icon" src="../../brand/logo/aurora-app-icon-512.svg" width="20" alt="">
-    <img src="../../brand/logo/aurora-symbol-mono-white.svg" width="24" alt="">
-    <img src="../../brand/logo/aurora-symbol-mono-white.svg" width="16" alt="">
+    <img class="icon" src="../../brand/final/aurora-app-icon-512.png" width="192" alt="">
+    <img class="icon" src="../../brand/final/aurora-app-icon-512.png" width="96" alt="">
+    <img class="icon" src="../../brand/final/aurora-app-icon-512.png" width="64" alt="">
+    <img class="icon" src="../../brand/final/aurora-app-icon-512.png" width="48" alt="">
+    <img class="icon" src="../../brand/final/aurora-app-icon-512.png" width="32" alt="">
+    <img class="icon" src="../../brand/final/aurora-app-icon-512.png" width="20" alt="">
+    <img src="../../brand/final/aurora-symbol-mono.svg" width="24" alt="">
+    <img src="../../brand/final/aurora-symbol-mono.svg" width="16" alt="">
   </div>
 
   <h2>First Light artwork</h2>
@@ -79,9 +79,9 @@
     <div class="swatch"><div style="background:#F5F1E8"></div><b>Linen</b><small>light bg #F5F1E8</small></div>
   </div>
 
-  <h2>Type, Manrope</h2>
+  <h2>Two voices, one brand. Newsreader + Manrope.</h2>
   <div class="card type">
-    <div style="font-size:34px;font-weight:560;letter-spacing:-.03em;line-height:40px"><span style="color:var(--lead)">Make room for</span><br>what matters.</div>
+    <div style="font-family:Newsreader,Georgia,serif;font-optical-sizing:none;font-variation-settings:'opsz' 48;font-size:40px;font-weight:400;letter-spacing:-.025em;line-height:44px"><span style="color:var(--lead)">Make room for</span><br>what matters.</div>
     <div style="font-size:48px;font-weight:600;letter-spacing:-.04em;font-feature-settings:'tnum'">4h 32m</div>
     <div style="font-size:26px;font-weight:620;letter-spacing:-.02em">Headline 26 / 620</div>
     <div style="font-size:19px;font-weight:620">Title 19 / 620</div>
@@ -89,7 +89,7 @@
     <div style="font-size:13px;font-weight:550;color:var(--mist)">Caption 13 / 550</div>
   </div>
 
-  <h2>Primary action</h2>
+  <h2>Primary action · emerald, with restraint</h2>
   <div class="cta">Start Focus</div>
 </main>
 </body>

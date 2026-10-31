@@ -1,3 +1,5 @@
+> **Logo superseded.** The logo described here was replaced by the founder-approved `brand/final/aurora-final-logo.png`. See `brand/final/README.md`.
+
 # 02 — Brand identity
 
 ## Positioning
@@ -5,7 +7,7 @@
 Aurora is a premium Android app for intentional technology use: it protects time from the apps that
 pull people away, interrupts unconscious opening, and holds space for focused work.
 
-**Brand promise:** *Make room for what matters.* (Founder-approved, the Today headline.)
+**Brand promise:** *Your phone. Your rules.* (Founder-approved, the Today headline.)
 
 **Personality:** calm, confident, honest, warm. Never punitive, never preachy, never fake.
 
@@ -66,13 +68,14 @@ Source of truth: `brand/tokens/aurora.tokens.json`; Kotlin mirror `ui/theme/Colo
 
 ## Typography
 
-Manrope (SIL OFL, bundled variable font). Display weights are deliberately light: confidence through
+Newsreader 400 is the editorial display face; Manrope is the interface, metric and wordmark face.
+Both are bundled under SIL OFL. Display weights are deliberately light: confidence through
 size, not weight.
 
 | Style | Size/line | Weight | Use |
 |---|---|---|---|
-| DisplayXL | 56/60 | 500 | One-word titles over art: "Focus", "Insights" |
-| Display | 36/42 | 500 | Hero headlines (two-tone) |
+| DisplayXL | 56/60 | 400 | Newsreader: short titles over art, such as "Focus" and "Track" |
+| Display | 40/44 | 400 | Newsreader: editorial hero headlines (two-tone) |
 | Metric | 56/60 | 500, tnum | The one number a card is about |
 | Hero | 60/64 | 500, tnum | Timers |
 | Headline / Title | 26/32, 19/25 | 620 | Card and section titles |

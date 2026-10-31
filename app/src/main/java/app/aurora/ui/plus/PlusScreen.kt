@@ -21,9 +21,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.AuroraApplication
@@ -34,7 +36,9 @@ import app.aurora.plan.FreeLimits
 import app.aurora.plan.Plan
 import app.aurora.plan.openSubscriptionSettings
 import app.aurora.ui.components.AuroraButton
-import app.aurora.ui.components.AuroraLight
+import app.aurora.ui.components.ArtTier
+import app.aurora.ui.components.BrandEyebrow
+import app.aurora.ui.components.TwoToneHeadline
 import app.aurora.ui.components.AuroraScreen
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Notice
@@ -48,7 +52,7 @@ import app.aurora.ui.theme.Space
 import kotlinx.coroutines.launch
 
 /**
- * aurora plus. Calm and honest: what Free already includes, what Plus adds, prices exactly as Google Play
+ * Aurora Plus. Calm and honest: what Free already includes, what Plus adds, prices exactly as Google Play
  * shows them, and no countdowns or "only today" offers. Never shown during active protection.
  */
 @Composable
@@ -73,23 +77,20 @@ fun PlusScreen(onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { app.billing.connect() }
 
-    AuroraScreen(title = stringResource(R.string.plus_name), onBack = onBack) {
-        item(key = "hero") {
-            AuroraLight(glow = 0.85f, rise = 0.7f, warmth = 0.6f, modifier = Modifier.fillMaxWidth().height(160.dp))
-            Column(Modifier.padding(horizontal = Space.Gutter)) {
-                Text(
-                    if (plan == Plan.Plus) stringResource(R.string.plus_you_have_aurora_plus) else stringResource(R.string.plus_more_room_for_every_part_of_your_day),
-                    color = colors.textPrimary,
-                    style = AuroraType.Headline,
-                )
-                Spacer(Modifier.height(Space.XS))
-                Text(
-                    stringResource(R.string.plus_free_protects_just_as_strongly_as_plus_plus_removes_the_limits_s),
-                    color = colors.textSecondary,
-                    style = AuroraType.Body,
-                )
+    AuroraScreen(
+        title = stringResource(R.string.plus_name),
+        onBack = onBack,
+        art = ArtTier.Balanced,
+        header = {
+            // First Light carries the page; no progress visual here, because there is no data to draw.
+            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = 120.dp, bottom = Space.S), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                BrandEyebrow(stringResource(R.string.plus_name))
+                if (plan == Plan.Plus) Text(stringResource(R.string.plus_you_have_aurora_plus), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
+                else TwoToneHeadline(stringResource(R.string.plus_more_room_for_every_part_of_your_day), tailWords = 5, style = AuroraType.DisplayS.copy(fontSize = 42.sp, lineHeight = 45.sp))
+                Text(stringResource(R.string.plus_free_protects_just_as_strongly_as_plus_plus_removes_the_limits_s), color = colors.textSecondary, style = AuroraType.Body)
             }
-        }
+        },
+    ) {
         item(key = "compare") {
             SectionLabel(stringResource(R.string.plus_free_and_plus))
             RowGroup {
@@ -103,7 +104,7 @@ fun PlusScreen(onBack: () -> Unit) {
                     Row(Modifier.fillMaxWidth().padding(Space.M).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
                         Text(feature, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Secondary)
                         Text(free, Modifier.width(88.dp), color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.End)
-                        Text(plus, Modifier.width(96.dp), color = colors.textPrimary, style = AuroraType.BodyStrong, textAlign = TextAlign.End)
+                        Text(plus, Modifier.width(96.dp), color = if (plus == free) colors.textPrimary else colors.accent, style = AuroraType.BodyStrong, textAlign = TextAlign.End)
                     }
                 }
             }
@@ -120,7 +121,7 @@ fun PlusScreen(onBack: () -> Unit) {
                 when {
                     plan == Plan.Plus -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, BuildConfig.PLUS_PRODUCT_ID) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
                     billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = colors.textSecondary, style = AuroraType.Secondary)
-                    billing.offers.isEmpty() -> Unit
+                    billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = colors.textSecondary, style = AuroraType.Secondary)
                     else -> billing.offers.forEach { offer ->
                         AuroraButton(
                             stringResource(if (offer.yearly) R.string.plus_year_price else R.string.plus_month_price, offer.price),

@@ -55,7 +55,7 @@ class ProtectLimitTest {
 
     @Test
     fun theSixthAppOnFreeExplainsTheLimitAndAddsNothing() {
-        compose.setContent { AuroraTheme(darkTheme = false, reduceMotion = true) { AppPickerScreen(onBack = {}, onPlus = {}) } }
+        compose.setContent { AuroraTheme(reduceMotion = true) { AppPickerScreen(onBack = {}, onPlus = {}) } }
         compose.waitUntil(5_000) { compose.onAllNodesWithText("com.example.app1").fetchSemanticsNodes().isNotEmpty() }
         val list = compose.onNode(hasScrollAction())
         list.performScrollToNode(hasText("com.example.app6"))

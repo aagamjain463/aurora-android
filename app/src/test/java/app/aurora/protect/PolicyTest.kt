@@ -134,7 +134,7 @@ class PolicyTest {
 
     @Test
     fun strengthOrderIsDeterministic() {
-        val order = listOf(ShieldReason.AlwaysBlock, ShieldReason.Flexible, ShieldReason.Focus, ShieldReason.Limit, ShieldReason.Cooldown, ShieldReason.Friction, ShieldReason.IntentCooldown, ShieldReason.Intent)
+        val order = listOf(ShieldReason.AlwaysBlock, ShieldReason.Flexible, ShieldReason.Focus, ShieldReason.Limit, ShieldReason.Cooldown, ShieldReason.Friction, ShieldReason.IntentCooldown, ShieldReason.Intent, ShieldReason.Locked)
         assertEquals(order, ShieldReason.entries.toList())
         val s = state(r(ShieldReason.Friction), r(ShieldReason.Cooldown), r(ShieldReason.Focus))
         assertEquals(ShieldReason.Focus, (decide(ig, min, s) as Decision.Shield).reason)
@@ -260,5 +260,25 @@ class PolicyTest {
         assertEquals(30 * min, nextChange(ig, 10 * min, s))
         assertEquals(40 * min, nextChange(ig, 30 * min, s))
         assertNull(nextChange("com.mail", 0, s))
+    }
+
+    // ---- Strict: Settings and installers are locked while a commitment runs ----
+
+    @Test
+    fun strictCommitmentLocksSettingsUntilItEnds() {
+        val settings = "com.android.settings"
+        for (reason in listOf(ShieldReason.AlwaysBlock, ShieldReason.Cooldown, ShieldReason.Friction)) {
+            val s = state(r(reason, 0, 120 * min).copy(locks = true)).copy(locked = setOf(settings))
+            val d = decide(settings, 30 * min, s) as Decision.Shield
+            assertEquals(ShieldReason.Locked, d.reason)
+            assertEquals(120 * min, d.until)
+            assertFalse(ShieldReason.Locked.canContinue)
+            assertEquals(Decision.Exempt, decide(settings, 120 * min, s))
+        }
+        // Flexible never locks anything, and calls stay exempt during a commitment.
+        val flexible = state(r(ShieldReason.Flexible)).copy(locked = setOf(settings))
+        assertEquals(Decision.Exempt, decide(settings, 30 * min, flexible))
+        val strict = state(r(ShieldReason.AlwaysBlock).copy(locks = true)).copy(locked = setOf(settings))
+        assertEquals(Decision.Exempt, decide("com.android.phone", 30 * min, strict))
     }
 }
