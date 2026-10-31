@@ -7,7 +7,15 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- aurora has no network access. Google Play Billing brings Google's datatransport library, which
+    <!-- The ongoing notification while protection runs (Android 13+ asks the person first), shown as a
+         Live Update on Android 16. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+
+    <!-- A strict commitment continues after a restart: aurora starts again as soon as the phone does. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Aurora has no network access. Google Play Billing brings Google's datatransport library, which
          asks for these to upload billing-library diagnostics; they're removed so nothing leaves the phone.
          Purchases still go through the Play Store app over IPC. Verify with license testers before launch
          (docs/PRODUCT.md, "Billing"). -->
@@ -29,12 +37,16 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.HOME" />
         </intent>
-        <!-- Shield never covers Settings, whichever package the device maker uses for it. -->
+        <!-- Shield never covers Settings, whichever package the device maker uses for it, except to lock it
+             while a strict commitment runs (protect/Exemptions.kt lockedPackages). -->
         <intent>
             <action android:name="android.settings.SETTINGS" />
         </intent>
         <intent>
             <action android:name="android.settings.ACCESSIBILITY_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.DATE_SETTINGS" />
         </intent>
     </queries>
 
@@ -49,6 +61,7 @@
         android:theme="@style/Theme.Aurora">
         <activity
             android:name=".MainActivity"
+            android:configChanges="uiMode"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -85,6 +98,57 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/content_service" />
+        </service>
+
+        <!-- After a restart, and whenever the date or time is changed (protect/TrustedClock.kt). -->
+        <receiver
+            android:name=".protect.StrictReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Uninstall protection, turned on by the person (protect/UninstallGuard.kt). No policies. -->
+        <receiver
+            android:name=".protect.UninstallGuard"
+            android:exported="true"
+            android:label="@string/admin_label"
+            android:description="@string/admin_description"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Home-screen widget: what is protecting the person now, counting down by itself. -->
+        <receiver
+            android:name=".AuroraWidget"
+            android:exported="false"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/aurora_widget_info" />
+        </receiver>
+
+        <!-- Quick Settings tile: lit while protection runs; a tap opens Aurora. -->
+        <service
+            android:name=".AuroraTile"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_aurora"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
         </service>
     </application>
 </manifest>

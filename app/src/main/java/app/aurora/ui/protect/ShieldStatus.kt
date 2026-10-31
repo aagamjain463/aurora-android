@@ -39,6 +39,7 @@ import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.ButtonKind
+import app.aurora.ui.components.auroraSurface
 import app.aurora.ui.components.ModeGlyph
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
@@ -90,21 +91,14 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
         ProtectionStatus.Blocked -> stringResource(R.string.status_blocked_title) to stringResource(R.string.status_blocked_body)
     }
     val good = status == ProtectionStatus.Active || status == ProtectionStatus.Off
-    val tint = if (good) colors.accent else colors.dawn
     Column(
         Modifier
             .padding(horizontal = Space.M)
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(if (good) colors.surface else colors.dawnSoft)
-            .border(1.dp, if (good) colors.hairline else colors.dawn.copy(alpha = 0.5f), Radius.L)
+            .auroraSurface(colors, warm = !good)
             .padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-            ModeGlyph(tint, size = 12)
-            Text(stringResource(R.string.shield_name), color = if (good) colors.accent else colors.dawnText, style = AuroraType.Eyebrow)
-        }
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
         Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
         when (status) {

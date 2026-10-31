@@ -1,21 +1,21 @@
-# aurora business model
+# Aurora business model
 
-This document defines what aurora Free and aurora plus include, how limits are counted, and how
+This document defines what Aurora Free and Aurora Plus include, how limits are counted, and how
 the entitlement system enforces them. [`ROADMAP.md`](ROADMAP.md) says when each piece is built.
 [`BRAND.md`](BRAND.md) governs how every limit and upgrade moment looks and sounds.
 
 - **Status:** initial business model, agreed 2026-10-28. Nothing in this document is implemented.
 - **Billing:** real Google Play Billing and subscriptions arrive in Roadmap Phase 11. Until then,
-  every person is on aurora Free, and limits are enforced as each feature ships.
-- **Naming:** the brand is always lowercase in product copy and store listings: "aurora Free" and
-  "aurora plus".
+  every person is on Aurora Free, and limits are enforced as each feature ships.
+- **Naming:** the brand is always title case in product copy and store listings: "Aurora Free" and
+  "Aurora Plus" (Brand Bible: never lowercase).
 
 ---
 
 ## 1. Principles
 
 1. **Same protection strength on both plans.** A shield in Free is exactly as strong as a shield
-   in plus. Lockdown in Free is the same Lockdown as in plus. aurora plus sells capacity and depth
+   in Plus. Lockdown in Free is the same Lockdown as in Plus. Aurora Plus sells capacity and depth
    (more items, more rules, more history), never a stronger or more reliable block.
 2. **Limits apply when you set things up, not when protection runs.** The protection engine
    (`decide()` in the roadmap) never reads the plan. Limits are checked when the person adds an
@@ -27,13 +27,13 @@ the entitlement system enforces them. [`ROADMAP.md`](ROADMAP.md) says when each 
    never need plus.
 5. **Nothing is deleted on downgrade.** Items and rules beyond the Free limits pause. They come back
    on renewal.
-6. **Honest selling.** aurora never advertises a feature that doesn't exist yet. The real price and
+6. **Honest selling.** Aurora never advertises a feature that doesn't exist yet. The real price and
    renewal terms are always shown, with no urgency tricks. There are no upsells during Focus, a
    shield moment or Lockdown.
 
 ## 2. Plans
 
-### 2.1 aurora Free
+### 2.1 Aurora Free
 
 | Allowance | Free limit |
 | --- | --- |
@@ -47,7 +47,7 @@ the entitlement system enforces them. [`ROADMAP.md`](ROADMAP.md) says when each 
 | Focus profiles | 1 |
 | Insights | Basic insights, goals and streaks |
 
-### 2.2 aurora plus
+### 2.2 Aurora Plus
 
 | Allowance | plus |
 | --- | --- |
@@ -60,7 +60,7 @@ the entitlement system enforces them. [`ROADMAP.md`](ROADMAP.md) says when each 
 | Insights | Advanced insights and challenges |
 | Cloud sync | Planned for the future. Not sold until it exists (section 6). |
 
-Everything in Free is also in plus.
+Everything in Free is also in Plus.
 
 ### 2.3 Pricing
 
@@ -92,7 +92,7 @@ working definitions for the roadmap. Questions that are still open are in sectio
 
 ### 3.1 Protected items
 
-A **protected item** is an app (from 1.0) or a website (from 1.1) that aurora watches. Each item
+A **protected item** is an app (from 1.0) or a website (from 1.1) that Aurora watches. Each item
 has an everyday **protection mode**. Free allows 5 items in total, so apps and websites share one
 pool. In 1.0 all 5 items are apps.
 
@@ -100,11 +100,11 @@ pool. In 1.0 all 5 items are apps.
 
 | Mode | What happens when the person opens the item | Plan |
 | --- | --- | --- |
-| **Flexible** | The shield appears with "Continue" available at once. It is a moment of awareness. | Free and plus |
-| **Friction** | The shield appears and "Continue" becomes available after a short wait: one breath, or a wait the person chooses. | Free and plus |
-| **Cooldown** | Each opening allows a set time. Then the app closes and stays shielded for a cooldown period. Opening it during the cooldown needs a Friction wait (Q9). | Free and plus |
+| **Flexible** | The shield appears with "Continue" available at once. It is a moment of awareness. | Free and Plus |
+| **Friction** | The shield appears and "Continue" becomes available after a short wait: one breath, or a wait the person chooses. | Free and Plus |
+| **Cooldown** | Each opening allows a set time. Then the app closes and stays shielded for a cooldown period. Opening it during the cooldown needs a Friction wait (Q9). | Free and Plus |
 | **Intent** (intentional opening) | A breath, a question about why, then an opening for a chosen number of minutes. | Free: 3 apps. plus: unlimited. |
-| **Only during focus** | No everyday shield. The item is shielded only during Focus sessions, schedules and Lockdown. | Free and plus |
+| **Only during focus** | No everyday shield. The item is shielded only during Focus sessions, schedules and Lockdown. | Free and Plus |
 
 Intent applies to apps only. Websites use Flexible, Friction, Cooldown or "Only during focus".
 Intent apps are protected items, so they count toward the 5-item limit as well.
@@ -119,7 +119,7 @@ Intent apps are protected items, so they count toward the 5-item limit as well.
 
 ### 3.4 Lockdown
 
-**Lockdown** is the strongest state aurora offers, and the only one with no in-app way through.
+**Lockdown** is the strongest state Aurora offers, and the only one with no in-app way through.
 While it is active, the items in its scope have no "Continue", no "Open anyway", and no way to end
 it early inside aurora. Every other state, on both plans, leaves a way through behind a breath or
 a wait. It replaces the term "strict mode" used in earlier drafts of the roadmap.
@@ -131,14 +131,14 @@ a wait. It replaces the term "strict mode" used in earlier drafts of the roadmap
     crosses midnight finishes as promised, and its minutes all count toward the starting day.
   - The person can't start a Lockdown longer than the remaining budget. The length picker shows
     the minutes left: "75 minutes of Lockdown left today".
-  - If a Lockdown ends early for a reason outside aurora's control (the accessibility service is
+  - If a Lockdown ends early for a reason outside Aurora's control (the accessibility service is
     turned off, for example), the unused minutes are returned to the day's budget.
   - A scheduled Lockdown that is longer than the remaining budget runs Lockdown for the minutes
-    left and then continues as a basic Focus session. aurora says so when the schedule starts:
+    left and then continues as a basic Focus session. Aurora says so when the schedule starts:
     "Lockdown for 40 minutes, then Friction until 17:00."
   - The budget resets at local midnight, in the device's current time zone.
-- **What Lockdown can't stop**, on both plans: uninstalling aurora, turning off its accessibility
-  service in Android Settings, safe mode and `adb`. aurora says this plainly wherever Lockdown is
+- **What Lockdown can't stop**, on both plans: uninstalling Aurora, turning off its accessibility
+  service in Android Settings, safe mode and `adb`. Aurora says this plainly wherever Lockdown is
   offered (section 7).
 
 ### 3.5 Daily app-limit rules
@@ -171,7 +171,7 @@ A **recurring schedule** starts a Focus profile automatically on chosen days and
 - Copy never says "lost", "broken" or "failed". The streak simply starts counting again.
 - There are no notifications about streaks, and nothing nudges the person to protect a streak.
 
-Advanced insights beyond 7 days need aurora to store daily totals per app on the phone, because
+Advanced insights beyond 7 days need Aurora to store daily totals per app on the phone, because
 Android doesn't keep detailed usage history that long (gate G7). This changes the current promise
 that "screen time is computed, never stored" (decision D14 in the roadmap). The data would still
 never leave the phone.
@@ -180,18 +180,18 @@ never leave the phone.
 
 | Allowance | What counts | What frees a slot |
 | --- | --- | --- |
-| Protected items | Every app or website whose mode isn't Off | Removing an item, or uninstalling the app (aurora prunes uninstalled apps) |
+| Protected items | Every app or website whose mode isn't Off | Removing an item, or uninstalling the app (Aurora prunes uninstalled apps) |
 | Intent apps | Protected apps in Intent mode | Switching the app to another mode |
 | Daily app-limit rules | Each rule, whatever number of apps it covers | Deleting the rule |
 | Recurring schedules | Each schedule, enabled or not | Deleting the schedule |
 | Focus profiles | Each saved profile, including the default | Deleting a profile (the default profile can't be deleted) |
-| Lockdown minutes | Planned minutes of each Lockdown, on the day it starts | Midnight. Early ends outside aurora's control are refunded. |
+| Lockdown minutes | Planned minutes of each Lockdown, on the day it starts | Midnight. Early ends outside Aurora's control are refunded. |
 
-At a limit, aurora explains it calmly and offers a way forward that doesn't involve paying:
+At a limit, Aurora explains it calmly and offers a way forward that doesn't involve paying:
 
-> You're protecting 5 items, the most aurora Free allows. Remove one to add another.
+> You're protecting 5 items, the most Aurora Free allows. Remove one to add another.
 
-From Phase 11, the same message adds a Quiet link to aurora plus. Before Phase 11, aurora never
+From Phase 11, the same message adds a Quiet link to Aurora Plus. Before Phase 11, Aurora never
 mentions plus, because it can't be bought yet.
 
 ## 5. Entitlement system
@@ -259,7 +259,7 @@ When a plus subscription ends (from Phase 11):
 
 ## 6. Cloud sync (future)
 
-Cloud sync is listed under aurora plus as a future feature. It conflicts with aurora's current
+Cloud sync is listed under Aurora Plus as a future feature. It conflicts with Aurora's current
 foundations: no account, no backend and no `INTERNET` permission. Before it can be built, it needs
 its own decision on:
 
@@ -274,18 +274,18 @@ sync is not part of the 13-phase roadmap.
 
 ## 7. Android limitations
 
-These limits apply equally to both plans. aurora states them in the product wherever they matter.
+These limits apply equally to both plans. Aurora states them in the product wherever they matter.
 
-| Limitation | Effect | How aurora handles it |
+| Limitation | Effect | How Aurora handles it |
 | --- | --- | --- |
 | Shield depends on an accessibility service. | The person can turn it off in Android Settings at any time. Some OEMs and Android's Advanced Protection mode may disable it. | `ProtectionStatus` shows `NeedsPermission`. Nothing claims protection while it's off. |
-| Lockdown can't defeat the system. | Uninstalling aurora, turning off the service, safe mode and `adb` all end protection. | Said plainly wherever Lockdown is offered. aurora never implies otherwise. |
+| Lockdown can't defeat the system. | Uninstalling Aurora, turning off the service, safe mode and `adb` all end protection. | Said plainly wherever Lockdown is offered. Aurora never implies otherwise. |
 | Daily budgets use the device clock. | Changing the date or time can reset Lockdown minutes and app limits. | Accepted for 1.0. There's no server to check time against. |
 | The entitlement is checked on the phone. | A modified app can unlock plus. | Accepted, because there is no backend. Play Billing's state is trusted. |
 | Website filtering covers supported browsers only (1.1). | In-app browsers, custom tabs and WebViews aren't covered. | A "Works in" list on the Websites screen. |
 | Daily limits need Usage access. | Without it, limits can't measure time. | The limits screen explains this and offers the permission. |
 | Android keeps limited usage history. | Basic insights cover 7 days at most from Android's own records. | Advanced insights store daily totals on the phone (D14). |
-| Notifications can be delayed. | Doze may delay the end-of-session alert. | The completion moment is always correct when aurora opens (gate G6). |
+| Notifications can be delayed. | Doze may delay the end-of-session alert. | The completion moment is always correct when Aurora opens (gate G6). |
 
 ## 8. Open questions
 
@@ -296,8 +296,8 @@ Each question has a proposed answer that the roadmap uses until it is confirmed.
 | Q1 | Do the mode definitions in 3.2 (Flexible, Friction, Cooldown) match the intended product? | As written |
 | Q2 | Do apps in a daily limit rule count toward the 5 protected items? | No |
 | Q3 | When a daily limit runs out, is the app shielded with Friction, or blocked until midnight? | Friction. Lockdown stays the only state with no way through, and it is metered. |
-| Q4 | Is Lockdown reserved at start (as in 3.4), or charged minute by minute? | Reserved at start, refunded on early ends outside aurora's control |
-| Q5 | Is there a free trial for aurora plus, and how long? | 7 days on the yearly plan |
+| Q4 | Is Lockdown reserved at start (as in 3.4), or charged minute by minute? | Reserved at start, refunded on early ends outside Aurora's control |
+| Q5 | Is there a free trial for Aurora Plus, and how long? | 7 days on the yearly plan |
 | Q6 | Prices outside India | Decide before Phase 11 |
 | Q7 | Do Focus profiles cover only protected items, or any app? | Protected items only |
 | Q8 | Are gentle streaks (3.7) acceptable as the "streaks" in Free? | Yes |

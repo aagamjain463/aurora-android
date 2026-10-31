@@ -43,7 +43,7 @@ import app.aurora.ui.theme.Space
 fun StatusPill(text: String, live: Boolean, modifier: Modifier = Modifier, warm: Boolean = false) {
     val colors = Aurora.colors
     val dotColor = when {
-        warm -> colors.dawn
+        warm -> colors.violet
         live -> colors.accent
         else -> colors.textTertiary
     }
@@ -54,8 +54,7 @@ fun StatusPill(text: String, live: Boolean, modifier: Modifier = Modifier, warm:
     } else 1f
     Row(
         modifier
-            .clip(Radius.Pill)
-            .background(colors.surface.copy(alpha = if (colors.isDark) 0.7f else 0.85f))
+            .glass(colors, Radius.Pill)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.XS),
@@ -109,13 +108,12 @@ fun Notice(eyebrow: String, body: String, modifier: Modifier = Modifier) {
         modifier
             .padding(horizontal = Space.M)
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(colors.dawn.copy(alpha = if (colors.isDark) 0.09f else 0.14f))
+            .glass(colors, Radius.L, tint = colors.violet)
             .padding(Space.M)
             .semantics(mergeDescendants = true) { },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(eyebrow.lowercase(), color = colors.dawnText, style = AuroraType.Eyebrow)
+        Text(eyebrow.lowercase(), color = colors.violetText, style = AuroraType.Eyebrow)
         Text(body, color = colors.textPrimary, style = AuroraType.Secondary)
     }
 }
@@ -160,10 +158,23 @@ fun AuroraDialog(
 ) {
     val colors = Aurora.colors
     BasicAlertDialog(onDismissRequest = onDismiss) {
+        // Native window blur, where the phone allows it: the page frosts behind the dialog.
+        val view = androidx.compose.ui.platform.LocalView.current
+        val blur = with(androidx.compose.ui.platform.LocalDensity.current) { 40.dp.roundToPx() }
+        androidx.compose.runtime.SideEffect {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.let { w ->
+                    w.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    w.attributes = w.attributes.apply { blurBehindRadius = blur }
+                }
+            }
+        }
         Column(
             Modifier
+                // Denser than other glass: where the phone can't blur, the page must not fight the text.
                 .clip(Radius.Dialog)
-                .background(if (colors.isDark) colors.surface else Color.White)
+                .background(colors.surface.copy(alpha = 0.72f))
+                .glass(colors, Radius.Dialog)
                 .padding(Space.L),
         ) {
             Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
@@ -176,9 +187,38 @@ fun AuroraDialog(
                 content()
             }
             Spacer(Modifier.height(Space.L))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.XS, Alignment.End)) {
-                if (dismissLabel != null) AuroraButton(dismissLabel, onDismiss, kind = ButtonKind.Quiet)
-                AuroraButton(confirmLabel, onConfirm)
+            DialogButtons(
+                confirm = { AuroraButton(confirmLabel, onConfirm) },
+                dismiss = dismissLabel?.let { { AuroraButton(it, onDismiss, kind = ButtonKind.Quiet, compact = true) } },
+            )
+        }
+    }
+}
+
+/**
+ * Side by side at the end when both fit; otherwise stacked, the confirm action on top, so a long label or
+ * large text never wraps inside a button.
+ */
+@Composable
+private fun DialogButtons(confirm: @Composable () -> Unit, dismiss: (@Composable () -> Unit)?) {
+    androidx.compose.ui.layout.Layout(
+        content = { confirm(); dismiss?.invoke() },
+        modifier = Modifier.fillMaxWidth(),
+    ) { measurables, constraints ->
+        val gap = Space.XS.roundToPx()
+        val loose = constraints.copy(minWidth = 0)
+        val wide = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
+        if (wide.sum() + gap * (wide.size - 1) <= constraints.maxWidth) {
+            val placed = measurables.map { it.measure(loose) }
+            layout(constraints.maxWidth, placed.maxOf { it.height }) {
+                var x = constraints.maxWidth
+                placed.forEach { p -> x -= p.width; p.placeRelative(x, 0); x -= gap }
+            }
+        } else {
+            val placed = measurables.map { it.measure(loose.copy(minWidth = constraints.maxWidth)) }
+            layout(constraints.maxWidth, placed.sumOf { it.height } + gap * (placed.size - 1)) {
+                var y = 0
+                placed.forEach { p -> p.placeRelative(0, y); y += p.height + gap }
             }
         }
     }

@@ -65,17 +65,17 @@ fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSe
         title = stringResource(R.string.tab_intent),
         tabBar = true,
         art = ArtTier.Balanced,
-        header = { TabHeader(stringResource(R.string.intent_tab_eyebrow), stringResource(R.string.intent_tab_title), stringResource(R.string.intent_tab_body), onOpenSettings) },
+        header = { TabHeader(stringResource(R.string.intent_tab_title), onOpenSettings) },
     ) {
         item(key = "create") {
-            AuroraButton(stringResource(R.string.intent_create), onCreate, Modifier.padding(horizontal = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
+            AuroraButton(stringResource(R.string.intent_create), onCreate, Modifier.padding(horizontal = Space.M).padding(bottom = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
         }
         if (d == null) return@AuroraScreen
         val running = vm.app.runsNow(d.time).mapNotNull { it.intent?.id }.toSet()
         val presets = d.rules.intentPresets.sortedByDescending { it.createdAt }
         if (presets.isEmpty()) item(key = "empty") {
             EmptyState(stringResource(R.string.intent_lib_empty_title), stringResource(R.string.intent_lib_empty_body), icon = AuroraIcons.Intent)
-        } else item(key = "label") { SectionLabel(stringResource(R.string.tab_intent)) }
+        }
         items(presets, key = { it.id }) { p ->
             PresetCard(
                 p.name, { Tag(pluralStringResource(R.plurals.count_apps, p.keys.size, p.keys.size), accent = true) }, intentSummary(p.config), p.keys, d, p.id in running,
@@ -83,10 +83,11 @@ fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSe
                 onDuplicate = { vm.run { vm.app.saveIntentPreset(p.copy(id = newId(), name = vm.app.getString(R.string.preset_copy_name, p.name), createdAt = System.currentTimeMillis())) } },
                 onDelete = { deleting = p },
                 modifier = Modifier.padding(bottom = Space.S),
-                edge = Aurora.colors.sun,
+                edge = Aurora.colors.rose,
             )
         }
-        item(key = "how") { IntentHow() }
+        // Explained until the first Intent exists; after that, the person knows.
+        if (presets.isEmpty()) item(key = "how") { IntentHow() }
     }
     deleting?.let { p -> DeletePresetDialog(vm, p.id, p.name) { deleting = null } }
 }
@@ -107,7 +108,7 @@ private fun IntentHow() {
         Column(Modifier.padding(horizontal = Space.M).fillMaxWidth().auroraSurface(colors).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
             steps.forEachIndexed { i, (title, body) ->
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.M)) {
-                    Text("${i + 1}", color = if (i == 4) colors.dawnText else colors.accent, style = AuroraType.Label)
+                    Text("${i + 1}", color = if (i == 4) colors.violetText else colors.accent, style = AuroraType.Label)
                     Column(Modifier.weight(1f)) {
                         Text(stringResource(title), color = colors.textPrimary, style = AuroraType.BodyStrong)
                         Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
@@ -118,9 +119,9 @@ private fun IntentHow() {
     }
 }
 
-private enum class IntentStep { Name, Apps, Reflect, Usage, After, Review }
+private enum class IntentStep { Name, Apps, Reflect, Time, Review }
 
-/** Create or edit an Intent: name, apps, reflection, intended usage, what happens after, save. */
+/** Create or edit an Intent: name, apps, reflection, then usage time and what happens after on one step, save. */
 @Composable
 fun IntentEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0) {
     val vm = auroraViewModel { ProtectModel(it) }
@@ -159,7 +160,7 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
     val canNext = when (step) {
         IntentStep.Name -> name.isNotBlank()
         IntentStep.Apps -> keys.isNotEmpty()
-        IntentStep.After -> expiry == IntentExpiry.Reminder || cooldown != null
+        IntentStep.Time -> expiry == IntentExpiry.Reminder || cooldown != null
         else -> true
     }
     StepFlow(
@@ -216,22 +217,21 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
                     }
                 }
             }
-            IntentStep.Usage -> {
+            IntentStep.Time -> {
                 stepTitle(R.string.intent_usage_title, R.string.intent_usage_body)
                 item(key = "usage") {
                     DurationPicker(usage, { usage = it }, listOf(5, 10, 15, 30), title = stringResource(R.string.intent_default_title), hint = stringResource(R.string.intent_default_hint), max = 8 * 60)
                 }
                 if (usage != null) item(key = "clear") { AuroraButton(stringResource(R.string.intent_default_clear), { usage = null }, kind = ButtonKind.Quiet) }
-            }
-            IntentStep.After -> {
-                stepTitle(R.string.intent_expiry_title, null)
+                // What happens when that time runs out, on the same step.
+                item(key = "after-title") { Text(stringResource(R.string.intent_expiry_title), Modifier.padding(top = Space.L), color = colors.textPrimary, style = AuroraType.Title) }
                 item(key = "reminder") { ChoiceCard(stringResource(R.string.intent_expiry_reminder), stringResource(R.string.intent_expiry_reminder_desc), expiry == IntentExpiry.Reminder, { expiry = IntentExpiry.Reminder }) }
                 item(key = "cooldown") { ChoiceCard(stringResource(R.string.intent_expiry_cooldown), stringResource(R.string.intent_expiry_cooldown_desc), expiry == IntentExpiry.Cooldown, { expiry = IntentExpiry.Cooldown }) }
                 if (expiry == IntentExpiry.Cooldown) {
                     item(key = "length") {
                         DurationPicker(cooldown, { cooldown = it }, IntentCooldownPresets, Modifier.padding(top = Space.S), title = stringResource(R.string.intent_cooldown_title), hint = stringResource(R.string.intent_cooldown_hint), max = 12 * 60)
                     }
-                    item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.dawnText, style = AuroraType.BodyStrong) }
+                    item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.violetText, style = AuroraType.BodyStrong) }
                 }
                 item(key = "fresh") {
                     Row(

@@ -58,7 +58,7 @@ fun FocusOutcome?.outcome(): Outcome = when (this) {
     null -> Outcome.Unverified
 }
 
-/** One finished (or turned off) configuration run, as Track and Habits read it. */
+/** One finished (or turned off) configuration run, as Track and Goals read it. */
 @Serializable
 data class RunRecord(
     val id: String,

@@ -18,6 +18,22 @@ external launch gates remain in [REINVENTION_VALIDATION.md](REINVENTION_VALIDATI
 The builders reuse First Light components and tokens. Settings, configuration,
 preset, Habit, Focus and capability screens are pushed from these tabs.
 
+## Setup flows
+
+Each step is one decision; settings that belong to a choice appear under it on the same step.
+
+| Flow | Steps |
+| --- | --- |
+| Custom Configuration | (Saved, when some exist) · What: name, Shield, Intent · When: timing and its length · Review: summary, optional Focus, Always Block commitment |
+| Normal Use | What: built-in Shield and/or Intent · Shield apps · Shield mode · Intent apps · When · Review |
+| Configuration for a Habit | What · Focus, then save |
+| Shield preset | Name · Apps · Websites · Type with its settings · Review |
+| Intent preset | Name · Apps · Reflection · Time: usage length and what happens after · Review |
+
+"None" for a Shield or Intent is a small chip beside the heading, offered once something is chosen;
+tapping a chosen card again also clears it. Library cards open the editor on tap; Duplicate and Delete
+sit behind the overflow control.
+
 ## Model and persistence
 
 `protect/Configurations.kt` defines presets, usage configurations, activations and
@@ -62,10 +78,27 @@ Free activations are selected oldest first within five protected app/site keys,
 three Intent app keys and one recurring schedule. Shared keys count once.
 Excess activations stay saved and paused. Habits have no plan limit.
 
-The capability screen explains consumer Android limits. Aurora cannot prevent
-permission revocation, force-stop, uninstall or OS-level clock changes. Device
-owner/admin controls are not implemented. A commitment is not a claim of tamperproof
-device management.
+## Strict protection
+
+Always Block, Cooldown and Friction are strict (`Mode.strict`); only Flexible can
+be turned off early. A strict run with an end:
+
+- has no in-app early exit (`ConfigRun.cancellable`, `ProtectionSession.cancellable`);
+  its Shield type and apps are frozen when it starts. Always timing is refused for
+  strict Shields; Always runs made before this stay cancellable.
+- locks Settings and the package installers (`lockedPackages`, `ShieldReason.Locked`)
+  until it ends, so the Shield service, permissions, force stop, uninstall screens and
+  the date and time can't be reached. Calls and emergency flows stay exempt.
+- reads time from `TrustedClock`: monotonic while it runs, with the offset from the
+  system clock saved across restarts, so moving the clock never ends a session or
+  finishes a wait. With nothing strict running, the clock follows the system again.
+- resumes after a restart (`StrictReceiver` on BOOT_COMPLETED; runs are stored).
+
+Uninstall protection is an opt-in device administrator with no policies
+(`UninstallGuard`). Android then refuses uninstalling from the launcher, Play Store
+or adb until it is deactivated, which needs Settings (locked) or Aurora (only while
+nothing strict runs). Safe mode, a factory reset, or adb with USB debugging already
+on can still get around an accessibility-based lock.
 
 ## Cooldowns
 
@@ -88,28 +121,21 @@ Protection succeeds at 90% coverage, is partial at 50%, and is unverified below
 on the person's report, not the timer reaching zero. The combined result uses the
 weakest part; absent evidence never creates a success.
 
-## Habits
+## Goals
 
-A Habit links one saved Custom Configuration to a target and a success criterion.
-Creating, archiving or restoring it does not activate protection. Deleting its
-configuration archives the linked Habit after explicit confirmation; run history
-stays. Only archived Habits can be deleted.
+A Goal is created in Track and never starts or blocks anything. It either links one
+saved custom session or limits apps or the whole screen time.
 
-Targets are specific weekdays, successful runs per week, or on demand. A Habit can
-follow a configuration's schedule days; mismatched or unscheduled days are disclosed.
-Today remains pending until successful. Rest days never break a streak. On-demand
-Habits have no expected days or misses. Calendar and trend data come from actual
-run records, with no sample statistics.
+A session goal is tracked as time a day, time a week, or successful sessions a week.
+Time counts only while the Shield service was bound, including a run going now. A
+session goal succeeds once its target is reached. A period that ends short has failed,
+except the one the goal was created in. Deleting a session removes its goals after
+explicit confirmation; run history stays.
 
-`progress/Habits.kt` derives progress from linked runs starting at or after Habit
-creation and no later than the day being evaluated. Target edits are versioned from
-today. Earlier daily and weekly results remain in totals; on-demand periods do not
-create retroactive misses. Changing between days, weeks and on-demand starts a new
-streak in the new unit. When target types are mixed, each recorded on-demand run
-counts as an occurrence in the completion denominator; on-demand periods create
-no missed days. The current on-demand target has no completion denominator.
-For a weekly target, the last effective weekly target in
-that calendar week supplies its required count.
+A limit goal sets a time per day or per week over foreground use. It fails the moment
+the limit is passed and succeeds when the period ends within it. Finished days are
+stored in `History.goalUsage` while Android still holds their records; a day it can't
+read stays unknown and is never a success. Weeks reset every Monday.
 
 ## Migration
 

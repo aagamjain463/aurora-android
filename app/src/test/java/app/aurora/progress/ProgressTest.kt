@@ -1,7 +1,5 @@
 package app.aurora.progress
 
-import app.aurora.protect.Goal
-import app.aurora.protect.GoalKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -33,7 +31,7 @@ class ProgressTest {
 
     @Test
     fun levelsGrowGently() {
-        assertEquals(Level(1, "First light", 0, 100), levelFor(0))
+        assertEquals(Level(1, "First glow", 0, 100), levelFor(0))
         assertEquals(2, levelFor(100).number)
         assertEquals(3, levelFor(250).number)
         assertEquals(0.5f, levelFor(175).progress)
@@ -59,16 +57,4 @@ class ProgressTest {
         assertEquals(3, h.record(today) { it.copy(wentBack = 1) }.steadyDays(today))
     }
 
-    @Test
-    fun goalsAreHonestAboutWhatIsMeasured() {
-        val focus = Goal("f", GoalKind.FocusAtLeast, 30)
-        assertEquals(GoalDay(20, null), focus.on(DayStats(focusMinutes = 20), null, null, dayOver = false))
-        assertEquals(GoalDay(20, false), focus.on(DayStats(focusMinutes = 20), null, null, dayOver = true))
-        assertEquals(GoalDay(30, true), focus.on(DayStats(focusMinutes = 30), null, null, dayOver = false))
-        val screen = Goal("s", GoalKind.ScreenTimeUnder, 120)
-        assertEquals(GoalDay(null, null), screen.on(DayStats(), screenMinutes = null, protectedMinutes = null, dayOver = true))
-        assertEquals(GoalDay(150, false), screen.on(DayStats(), 150, null, dayOver = false))
-        assertEquals(GoalDay(90, true), screen.on(DayStats(), 90, null, dayOver = true))
-        assertNull(Goal("o", GoalKind.OpensUnder, 2).on(DayStats(continued = 1), null, null, false).met)
-    }
 }

@@ -20,11 +20,12 @@ Motion `Motion`: Quick 120 · Standard 240 · Gentle 420 · Reveal 900 · Breath
 
 | Component | File | Notes |
 |---|---|---|
-| `FirstLightBackdrop(tier)` | FirstLight.kt | Signature art, tiers, parallax, scrims |
-| `Modifier.auroraSurface(colors, shape, edge, warm)` | FirstLight.kt | The one card surface: top-lit gradient, top-bright hairline; `edge` = mode colour, `warm` = sun cards |
-| `LightRing(progress)` | FirstLight.kt | Focus timer ring with art window |
+| `FirstLightBackdrop(tier)` | Backdrop.kt | Signature art, tiers, parallax, scrims |
+| `AuroraSky(sky, glow)`, `Sky` | Sky.kt | Living aurora over the art; pass `sky`/`glow` to the backdrop |
+| `Modifier.auroraSurface(colors, shape, edge, warm)` | Backdrop.kt | The one card surface: top-lit gradient, top-bright hairline; `edge` = mode colour, `warm` = sun cards |
+| `LightRing(progress)` | Backdrop.kt | Focus timer ring with art window |
 | `AuroraMark`, `Wordmark`, `AuroraHeader`, `TwoToneHeadline` | Brand.kt | Identity; two-tone keeps exact copy in semantics |
-| `AuroraButton(kind)` | Buttons.kt | Primary (First Light gradient and glow), Secondary, Quiet, Danger; `compact` for card headers |
+| `AuroraButton(kind)` | Buttons.kt | Primary (the aurora sweep), Secondary, Quiet, Danger; `compact` for card headers |
 | `AuroraNavBar` | Scaffold.kt | Lifted panel, selected pill, rising-point dot |
 | `AuroraScreen(art=…)` | Scaffold.kt | Large-title list screen; with `art` the top bar stays clear until collapsed |
 | `LitBadge` | Parts.kt | Ringed icon circle; lit = state is on |
@@ -47,15 +48,32 @@ Rules:
 
 | Interaction | Spec |
 |---|---|
-| Press | Scale 0.97, `Motion.Quick`; ripple in content colour |
-| Tab change | Colour and dot fade, `auroraTween()` (Standard) |
+| Press (buttons) | Scale 0.97 on a spring (damping 0.8, stiffness 900); Primary adds a `ContextClick` tick |
+| Press (cards) | `Modifier.pressable(shape)` before the surface: scale 0.98 on a spring, ripple clipped to the card |
+| Tab change | An aurora ribbon (emerald to dawn, lit rim, soft bloom) marks the tab: its leading edge springs fast (0.68, 900), its tail slow (0.82, 220), so it stretches and gathers; the icon settles 0.86→1 (damping 0.7); `SegmentTick` |
+| Screen change | Tabs cross-fade (240ms), and never replay their opening; pushed screens slide in 1/6 while the one below steps back 1/14 |
+| Screen opening | Every `AuroraScreen` and Home: `ProvideIntro` + `Modifier.rise()`, blocks fade up over the last 18dp, a beat later the lower they sit, once per screen. 0.9s with art, 0.56s without; the first screen waits for the opening to part |
+| Choice pills | `ChoicePills`: one lit pill slides between options, its leading edge faster than its tail (spring 0.86, 520/260), with `SegmentTick` |
+| Selection | `ChoiceCard` presses and ticks, its fill and border cross-fade; `SelectionMark`'s check pops in (spring 0.55, 500) |
+| Steps | `StepFlow`: the progress segment fills, the light lands on it, and each step arrives from the side it came from |
+| Numbers | `CountUpText`: key metrics count up once (0.8s). `RollingClock` for values that change under the finger (Focus length) |
+| Shield | `AuroraSweep` once as the stage lands; the app settles in an emerald halo |
+| Time passing | `AuroraBackdrop` with `arc`: the thread runs along the horizon and the sky lights across behind it |
+| List changes | Home cards use `animateItem()`, so cards arriving or leaving move the rest smoothly |
+| Hero hand-over | While a timed run is active, Home's hero is its live countdown (`NowHero`); swapping cross-fades and rises |
 | Hero scroll | Art parallax 0.5×, fades out over 1.2× its height |
 | Phase change (Focus) | Fade in Gentle, fade out Standard |
 | Onboarding page | Fade plus 10% slide, Gentle, `Motion.Ease` |
-| Timers | Linear 1s glide between ticks (ring, arc) |
-| Start or finish | `HapticFeedbackType.Confirm` |
-| Ambient | `HorizonGlow` breath 4.2s, only while a session runs |
-| Reduced motion | `Aurora.reducedMotion` (setting, or system animations off): every tween snaps, no parallax, no breath |
+| Timers | `RollingClock`: each changed digit falls in from above (Gentle); read as one value by TalkBack |
+| Fills | `rememberFill`: progress lines, habit rings, the Focus ring and the horizon arc sweep up from zero on first show (Reveal + 300ms), then glide |
+| Shield stage | The app lands in its halo on a soft spring, the halo breathes (Breath), the moment's content rises in |
+| Splash | The mark draws (animated vector) on night, then fades in 240ms into the opening behind it |
+| Opening | `AuroraUnveil`: a point of light races along the ribbon's path (2–28%), rays grow (12–52%), the night lifts from the bottom and carries the ribbon off the top (44–100%), 5.2s in all, after the splash mark has drawn and held and the page behind has settled. Tap hurries it. First run holds at 40% for a swipe up. Progress steps per frame with a capped step, so a stall slows it and never jumps. Shader runs at half resolution from an offscreen layer; the page is not drawn while the night is opaque, and its sky only starts as the ribbon leaves (84%). Android 12 and below get a plain fade |
+| Startup | `app/src/main/baseline-prof.txt` precompiles all of Aurora's code (657 of 668 classes after R8); Compose ships its own |
+| Start or finish | `HapticFeedbackType.Confirm`; `AuroraSweep`: a ribbon of the sky's light climbs the whole page (1.9s, Android 13 and later); the sky surges (`Sky.Flare`) for the first 6s of a run |
+| Ambient | The aurora always drifts: Quiet 0.45×, Lit 0.65×, Alive 1× pace, and wakes with a 2.6s surge each time a screen opens; `HorizonGlow` breath 4.2s while a session runs; 30 fps, paused off screen; still with reduced motion |
+| Finish | `Sky.Flare`: a 0.9s surge settling over 3.6s, with Confirm haptic |
+| Reduced motion | `Aurora.reducedMotion` (setting, or system animations off): every tween snaps, no parallax, no breath, no rise or rolling digits, the sky never moves |
 
 ## Accessibility
 
@@ -78,3 +96,16 @@ produce a fragile, unverified copy of what the code already defines. The editabl
   Penpot tokens.
 - `docs/design-studio/brand-specimen.html`, a living specimen of the symbol, palette and type.
 - The Compose components above, which are the components.
+
+
+## Editorial refinement
+
+- `BrandEyebrow` (Brand.kt): short label beside a horizon rule and the gold rising point.
+- `AuroraNavBar`: 72dp floating dock with 16dp side insets and 12dp top/bottom space. `TabBarHeight`
+  reserves at least 96dp and grows with font scale; system navigation padding is added by the screen.
+- Display and DisplayXL use locally bundled Newsreader 400 at optical size 48. Everything functional,
+  including timers, stays Manrope. See the current brand bible and token file for exact values.
+- Home starts with the brand promise, then the filled Normal Use row and neutral Custom Session
+  row. Measurement follows the actions; unavailable measurement keeps its existing explanation.
+- Tinted surface edges are intentionally quieter than selection borders. Gold belongs to progress,
+  intention and the rising point; filled actions stay emerald.

@@ -3,7 +3,7 @@ package app.aurora.data
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** Time away from protected apps: protected time minus time a covered app was in front. */
+/** Time Reclaimed: protected time minus time a covered app was in front. */
 class TimeAwayTest {
     private val m = 60_000L
     private val ig = "com.instagram.android"
@@ -50,5 +50,12 @@ class TimeAwayTest {
     @Test
     fun unionLengthMergesTouchingAndNestedSpans() {
         assertEquals(30L, unionLength(listOf(0L to 10L, 10L to 20L, 12L to 15L, 25L to 35L, 5L to 5L)))
+    }
+
+    @Test
+    fun reclaimedAddsFinishedDaysToTodayAndNeverCountsTodayTwice() {
+        // 2026-10-31 is a Saturday, so its week starts on Monday the 26th.
+        val settled = mapOf("2026-10-25" to 100L, "2026-10-26" to 10L, "2026-10-30" to 20L, "2026-10-31" to 999L)
+        assertEquals(Reclaimed(5, 35, 135), reclaimed(settled, 5, java.time.LocalDate.parse("2026-10-31")))
     }
 }

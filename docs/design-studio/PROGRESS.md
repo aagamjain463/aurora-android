@@ -29,9 +29,8 @@ Last updated: 2026-10-29 17:10 IST.
 - A trademark clearance search for the symbol and name.
 - Physical-phone visual QA, and enforcement re-test on a real device.
 
-## Next actions (if resumed)
+## Next actions
 
-1. Recompose Start protection, schedule editor and item detail on the hero card language (`LitBadge`
-   headers, `ModeChip` selection tiles).
-2. Render the 360dp and tablet qualifiers in `ScreenshotTest` and fix any overflow.
-3. Scale `AuroraMark` with font scale in `AuroraHeader`.
+Done in the 10/10 pass (`08-ten-out-of-ten.md`): setup flows recomposed (the old Start and schedule
+screens were unreachable and are deleted), 360dp and tablet renders (`FormFactorScreenshotTest`), and the
+lockup mark scales with font size. What remains needs people, phones or Play; see that page.

@@ -1,9 +1,10 @@
 <resources>
-    <style name="Theme.Aurora" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Aurora" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/aurora_window</item>
-        <!-- Android 12+ splash: the mark on its night circle, over aurora's own background. -->
-        <item name="android:windowSplashScreenBackground">@color/aurora_window</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <!-- Android 12+ splash: always night, so it runs straight into the opening (AuroraUnveil). -->
+        <item name="android:windowSplashScreenBackground">@color/aurora_splash</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon_animated</item>
+        <item name="android:windowSplashScreenAnimationDuration">1000</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@color/aurora_icon_background</item>
     </style>
 

@@ -32,9 +32,9 @@ object Space {
 /** Corner radii. Interactive pills are fully round; containers are soft but not bubbly. */
 object Radius {
     val S = RoundedCornerShape(12.dp)
-    val M = RoundedCornerShape(18.dp)
-    val L = RoundedCornerShape(26.dp)
-    val Dialog = RoundedCornerShape(30.dp)
+    val M = RoundedCornerShape(16.dp)
+    val L = RoundedCornerShape(22.dp)
+    val Dialog = RoundedCornerShape(28.dp)
     val Pill = RoundedCornerShape(percent = 50)
 }
 
@@ -49,7 +49,7 @@ object Motion {
     const val Breath = 4200
 }
 
-val LocalAuroraColors = staticCompositionLocalOf { LightColors }
+val LocalAuroraColors = staticCompositionLocalOf { DarkColors }
 val LocalReducedMotion = staticCompositionLocalOf { false }
 
 object Aurora {
@@ -71,8 +71,9 @@ fun systemAnimationsOff(context: Context): Boolean =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
 @Composable
-fun AuroraTheme(darkTheme: Boolean, reduceMotion: Boolean, content: @Composable () -> Unit) {
-    val colors = if (darkTheme) DarkColors else LightColors
+fun AuroraTheme(reduceMotion: Boolean, content: @Composable () -> Unit) {
+    // The northern lights only exist at night, so Aurora has one theme.
+    val colors = DarkColors
     val context = LocalContext.current
     val systemReduced = remember(context) { systemAnimationsOff(context) }
     CompositionLocalProvider(

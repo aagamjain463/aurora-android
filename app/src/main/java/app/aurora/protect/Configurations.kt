@@ -49,7 +49,7 @@ data class FocusPlan(val task: String, val description: String = "", val goal: S
 
 /**
  * A complete setup made on Home. A custom configuration ([custom]) references saved presets by id and can
- * be linked to a Habit. Normal Use carries its own copies of the built-in presets ([shield], [intent]),
+ * be linked to a Goal. Normal Use carries its own copies of the built-in presets ([shield], [intent]),
  * set for that use without changing the built-in defaults.
  */
 @Serializable
@@ -127,8 +127,16 @@ data class ConfigRun(
     fun isOver(t: DeviceTime): Boolean = time?.isOver(t) ?: (end != null && t.wall >= end)
     fun covers(t: DeviceTime): Boolean = t.wall >= startAt(t) && !isOver(t)
 
-    /** Always Block can't be turned off in Aurora until its committed part is over. */
-    fun cancellable(t: DeviceTime): Boolean = shield?.mode != Mode.AlwaysBlock || committedUntil?.let { t.wall >= it } == true
+    /**
+     * A strict run (Always Block, Cooldown, Friction) can't be turned off in Aurora until it ends, or for
+     * Always Block on Free, until its committed part is over. An Always run (no end) made before strict
+     * Cooldown and Friction stays cancellable: a permanent commitment is never made by accident.
+     */
+    fun cancellable(t: DeviceTime): Boolean = when {
+        shield?.mode?.strict != true || end == null -> true
+        shield.mode == Mode.AlwaysBlock -> committedUntil?.let { t.wall >= it } == true
+        else -> false
+    }
 
     fun restrictions(t: DeviceTime): List<Restriction> {
         val s = shield ?: return emptyList()
@@ -137,10 +145,11 @@ data class ConfigRun(
         val base = Restriction(
             s.mode.reason, s.keys.toSet(), from, to, id,
             friction = s.friction, cooldownWaitMs = s.cooldownWaitMinutes * 60_000L, sessionId = id, label = name,
+            locks = !cancellable(t),
         )
         val c = committedUntil
         return if (s.mode == Mode.AlwaysBlock && c != null && c < to) {
-            listOf(base.copy(end = maxOf(from, c)), base.copy(reason = ShieldReason.Flexible, start = maxOf(from, c), id = "$id:flex"))
+            listOf(base.copy(end = maxOf(from, c)), base.copy(reason = ShieldReason.Flexible, start = maxOf(from, c), id = "$id:flex", locks = false))
         } else listOf(base)
     }
 }
@@ -271,15 +280,15 @@ fun intentsNow(runs: List<ConfigRun>, t: DeviceTime): Map<String, IntentConfig> 
 enum class ActivationProblem { Empty, AlwaysWithAlwaysBlock, InThePast, NoDays, TooShort, OverItems, OverIntentApps, OverSchedules, OverAlwaysBlockAllowance }
 
 /**
- * Checks [timing] for configuration [c]. Always scheduling isn't offered for an Always Block Shield: a
- * permanent commitment must never be created by accident. Free limits count what is actually enforced:
+ * Checks [timing] for configuration [c]. Always scheduling isn't offered for a strict Shield (Always
+ * Block, Cooldown, Friction): a permanent commitment must never be created by accident. Free limits count what is actually enforced:
  * running runs and entitled activations, plus this one.
  */
 fun Rules.problem(c: UsageConfig, timing: Timing, plan: Plan, running: List<ConfigRun>, now: Long): ActivationProblem? {
     val shield = shieldOf(c)
     val intent = intentOf(c)
     if ((shield == null || shield.keys.isEmpty()) && (intent == null || intent.keys.isEmpty()) && c.focus == null) return ActivationProblem.Empty
-    if (timing is Timing.Always && shield?.mode == Mode.AlwaysBlock) return ActivationProblem.AlwaysWithAlwaysBlock
+    if (timing is Timing.Always && shield?.mode?.strict == true) return ActivationProblem.AlwaysWithAlwaysBlock
     when (timing) {
         is Timing.Now -> if (timing.minutes <= 0) return ActivationProblem.TooShort
         is Timing.Later -> {

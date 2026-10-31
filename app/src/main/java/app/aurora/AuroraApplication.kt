@@ -33,6 +33,7 @@ import app.aurora.protect.ProtectedList
 import app.aurora.protect.ProtectionRepository
 import app.aurora.protect.Rules
 import app.aurora.protect.Runtime
+import app.aurora.protect.TrustedClock
 import app.aurora.protect.policyState
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.first
@@ -75,15 +76,18 @@ class AuroraApplication : Application() {
 
     private val boot by lazy { Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1) }
 
-    fun now() = DeviceTime(System.currentTimeMillis(), SystemClock.elapsedRealtime(), boot)
+    /** The wall clock is [TrustedClock]: during a strict commitment, changing the phone's time doesn't move it. */
+    fun now() = DeviceTime(TrustedClock.wall(), SystemClock.elapsedRealtime(), boot)
 
     override fun onCreate() {
         super.onCreate()
+        TrustedClock.init(this)
         // Start reading now, so the Shield has its configuration before the first event.
         protectedList
         rules
         runtime
         billing.connect()
+        SessionNotification.start(this)
         scope.launch {
             // Once everything is loaded: a Phase 3 Lockdown becomes Always Block, and a scheduled
             // Always Block window already running is committed.

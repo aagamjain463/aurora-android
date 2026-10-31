@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Play Store screenshot frame. brand/tools/store.sh renders it per shot:
+     frame.html?shot=<baseline>&lead=<cream phrase>&tail=<white phrase>&eyebrow=<label> -->
+<html><head><meta charset="utf-8">
+<style>
+  @font-face { font-family: Cormorant; src: url(../../app/src/main/res/font/cormorant.ttf); font-weight: 300 700; }
+  @font-face { font-family: Geist; src: url(../../app/src/main/res/font/geist.ttf); font-weight: 100 900; }
+  :root { --night: #080A0F; --cream: #DDF9D4; --frost: #F2F9F1; --mist: #BFD0C4; --sun: #4BEA55; }
+  html, body { margin: 0; width: 1080px; height: 1920px; background: var(--night); overflow: hidden; }
+  .art { position: absolute; top: 300px; left: 0; right: 0; height: 900px;
+         background: url(../../brand/artwork/aurora_still.png) center 34% / cover; }
+  .art::after { content: ""; position: absolute; inset: 0;
+         background: linear-gradient(180deg, var(--night) 0%, rgba(8,10,15,.05) 22%, rgba(8,10,15,.6) 70%, var(--night) 100%); }
+  .copy { position: absolute; top: 120px; left: 96px; right: 96px; }
+  .eyebrow { font: 600 30px/1 Geist; letter-spacing: .05em; color: var(--mist); display: flex; align-items: center; gap: 18px; }
+  .eyebrow::before { content: ""; width: 56px; height: 2px; background: linear-gradient(90deg, transparent, var(--sun)); }
+  .eyebrow::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--sun); order: -1; margin-left: -12px; display: none; }
+  h1 { margin: 26px 0 0; font: 400 92px/1.04 Cormorant; letter-spacing: -.02em; color: var(--cream); }
+  h1 span { display: block; color: var(--frost); }
+  .phone { position: absolute; left: 50%; bottom: -120px; width: 760px; height: 1480px; transform: translateX(-50%);
+           border-radius: 92px; padding: 18px; background: linear-gradient(180deg, #1E2F27, #0F1416);
+           box-shadow: 0 40px 120px rgba(0,0,0,.6), 0 0 0 2px rgba(201,255,180,.14), 0 -30px 160px rgba(75,234,85,.12); }
+  .screen { width: 100%; height: 100%; border-radius: 76px; overflow: hidden; background: var(--night) top / 100% auto no-repeat; }
+</style></head>
+<body>
+  <div class="art"></div>
+  <div class="copy">
+    <div class="eyebrow" id="eyebrow"></div>
+    <h1><em id="lead" style="font-style:normal"></em><span id="tail"></span></h1>
+  </div>
+  <div class="phone"><div class="screen" id="screen"></div></div>
+  <script>
+    const q = new URLSearchParams(location.search);
+    document.getElementById('eyebrow').textContent = q.get('eyebrow') || '';
+    document.getElementById('lead').textContent = q.get('lead') || '';
+    document.getElementById('tail').textContent = q.get('tail') || '';
+    document.getElementById('screen').style.backgroundImage = `url(../../app/src/test/screenshots/${q.get('shot')}.png)`;
+  </script>
+</body></html>

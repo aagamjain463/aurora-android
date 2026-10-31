@@ -2,6 +2,8 @@ package app.aurora.ui
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
+import app.aurora.ui.theme.DarkColors
 import app.aurora.ui.theme.Palette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -10,6 +12,19 @@ import java.io.File
 
 /** brand/tokens/aurora.tokens.json is the design source of truth; the Kotlin palette must match it. */
 class DesignTokensTest {
+    /** Text on filled actions must remain AA-readable throughout both gradients. */
+    @Test
+    fun primaryActionContrast() {
+        for (colors in listOf(DarkColors)) {
+            val text = colors.onAccent.luminance()
+            colors.cta.forEach { fill ->
+                val background = fill.luminance()
+                val contrast = (maxOf(text, background) + 0.05f) / (minOf(text, background) + 0.05f)
+                assertTrue("Primary action contrast $contrast (dark=${colors.isDark})", contrast >= 4.5f)
+            }
+        }
+    }
+
     @Test
     fun paletteMatchesTokens() {
         val json = File("../brand/tokens/aurora.tokens.json").readText()

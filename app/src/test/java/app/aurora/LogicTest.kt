@@ -66,7 +66,8 @@ class LogicTest {
 
     @Test
     fun formatting() {
-        assertEquals("<1m", formatDuration(59_999))
+        assertEquals("0m", formatDuration(0))
+        assertEquals("Under 1m", formatDuration(59_999))
         assertEquals("14m", formatDuration(14 * 60_000L))
         assertEquals("2h", formatDuration(120 * 60_000L))
         assertEquals("2h 14m", formatDuration(134 * 60_000L))

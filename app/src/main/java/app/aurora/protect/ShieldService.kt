@@ -54,14 +54,15 @@ class ShieldService : AccessibilityService() {
         val exempt = exemptPackages(this)
         val interceptor = Interceptor(
             presenter, trace, packageName, overlayPackages(this),
-            wallClock = System::currentTimeMillis, uptime = SystemClock::uptimeMillis,
+            wallClock = TrustedClock::wall, uptime = SystemClock::uptimeMillis,
             schedule = { delay, block -> main.postDelayed(block, delay) },
             onAllowed = ::measure,
             onForeground = { pkg -> scope?.launch { runCatching { app.foregroundChanged(pkg) } } },
             onAttempt = { decision -> scope?.launch { runCatching { app.attempted(decision) } } },
         )
         // Built from memory for every event: grants, schedules and Focus are never stale.
-        interceptor.snapshot = { app.policySnapshot(exempt, usedToday) }
+        val locked = lockedPackages(this)
+        interceptor.snapshot = { app.policySnapshot(exempt, usedToday)?.copy(locked = locked) }
         this.interceptor = interceptor
         scope?.cancel()
         scope = MainScope().apply {

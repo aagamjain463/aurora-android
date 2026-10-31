@@ -1,31 +1,44 @@
 # aurora-android
 
-aurora is a premium digital-wellbeing app. It helps you take back control of your phone through
+Aurora is a premium digital-wellbeing app. It helps you take back control of your phone through
 intentional use.
 
 This repository is the native Android app: Kotlin and Jetpack Compose, local-first, with no
 account, no analytics and no `INTERNET` permission.
 
-| Today | Protect | Focus | Complete | Insights |
+| Home · day | Home · night | Shield | Intent | Track |
 | --- | --- | --- | --- | --- |
-| ![Today](docs/screenshots/today.png) | ![Protect](docs/screenshots/protect.png) | ![Focus](docs/screenshots/focus-running-dark.png) | ![Complete](docs/screenshots/focus-complete-dark.png) | ![Insights](docs/screenshots/insights.png) |
+| ![Home, day](app/src/test/screenshots/home_navigation_Light.png) | ![Home, night](app/src/test/screenshots/home_navigation_Dark.png) | ![Shield](app/src/test/screenshots/library_shield_Light.png) | ![Intent](app/src/test/screenshots/intent_library_Dark.png) | ![Track](app/src/test/screenshots/track_Light.png) |
 
-- Brand and design system: [`docs/BRAND.md`](docs/BRAND.md)
+[View the design preview](docs/design-studio/evidence/editorial-refinement/aurora-design-preview.png) ·
+[Brand specimen](docs/design-studio/brand-specimen.html)
+
+- Brand and design system: [`Aurora Brand Bible`](docs/design-studio/AURORA_BRAND_BIBLE.md)
 - Architecture and decisions: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- Configurations, four-tab navigation and Habits: [`docs/CONFIGURATIONS.md`](docs/CONFIGURATIONS.md)
+- Configurations, four-tab navigation and Goals: [`docs/CONFIGURATIONS.md`](docs/CONFIGURATIONS.md)
 - Roadmap to 1.0 and beyond: [`docs/ROADMAP.md`](docs/ROADMAP.md)
-- Plans and limits (aurora Free and aurora plus): [`docs/BUSINESS_MODEL.md`](docs/BUSINESS_MODEL.md)
+- Plans and limits (Aurora Free and Aurora Plus): [`docs/BUSINESS_MODEL.md`](docs/BUSINESS_MODEL.md)
 - The complete product, verification and launch dependencies: [`docs/PRODUCT.md`](docs/PRODUCT.md)
+- Shipping to Google Play (signing, declarations, data safety, review risks): [`docs/RELEASE.md`](docs/RELEASE.md),
+  with the [store listing](docs/STORE_LISTING.md) and [privacy policy](docs/privacy-policy.html)
 
 ## Status: configurations and Habits (`feat/aurora-configurations-habits`)
 
-Home activates Normal Use or Custom Configurations. Shield and Intent hold reusable presets;
-Track shows Habits, configuration performance, screen time and progress. Configurations support
+Home activates Normal Use or Custom Sessions. Shield and Intent hold reusable presets;
+Track has Progress (XP, session results), Goals and Usage (screen time). Sessions support
 starting now, later, on recurring schedules or Always, with optional Focus. Always Block keeps
 its commitment rules. Existing billing, data controls and optional Web & content protection remain.
 
 What is verified, what isn't, rule precedence, and what still needs phones, Play Console and policy
 review: [`docs/PRODUCT.md`](docs/PRODUCT.md). Emulator screenshots: `docs/screenshots/emulator-2026-10-29/`.
+
+## Design pass (29 October 2026)
+
+One First Light painting for night and day, three-step setup, a Track that leads with one verified
+number, a recomposed Aurora Plus, and Aurora outside the app: an ongoing session notification (Android
+16 progress style), a home-screen widget, a Quick Settings tile and an animated splash. What changed and
+what still needs people or devices: [`docs/design-studio/08-ten-out-of-ten.md`](docs/design-studio/08-ten-out-of-ten.md).
+Store art: `brand/tools/store.sh` renders `brand/store/out/`.
 
 ## Requirements
 
@@ -63,7 +76,7 @@ locally before pushing:
 These need a device or the local baselines, so CI doesn't run them:
 
 ```sh
-./gradlew connectedDebugAndroidTest   # the same UI tests on a running emulator (overwrites aurora's app data)
+./gradlew connectedDebugAndroidTest   # the same UI tests on a running emulator (overwrites Aurora's app data)
 ./gradlew verifyRoborazziDebug        # compare every screen with app/src/test/screenshots/ (macOS baselines)
 ./gradlew recordRoborazziDebug        # re-record the baselines after an intended UI change
 ```
@@ -79,9 +92,9 @@ adb shell appops set app.aurora GET_USAGE_STATS allow
 ```
 app/src/main/java/app/aurora/
   data/            preferences (DataStore), installed apps, screen time, special access, formatting
-  plan/            aurora Free and aurora plus limits, and the Lockdown budget (pure Kotlin)
+  plan/            Aurora Free and Aurora Plus limits, and the Lockdown budget (pure Kotlin)
   ui/theme/        colours, type, spacing, radius, motion tokens
-  ui/components/   the aurora design system
+  ui/components/   the Aurora design system
   ui/<screen>/     onboarding, home, protect, focus, insights, settings
 app/src/test/       unit tests, screenshot tests and their baselines (screenshots/)
 app/src/sharedTest/ UI tests that run under Robolectric and on a device
@@ -89,4 +102,5 @@ docs/              BRAND.md, ARCHITECTURE.md, ROADMAP.md, BUSINESS_MODEL.md, ENF
                    screenshots, font licence
 ```
 
-The Manrope typeface is bundled under the SIL Open Font License (`docs/fonts-OFL.txt`).
+Cormorant Garamond and Geist are bundled under the SIL Open Font License (`docs/cormorant-OFL.txt` and
+`docs/geist-OFL.txt`).

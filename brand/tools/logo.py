@@ -1,50 +1,131 @@
 """
-Aurora logo masters: the First Light symbol, the outlined wordmark and the lockups, as SVG.
-
-The symbol is defined once here on a 24-unit grid; the Compose mark (ui/components/Brand.kt) and the
-launcher-icon vectors use the same numbers. The wordmark outlines come straight from the bundled Manrope
-font (default instance), so no font is needed to display the SVG.
+Aurora logo masters: the Ribbon symbol, the outlined wordmark and the lockups, as SVG; the launcher, themed, status
+and splash icons, as Android vectors; and the path data the Compose mark draws (ui/components/MarkPaths.kt). The symbol
+is defined once, here. The wordmark outlines come straight from the bundled Cormorant font (default instance), so no
+font is needed to display the SVG. The font's default instance is its lightest, so WEIGHT_STROKE brings it up to Medium.
 
     python3 -I brand/tools/logo.py
 """
+import math
 import os
 import struct
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..", "..")
 OUT = os.path.join(HERE, "..", "logo")
-FONT = os.path.join(ROOT, "app", "src", "main", "res", "font", "manrope.ttf")
+FONT = os.path.join(ROOT, "app", "src", "main", "res", "font", "cormorant.ttf")
 
-# Construction, 24-unit grid. A semicircular ring resting on the horizon, a point of light above it.
-ARC_C = (12.0, 19.2)
-ARC_R = 7.5
-STROKE = 3.0
-DOT_C = (12.0, 6.2)
-DOT_R = 2.0
+NIGHT, PAPER, INK = "#050609", "#F4F7F0", "#0B1411"
 
-EMERALD_A, EMERALD_B, SUN = "#2FB883", "#8BE8BF", "#F3C77D"
-NIGHT, PAPER, INK = "#05100D", "#F5F1E8", "#0B1411"
+# The Ribbon, on a 100-unit grid: a solid dome of sky that is also an A. Its crossbar is a ribbon of light cut clean
+# through it, widening as it travels, and rays rise above the ribbon in the full-colour mark. The gap is real space, so
+# the symbol survives one colour at 16dp.
+TOP, BOTTOM, WIDTH = 6.0, 94.0, 40.0
+GAP_LEFT, GAP_RIGHT = 1.7, 3.5
+COUNTER_APEX, COUNTER_WIDTH = 51.0, 14.5
+CORNER = 2.4
+# Same as Palette in Color.kt: the light falls from starlight through the band to the body.
+DOME = [(0, "F4FFF0"), (0.34, "C9FFB4"), (1, "4BEA55")]
+LEGS = [(0, "4BEA55"), (1, "17A850")]
+DOME_Y, LEGS_Y = (6, 62), (54, 94)
+
+
+def half(y):
+    return WIDTH * ((y - TOP) / (BOTTOM - TOP)) ** 0.47
+
+
+def ribbon_y(x, side=0):
+    """The ribbon's centre, or its upper (side -1) or lower (side 1) edge."""
+    t = (x - 10) / 80
+    return 58.5 - 0.10 * (x - 50) + 6.2 * math.sin(t * 2 * math.pi) + side * (GAP_LEFT + (GAP_RIGHT - GAP_LEFT) * t)
+
+
+def meets(sign, side, width_at):
+    x = 50 + sign * 25
+    for _ in range(60):
+        x = 50 + sign * width_at(ribbon_y(x, side))
+    return x, ribbon_y(x, side)
+
+
+def counter(y):
+    return COUNTER_WIDTH * (max(y - COUNTER_APEX, 0) / (BOTTOM - COUNTER_APEX)) ** 0.70
+
+
+def span(a, b, n=16):
+    return [a + (b - a) * i / n for i in range(n + 1)]
+
+
+def rounded(poly, r=CORNER):
+    """Softens the corners of a polygon, leaving its curves alone."""
+    out, n = [], len(poly)
+    for i, p in enumerate(poly):
+        a, b = poly[i - 1], poly[(i + 1) % n]
+        u, v = (a[0] - p[0], a[1] - p[1]), (b[0] - p[0], b[1] - p[1])
+        lu, lv = math.hypot(*u), math.hypot(*v)
+        if lu < 1e-6 or lv < 1e-6:
+            continue
+        if (u[0] * v[0] + u[1] * v[1]) / (lu * lv) < -0.82:
+            out.append(p)
+            continue
+        ru, rv = min(r, lu / 2), min(r, lv / 2)
+        s, e = (p[0] + u[0] / lu * ru, p[1] + u[1] / lu * ru), (p[0] + v[0] / lv * rv, p[1] + v[1] / lv * rv)
+        for t in (0, 0.25, 0.5, 0.75, 1):
+            q = 1 - t
+            out.append((q * q * s[0] + 2 * q * t * p[0] + t * t * e[0], q * q * s[1] + 2 * q * t * p[1] + t * t * e[1]))
+    return out
+
+
+def polygons():
+    """The symbol as closed polygons: the dome, then the two legs."""
+    xl, yl = meets(-1, -1, half)
+    xr, yr = meets(1, -1, half)
+    # Fine steps at the crown, so the top of the dome is truly round.
+    crown = [TOP + (yr - TOP) * (i / 28) ** 2 for i in range(29)]
+    crown_l = [TOP + (yl - TOP) * (i / 28) ** 2 for i in range(29)]
+    dome = [(50 - half(y), y) for y in reversed(crown_l)] + [(50 + half(y), y) for y in crown[1:]] + [(x, ribbon_y(x, -1)) for x in span(xr, xl, 28)[1:-1]]
+    outl, yol = meets(-1, 1, half)
+    outr, yor = meets(1, 1, half)
+    inl, yil = meets(-1, 1, counter)
+    inr, yir = meets(1, 1, counter)
+    left = [(x, ribbon_y(x, 1)) for x in span(outl, inl, 12)] + [(50 - counter(y), y) for y in span(yil, BOTTOM)[1:]] + [(50 - half(y), y) for y in span(BOTTOM, yol)[:-1]]
+    right = [(x, ribbon_y(x, 1)) for x in span(inr, outr, 12)] + [(50 + half(y), y) for y in span(yor, BOTTOM)[1:]] + [(50 + counter(y), y) for y in span(BOTTOM, yir)[:-1]]
+    return [rounded(dome), rounded(left), rounded(right)]
+
+
+def rays():
+    """Rays of the aurora rising inside the dome, from the ribbon up: (polygon, full-colour mark only)."""
+    out = []
+    for x, tall, w in ((33, 17, 6.0), (44.5, 34, 7.0), (56.5, 33, 7.0), (67.5, 20, 6.0)):
+        y = ribbon_y(x, -1) - 1.6
+        out.append([(x - w / 2, y), (x - w * 0.30, y - tall), (x + w * 0.30, y - tall), (x + w / 2, y)])
+    return out
+
+
+def poly_path(poly, s=1.0, ox=0.0, oy=0.0):
+    return "M" + " ".join(f"{x * s + ox:.2f},{y * s + oy:.2f}" for x, y in poly) + "z"
+
+
+def svg_gradient(gid, stops, ys, k, oy):
+    items = "".join(f'<stop offset="{o}" stop-color="#{c}"/>' for o, c in stops)
+    return f'<linearGradient id="{gid}" gradientUnits="userSpaceOnUse" x1="0" y1="{ys[0] * k + oy:.2f}" x2="0" y2="{ys[1] * k + oy:.2f}">{items}</linearGradient>'
 
 
 def symbol_paths(s=1.0, ox=0.0, oy=0.0, mono=None, grad_id="fl"):
-    cx, cy = ARC_C[0] * s + ox, ARC_C[1] * s + oy
-    r, sw = ARC_R * s, STROKE * s
-    arc = f'M{cx - r:.2f},{cy:.2f} A{r:.2f},{r:.2f} 0 0 1 {cx + r:.2f},{cy:.2f}'
-    dx, dy, dr = DOT_C[0] * s + ox, DOT_C[1] * s + oy, DOT_R * s
-    stroke = mono or f"url(#{grad_id})"
-    dot = mono or SUN
-    defs = "" if mono else (
-        f'<linearGradient id="{grad_id}" gradientUnits="userSpaceOnUse" x1="{cx - r:.2f}" y1="{cy:.2f}" x2="{cx + r:.2f}" y2="{cy - r:.2f}">'
-        f'<stop offset="0" stop-color="{EMERALD_A}"/><stop offset="1" stop-color="{EMERALD_B}"/></linearGradient>'
-    )
-    body = (f'<path d="{arc}" fill="none" stroke="{stroke}" stroke-width="{sw:.2f}" stroke-linecap="butt"/>'
-            f'<circle cx="{dx:.2f}" cy="{dy:.2f}" r="{dr:.2f}" fill="{dot}"/>')
+    """[s] is scale per 24-unit symbol box, kept for the lockups."""
+    k = s * 0.24
+    polys = polygons()
+    if mono:
+        return "", "".join(f'<path d="{poly_path(q, k, ox, oy)}" fill="{mono}"/>' for q in polys)
+    defs = svg_gradient(grad_id + "d", DOME, DOME_Y, k, oy) + svg_gradient(grad_id + "l", LEGS, LEGS_Y, k, oy)
+    defs += f'<linearGradient id="{grad_id}r" gradientUnits="userSpaceOnUse" x1="0" y1="{20 * k + oy:.2f}" x2="0" y2="{60 * k + oy:.2f}"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="1" stop-color="#0B5A2A" stop-opacity="0.20"/></linearGradient>'
+    body = f'<path d="{poly_path(polys[0], k, ox, oy)}" fill="url(#{grad_id}d)"/>'
+    body += "".join(f'<path d="{poly_path(q, k, ox, oy)}" fill="url(#{grad_id}r)"/>' for q in rays())
+    body += "".join(f'<path d="{poly_path(q, k, ox, oy)}" fill="url(#{grad_id}l)"/>' for q in polys[1:])
     return defs, body
 
 
-# Manrope's default instance is its lightest weight; the wordmark is set at ~Medium (500), reached by
-# expanding the outline with a round-joined stroke of this many units per 72 px of cap height.
-WEIGHT_STROKE = 3.4
+# Cormorant's default instance is Light; this stroke brings the outlines up to the wordmark's Medium.
+WEIGHT_STROKE = 1.6
 
 
 def ink(path, fill, cap=72):
@@ -172,7 +253,7 @@ def glyph_path(contours, ox, oy, sc):
 
 
 def wordmark(font, text, x, baseline, cap_px, tracking=-0.01):
-    sc = cap_px / (font.upm * 0.72)  # Manrope cap height is ~0.72 em
+    sc = cap_px / (font.upm * 0.63)  # Cormorant cap height is ~0.63 em
     parts, pen = [], x
     for ch in text:
         g = font.cmap[ord(ch)]
@@ -187,7 +268,56 @@ def svg(w, h, body, defs="", bg=None):
             f'<defs>{defs}</defs>{back}{body}</svg>\n')
 
 
+def android_icons():
+    """The launcher icon, themed icon, status icon, splash and Compose paths, all from polygons()."""
+    res = os.path.join(ROOT, "app", "src", "main", "res", "drawable")
+    ns = 'xmlns:android="http://schemas.android.com/apk/res/android"'
+    aapt = 'xmlns:aapt="http://schemas.android.com/aapt"'
+    box = 'android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"'
+    k = 0.60
+    o = 54 - 50 * k
+    polys = polygons()
+    def grad(stops, ys, s_, o_):
+        items = "".join(f'<item android:color="#FF{c}" android:offset="{p}" />' for p, c in stops)
+        return f'<aapt:attr name="android:fillColor"><gradient android:startX="0" android:startY="{ys[0] * s_ + o_:.2f}" android:endX="0" android:endY="{ys[1] * s_ + o_:.2f}" android:type="linear">{items}</gradient></aapt:attr>'
+    def ray_grad(s_, o_):
+        return f'<aapt:attr name="android:fillColor"><gradient android:startX="0" android:startY="{20 * s_ + o_:.2f}" android:endX="0" android:endY="{60 * s_ + o_:.2f}" android:type="linear"><item android:color="#00FFFFFF" android:offset="0" /><item android:color="#330B5A2A" android:offset="1" /></gradient></aapt:attr>'
+    def full(s_, o_, indent="    "):
+        out = f'{indent}<path android:pathData="{poly_path(polys[0], s_, o_, o_)}">{grad(DOME, DOME_Y, s_, o_)}</path>\n'
+        out += "".join(f'{indent}<path android:pathData="{poly_path(q, s_, o_, o_)}">{ray_grad(s_, o_)}</path>\n' for q in rays())
+        out += "".join(f'{indent}<path android:pathData="{poly_path(q, s_, o_, o_)}">{grad(LEGS, LEGS_Y, s_, o_)}</path>\n' for q in polys[1:])
+        return out
+    head = '<?xml version="1.0" encoding="utf-8"?>\n<!-- Generated by brand/tools/logo.py. The Aurora symbol, the Ribbon. -->\n'
+    def write(name, text):
+        open(os.path.join(res, name), "w").write(head + text)
+    write("ic_launcher_foreground.xml", f'<vector {ns} {aapt} {box}>\n{full(k, o)}</vector>\n')
+    write("ic_launcher_monochrome.xml", f'<vector {ns} {box}>\n' + "".join(f'    <path android:fillColor="#FF000000" android:pathData="{poly_path(q, k, o, o)}" />\n' for q in polys) + "</vector>\n")
+    small = 'android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"'
+    write("ic_stat_aurora.xml", f'<vector {ns} {small}>\n' + "".join(f'    <path android:fillColor="#FFFFFFFF" android:pathData="{poly_path(q, 0.24)}" />\n' for q in polys) + "</vector>\n")
+    write("ic_mark.xml", f'<vector {ns} {aapt} {small}>\n{full(0.24, 0)}</vector>\n')
+    write("ic_launcher_background.xml", f"""<vector {ns} {aapt} {box}>
+    <path android:pathData="M0,0h108v108h-108z"><aapt:attr name="android:fillColor"><gradient android:startX="54" android:startY="0" android:endX="54" android:endY="108" android:type="linear"><item android:color="#FF050609" android:offset="0" /><item android:color="#FF08120F" android:offset="1" /></gradient></aapt:attr></path>
+    <path android:pathData="M0,0h108v108h-108z"><aapt:attr name="android:fillColor"><gradient android:centerX="54" android:centerY="50" android:gradientRadius="48" android:type="radial"><item android:color="#8017A850" android:offset="0" /><item android:color="#330B5A2A" android:offset="0.55" /><item android:color="#000B5A2A" android:offset="1" /></gradient></aapt:attr></path>
+</vector>
+""")
+    # The splash: the legs rise from the ground, the dome follows, then the rays come up inside it.
+    def rising(a, b):
+        return f"M0,{a} L108,{a} L108,108 L0,108 z", f"M0,{b} L108,{b} L108,108 L0,108 z"
+    start, end = rising(108, 0)
+    fills = "".join(f'                <path android:pathData="{poly_path(q, k, o, o)}">{grad(LEGS, LEGS_Y, k, o)}</path>\n' for q in polys[1:])
+    fills += f'                <path android:pathData="{poly_path(polys[0], k, o, o)}">{grad(DOME, DOME_Y, k, o)}</path>\n'
+    ray_paths = "".join(f'            <path android:name="ray{i}" android:fillAlpha="0" android:pathData="{poly_path(q, k, o, o)}">{ray_grad(k, o)}</path>\n' for i, q in enumerate(rays()))
+    targets = f'    <target android:name="mark"><aapt:attr name="android:animation"><objectAnimator android:duration="760" android:propertyName="pathData" android:valueType="pathType" android:valueFrom="{start}" android:valueTo="{end}" android:interpolator="@android:interpolator/fast_out_slow_in" /></aapt:attr></target>\n'
+    targets += "".join(f'    <target android:name="ray{i}"><aapt:attr name="android:animation"><objectAnimator android:duration="300" android:startOffset="{520 + 40 * i}" android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1" /></aapt:attr></target>\n' for i in range(len(rays())))
+    write("splash_icon_animated.xml", f'<animated-vector {ns} {aapt}>\n    <aapt:attr name="android:drawable">\n        <vector {box}>\n            <group>\n                <clip-path android:name="mark" android:pathData="{start}" />\n{fills}            </group>\n{ray_paths}        </vector>\n    </aapt:attr>\n{targets}</animated-vector>\n')
+    kt = os.path.join(ROOT, "app", "src", "main", "java", "app", "aurora", "ui", "components", "MarkPaths.kt")
+    names = ", ".join(f'\n    "{poly_path(q)}"' for q in polys)
+    ray_names = ", ".join(f'\n    "{poly_path(q)}"' for q in rays())
+    open(kt, "w").write(f'package app.aurora.ui.components\n\n// Generated by brand/tools/logo.py. The Ribbon, on a 100-unit grid: the dome, then the two legs.\ninternal val MarkPaths = listOf({names},\n)\n\n// Rays inside the dome, in the full-colour mark only.\ninternal val MarkRays = listOf({ray_names},\n)\n')
+
+
 if __name__ == "__main__":
+    android_icons()
     os.makedirs(OUT, exist_ok=True)
     font = Font(FONT)
 
@@ -203,7 +333,7 @@ if __name__ == "__main__":
     save("aurora-symbol-mono-white.svg", svg(24, 24, b))
 
     for name, fill, bg in (("aurora-wordmark-light.svg", "#F1F6F3", None), ("aurora-wordmark-dark.svg", INK, None)):
-        path, wpx = wordmark(font, "Aurora", 0, 72, 72, tracking=0.02)
+        path, wpx = wordmark(font, "Aurora", 0, 72, 72, tracking=-0.01)
         save(name, svg(round(wpx) + 6, 96, f'<g transform="translate(2,2)">{ink(path, fill)}</g>'))
 
     # Horizontal lockup: symbol at cap height x1.45, a gap of one stroke width x3.
@@ -211,15 +341,15 @@ if __name__ == "__main__":
         cap = 72
         s = cap * 1.45 / 24
         d, b = symbol_paths(s, 40, 24, grad_id="lk")
-        path, wpx = wordmark(font, "Aurora", 40 + 24 * s + 18, 24 + 19.2 * s, cap, tracking=0.02)
+        path, wpx = wordmark(font, "Aurora", 40 + 24 * s + 18, 24 + 22.56 * s, cap, tracking=-0.01)
         W = int(40 + 24 * s + 18 + wpx + 40)
         save(name, svg(W, int(24 * s + 48), b + ink(path, fill), d, bg))
 
     # App-icon preview: the launcher composition at 512px (mirrors res/drawable/ic_launcher_*.xml).
     s = 512 / 108
-    glow = ('<radialGradient id="gl" cx="0.5" cy="0.66" r="0.5"><stop offset="0" stop-color="#F3C77D" stop-opacity="0.30"/>'
-            '<stop offset="0.45" stop-color="#3FC495" stop-opacity="0.16"/><stop offset="1" stop-color="#3FC495" stop-opacity="0"/></radialGradient>'
-            '<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#031110"/><stop offset="1" stop-color="#0B2A1F"/></linearGradient>')
-    d, b = symbol_paths(2.4 * s, (54 - 12 * 2.4) * s, (54 - 12 * 2.4) * s, grad_id="ic")
+    glow = ('<radialGradient id="gl" cx="0.5" cy="0.46" r="0.44"><stop offset="0" stop-color="#17A850" stop-opacity="0.50"/>'
+            '<stop offset="0.55" stop-color="#0B5A2A" stop-opacity="0.20"/><stop offset="1" stop-color="#0B5A2A" stop-opacity="0"/></radialGradient>'
+            '<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#050609"/><stop offset="1" stop-color="#08120F"/></linearGradient>')
+    d, b = symbol_paths(2.5 * s, 24 * s, 24 * s, grad_id="ic")
     body = f'<rect width="512" height="512" rx="112" fill="url(#sky)"/><rect width="512" height="512" rx="112" fill="url(#gl)"/>' + b
     save("aurora-app-icon-512.svg", svg(512, 512, body, glow + d))

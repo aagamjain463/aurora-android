@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.aurora.ui.components.glass
 import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
@@ -83,8 +84,7 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
                     .padding(horizontal = Space.M)
                     .padding(top = Space.M)
                     .fillMaxWidth()
-                    .clip(Radius.L)
-                    .background(if (on && connected) colors.accentSoft else colors.dawn.copy(alpha = if (colors.isDark) 0.09f else 0.14f))
+                    .glass(colors, Radius.L, tint = if (on && connected) colors.accent else colors.violet)
                     .padding(Space.M),
                 verticalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
@@ -126,7 +126,7 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
                 )
                 AuroraButton(stringResource(R.string.web_add), { add(domain, sites, vm, context) { e -> error = e; if (e == null) domain = "" } }, kind = ButtonKind.Secondary)
             }
-            error?.let { Text(it, Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS), color = colors.dawnText, style = AuroraType.Caption) }
+            error?.let { Text(it, Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS), color = colors.violetText, style = AuroraType.Caption) }
             WebHint(stringResource(R.string.web_hint))
             if (sites.isNotEmpty()) {
                 RowGroup(Modifier.padding(top = Space.M)) {

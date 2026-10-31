@@ -17,8 +17,15 @@ class CopyTest {
     @Test
     fun approvedStringsAreExact() {
         val approved = mapOf(
-            R.string.today_headline to "Make room for what matters.",
-            R.string.today_metric_label to "Time away from protected apps",
+            R.string.today_headline to "Your phone. Your rules.",
+            R.string.today_description to "Reclaim your time and own your attention.",
+            R.string.today_metric_label to "Time Reclaimed",
+            R.string.track_headline to "See your progress. Own your growth.",
+            R.string.home_ready_title to "Custom Sessions",
+            R.string.shield_library_headline to "Shield yourself from distractions.",
+            R.string.intent_tab_title to "Use with purpose. Not impulse.",
+            R.string.intent_step_pause_body to "Pause for a moment to decide if you actually want to use the app you opened.",
+            R.string.intent_step_use_body to "Use it intentionally for the time you actually want to.",
             R.string.protect_headline to "Never get distracted from what matters.",
             R.string.mode_flexible_desc to "Blocked until your timer ends, or you turn it off.",
             R.string.mode_friction_desc to "Complete a challenge before getting access.",
@@ -36,6 +43,7 @@ class CopyTest {
             val text = context.getString(f.getInt(null))
             assertFalse("${f.name}: $text", text.contains("Lockdown", ignoreCase = true))
             assertFalse("${f.name}: $text", text.contains("moment of awareness", ignoreCase = true))
+            assertFalse("${f.name}: $text", text.contains("configuration", ignoreCase = true))
         }
     }
 }

@@ -1,5 +1,8 @@
 package app.aurora.ui.library
 
+import app.aurora.ui.components.PageGlow
+import app.aurora.ui.components.glass
+import app.aurora.ui.components.pressable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +16,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -32,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -58,9 +64,11 @@ import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
+import androidx.compose.ui.graphics.graphicsLayer
+import app.aurora.ui.components.ContentMaxWidth
 
 /*
- * Pieces shared by the Shield, Intent, Home and Habit builders: a stepped flow, the complete app list,
+ * Pieces shared by the Shield, Intent, Home and Goal builders: a stepped flow, the complete app list,
  * the website list, and the preset card. Built only from the First Light components.
  */
 
@@ -81,19 +89,46 @@ fun StepFlow(
 ) {
     val colors = Aurora.colors
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding().imePadding()) {
+    Box(Modifier.fillMaxSize().background(colors.background), contentAlignment = Alignment.TopCenter) {
+    PageGlow()
+    Column(Modifier.widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = Space.XS, vertical = Space.XS), verticalAlignment = Alignment.CenterVertically) {
             AuroraIconButton(AuroraIcons.Back, stringResource(R.string.action_back), onBack)
-            Row(Modifier.weight(1f).padding(horizontal = Space.S), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                repeat(steps) { i -> Box(Modifier.weight(1f).height(4.dp).clip(Radius.Pill).background(if (i <= index) colors.accent else colors.hairline)) }
+            // The horizon fills step by step; the light marks where the person is.
+            Row(Modifier.weight(1f).padding(horizontal = Space.S).semantics(mergeDescendants = true) { contentDescription = "${index + 1}/$steps" }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                repeat(steps) { i ->
+                    val filled by androidx.compose.animation.core.animateFloatAsState(if (i <= index) 1f else 0f, app.aurora.ui.theme.auroraTween(app.aurora.ui.theme.Motion.Gentle), label = "step")
+                    Box(Modifier.weight(1f).height(8.dp), contentAlignment = Alignment.CenterStart) {
+                        Box(Modifier.fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.hairline))
+                        Box(Modifier.fillMaxWidth(filled).height(4.dp).clip(Radius.Pill).background(colors.accent))
+                        if (i == index) Box(Modifier.align(Alignment.CenterEnd).size(8.dp).graphicsLayer { alpha = filled; scaleX = filled; scaleY = filled }.clip(Radius.Pill).background(colors.light))
+                    }
+                }
             }
-            Box(Modifier.padding(end = Space.M)) { Text("${index + 1}/$steps", color = colors.textTertiary, style = AuroraType.Caption) }
+            Box(Modifier.size(Space.M))
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = Space.Gutter, vertical = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S), content = content)
+        // Each step starts at its top and settles in from the side it came from.
+        val reduced = Aurora.reducedMotion
+        var last by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(index) }
+        val from = if (index >= last) 1f else -1f
+        androidx.compose.runtime.SideEffect { last = index }
+        androidx.compose.runtime.key(index) {
+            val side = androidx.compose.runtime.remember { from }
+            val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
+            androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Gentle, easing = app.aurora.ui.theme.Motion.Ease)) }
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = shown.value; translationX = (1f - shown.value) * 72.dp.toPx() * side },
+                contentPadding = PaddingValues(horizontal = Space.Gutter, vertical = Space.M),
+                verticalArrangement = Arrangement.spacedBy(Space.S),
+                content = content,
+            )
+        }
         Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
             footer?.invoke(this)
             AuroraButton(primary, onPrimary, Modifier.fillMaxWidth(), enabled = primaryEnabled)
         }
+    }
+    app.aurora.ui.components.TopAurora()
     }
 }
 
@@ -101,7 +136,7 @@ fun StepFlow(
 fun LazyListScope.stepTitle(@androidx.annotation.StringRes title: Int, @androidx.annotation.StringRes body: Int?, vararg args: Any) {
     item(key = "step-title") {
         Column(Modifier.padding(bottom = Space.S), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-            Text(stringResource(title, *args), Modifier.semantics { heading() }, color = Aurora.colors.textPrimary, style = AuroraType.Headline)
+            Text(stringResource(title, *args), Modifier.semantics { heading() }, color = Aurora.colors.textPrimary, style = AuroraType.DisplayS)
             if (body != null) Text(stringResource(body), color = Aurora.colors.textSecondary, style = AuroraType.Body)
         }
     }
@@ -137,7 +172,7 @@ fun LazyListScope.appChecklist(
         val colors = Aurora.colors
         val state = stringResource(if (on) R.string.picker_selected else R.string.picker_not_selected)
         Row(
-            Modifier.fillMaxWidth().clip(Radius.M).background(if (on) colors.elevated else colors.background)
+            Modifier.fillMaxWidth().clip(Radius.M).then(if (on) Modifier.glass(colors, Radius.M, tint = colors.accent) else Modifier)
                 .clickable(role = Role.Checkbox) { onToggle(app.packageName) }
                 .semantics(mergeDescendants = true) { stateDescription = state }
                 .padding(horizontal = Space.XS, vertical = 8.dp),
@@ -187,18 +222,14 @@ fun LazyListScope.siteEditor(sites: List<String>, onChange: (List<String>) -> Un
     }
 }
 
-/** A tab's opening over First Light: the mark, an eyebrow, a confident line, one supporting sentence. */
+/** A tab's opening over First Light: the mark and one confident line. */
 @Composable
-fun TabHeader(eyebrow: String, title: String, body: String, onOpenSettings: (() -> Unit)?) {
+fun TabHeader(title: String, onOpenSettings: (() -> Unit)?) {
     val colors = Aurora.colors
     Column {
         AuroraHeader(onOpenSettings)
-        Spacer(Modifier.height(88.dp))
-        Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-            Text(eyebrow, color = colors.sun, style = AuroraType.Eyebrow)
-            Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-            Text(body, color = colors.textSecondary, style = AuroraType.Body)
-        }
+        Spacer(Modifier.height(64.dp))
+        Text(title, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.L).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
     }
 }
 
@@ -222,36 +253,57 @@ fun PresetCard(
 ) {
     val colors = Aurora.colors
     Column(
-        modifier.padding(horizontal = Space.M).fillMaxWidth().auroraSurface(colors, edge = edge).clickable(role = Role.Button, onClick = onEdit).padding(Space.L),
-        verticalArrangement = Arrangement.spacedBy(Space.S),
+        modifier.padding(horizontal = Space.M).fillMaxWidth().pressable(Radius.L, onClick = onEdit).auroraSurface(colors, edge = edge).padding(Space.L),
+        verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
             kind()
             Box(Modifier.weight(1f))
-            Text(
-                stringResource(if (running) R.string.preset_in_use else R.string.preset_saved),
-                Modifier.clip(Radius.Pill).background(if (running) colors.accentSoft else colors.elevated).padding(horizontal = 10.dp, vertical = 4.dp),
-                color = if (running) colors.accent else colors.textSecondary, style = AuroraType.Caption,
+            if (running) Text(
+                stringResource(R.string.preset_in_use),
+                Modifier.clip(Radius.Pill).background(colors.accentSoft).padding(horizontal = 10.dp, vertical = 4.dp),
+                color = colors.accent, style = AuroraType.Caption,
             )
+            // The card itself edits; the rarer actions wait behind one quiet control.
+            Box {
+                var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                AuroraIconButton(AuroraIcons.More, stringResource(R.string.preset_more, name), { open = true }, Modifier.size(40.dp))
+                androidx.compose.material3.DropdownMenu(
+                    open, { open = false },
+                    shape = Radius.M,
+                    containerColor = colors.elevated,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.hairline),
+                ) {
+                    MenuItem(stringResource(R.string.preset_edit), AuroraIcons.Edit) { open = false; onEdit() }
+                    MenuItem(stringResource(R.string.preset_duplicate), AuroraIcons.Copy) { open = false; onDuplicate() }
+                    MenuItem(stringResource(R.string.preset_delete), AuroraIcons.Trash, danger = true) { open = false; onDelete() }
+                }
+            }
         }
-        Text(name, color = colors.textPrimary, style = AuroraType.Headline)
+        Text(name, color = colors.textPrimary, style = AuroraType.Title)
         Text(detail, color = colors.textSecondary, style = AuroraType.Secondary)
         if (keys.isNotEmpty()) Box(Modifier.padding(start = 8.dp, top = 4.dp)) { IconStack(keys, data, max = 6) }
-        Row(Modifier.fillMaxWidth().padding(top = Space.XS), horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-            AuroraButton(stringResource(R.string.preset_edit), onEdit, Modifier.weight(1f), kind = ButtonKind.Secondary, compact = true)
-            AuroraButton(stringResource(R.string.preset_duplicate), onDuplicate, Modifier.weight(1f), kind = ButtonKind.Secondary, compact = true)
-            AuroraButton(stringResource(R.string.preset_delete), onDelete, Modifier.weight(1f), kind = ButtonKind.Quiet, compact = true)
-        }
     }
+}
+
+@Composable
+private fun MenuItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean = false, onClick: () -> Unit) {
+    val colors = Aurora.colors
+    val tint = if (danger) colors.danger else colors.textPrimary
+    androidx.compose.material3.DropdownMenuItem(
+        text = { Text(text, color = tint, style = AuroraType.Body) },
+        onClick = onClick,
+        leadingIcon = { androidx.compose.material3.Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp)) },
+        modifier = Modifier.widthIn(min = 180.dp),
+    )
 }
 
 /** A selectable row with the item's icon, for choosing presets and configurations. */
 @Composable
-fun PickRow(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, leading: (@Composable () -> Unit)? = null) {
+fun PickRow(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, leading: (@Composable () -> Unit)? = null, tag: (@Composable () -> Unit)? = null) {
     val colors = Aurora.colors
     Row(
-        modifier.fillMaxWidth().clip(Radius.L).background(if (selected) colors.elevated else colors.surface)
-            .border(if (selected) 2.dp else 1.dp, if (selected) colors.accent else colors.hairline, Radius.L)
+        modifier.fillMaxWidth().glass(colors, Radius.L, tint = if (selected) colors.accent else null)
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics(mergeDescendants = true) { this.selected = selected }
             .padding(Space.M),
@@ -260,8 +312,9 @@ fun PickRow(title: String, subtitle: String, selected: Boolean, onClick: () -> U
     ) {
         leading?.invoke()
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (tag != null) Box(Modifier.padding(bottom = Space.XS)) { tag() }
             Text(title, color = colors.textPrimary, style = AuroraType.Title)
-            Text(subtitle, color = colors.textSecondary, style = AuroraType.Secondary)
+            if (subtitle.isNotEmpty()) Text(subtitle, color = colors.textSecondary, style = AuroraType.Secondary)
         }
         SelectionMark(selected)
     }

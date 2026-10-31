@@ -30,6 +30,7 @@ import app.aurora.protect.Difficulty
 import app.aurora.protect.FrictionSettings
 import app.aurora.protect.FrictionTask
 import app.aurora.protect.Mode
+import app.aurora.protect.strict
 import app.aurora.protect.ShieldPreset
 import app.aurora.protect.WebPrefix
 import app.aurora.runsNow
@@ -47,9 +48,7 @@ import app.aurora.ui.components.ChoiceCard
 import app.aurora.ui.components.DurationPicker
 import app.aurora.ui.components.EmptyState
 import app.aurora.ui.components.IconBadge
-import app.aurora.ui.components.RowDivider
 import app.aurora.ui.components.RowGroup
-import app.aurora.ui.components.SectionLabel
 import app.aurora.ui.components.minutesText
 import app.aurora.ui.components.secondsText
 import app.aurora.ui.components.auroraSurface
@@ -71,7 +70,7 @@ val ShieldWaitPresets = listOf(1, 5, 15, 30, 60)
 
 /**
  * The Shield tab: the library of saved Shields. Creating, editing, duplicating and deleting happen here;
- * starting never does (Home is where configurations start).
+ * starting never does (Home is where sessions start).
  */
 @Composable
 fun ShieldLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenLimits: () -> Unit, onOpenWeb: () -> Unit, onOpenSettings: () -> Unit) {
@@ -83,17 +82,28 @@ fun ShieldLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenLi
         title = stringResource(R.string.tab_shield),
         tabBar = true,
         art = ArtTier.Balanced,
-        header = { TabHeader(stringResource(R.string.shield_tab_eyebrow), stringResource(R.string.protect_headline), stringResource(R.string.shield_tab_body), onOpenSettings) },
+        header = { TabHeader(stringResource(R.string.shield_library_headline), onOpenSettings) },
     ) {
         item(key = "create") {
-            AuroraButton(stringResource(R.string.shield_create), onCreate, Modifier.padding(horizontal = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
+            AuroraButton(stringResource(R.string.shield_create), onCreate, Modifier.padding(horizontal = Space.M).padding(bottom = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
+        }
+        // Web & content is a main feature: it stands out right under Create, with Daily limits below it.
+        item(key = "web") {
+            RowGroup(Modifier.padding(bottom = Space.XS), edge = Aurora.colors.accent) {
+                AuroraRow(stringResource(R.string.shield_web_row), subtitle = stringResource(R.string.shield_web_row_body), leading = { IconBadge(AuroraIcons.Globe) }, onClick = onOpenWeb, trailing = { Chevron() })
+            }
+        }
+        item(key = "limits") {
+            RowGroup(Modifier.padding(bottom = Space.M)) {
+                AuroraRow(stringResource(R.string.shield_limits_row), subtitle = stringResource(R.string.shield_limits_row_body), leading = { IconBadge(AuroraIcons.Hourglass) }, onClick = onOpenLimits, trailing = { Chevron() })
+            }
         }
         if (d == null) return@AuroraScreen
         val running = vm.app.runsNow(d.time).mapNotNull { it.shield?.id }.toSet()
         val shields = d.rules.shields.sortedByDescending { it.createdAt }
         if (shields.isEmpty()) item(key = "empty") {
             EmptyState(stringResource(R.string.shield_empty_title), stringResource(R.string.shield_empty_body), icon = AuroraIcons.Protect)
-        } else item(key = "label") { SectionLabel(stringResource(R.string.tab_shield)) }
+        }
         items(shields, key = { it.id }) { p ->
             val apps = p.keys.count { !it.startsWith(WebPrefix) }
             PresetCard(
@@ -105,14 +115,6 @@ fun ShieldLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenLi
                 edge = modeColor(p.mode),
             )
         }
-        item(key = "more") {
-            SectionLabel(stringResource(R.string.shield_more))
-            RowGroup {
-                AuroraRow(stringResource(R.string.shield_limits_row), subtitle = stringResource(R.string.shield_limits_row_body), leading = { IconBadge(AuroraIcons.Hourglass) }, onClick = onOpenLimits, trailing = { Chevron() })
-                RowDivider(72.dp)
-                AuroraRow(stringResource(R.string.shield_web_row), subtitle = stringResource(R.string.shield_web_row_body), leading = { IconBadge(AuroraIcons.Globe) }, onClick = onOpenWeb, trailing = { Chevron() })
-            }
-        }
     }
     deleting?.let { p -> DeletePresetDialog(vm, p.id, p.name) { deleting = null } }
 }
@@ -122,9 +124,10 @@ fun shieldDetail(p: ShieldPreset, apps: Int = p.keys.count { !it.startsWith(WebP
     val extra = when (p.mode) {
         Mode.Friction -> taskName(p.friction.task)
         Mode.Cooldown -> stringResource(R.string.start_review_cooldown, minutesText(p.cooldownWaitMinutes))
-        else -> modeDescription(p.mode)
+        // The mode's chip already names these; their meaning is spelled out where the mode is chosen.
+        else -> null
     }
-    return listOfNotNull(pluralStringResource(R.plurals.count_apps, apps, apps), (p.keys.size - apps).takeIf { it > 0 }?.let { pluralStringResource(R.plurals.count_sites, it, it) }).joinToString(" · ") + " · " + extra
+    return listOfNotNull(pluralStringResource(R.plurals.count_apps, apps, apps), (p.keys.size - apps).takeIf { it > 0 }?.let { pluralStringResource(R.plurals.count_sites, it, it) }, extra).joinToString(" · ")
 }
 
 /** Deleting asks first, and refuses (explaining why) while a configuration uses the preset. */
@@ -141,10 +144,10 @@ fun DeletePresetDialog(vm: ProtectModel, id: String, name: String, onDone: () ->
     }
 }
 
-private enum class ShieldStep { Name, Apps, Sites, Type, Settings, Review }
+private enum class ShieldStep { Name, Apps, Sites, Type, Review }
 
 /**
- * Create or edit a Shield: name, apps, websites, type, the type's settings, save. Saving never starts
+ * Create or edit a Shield: name, apps, websites, the type with its settings on the same step, save. Saving never starts
  * it. [onSaved] gets the preset's id, so a Home flow that sent the person here can select it.
  */
 @Composable
@@ -175,14 +178,13 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
     var query by rememberSaveable { mutableStateOf("") }
     var step by rememberSaveable { mutableStateOf(ShieldStep.entries[startStep]) }
 
-    val steps = ShieldStep.entries.filter { it != ShieldStep.Settings || mode == Mode.Friction || mode == Mode.Cooldown }
+    val steps = ShieldStep.entries
     val index = steps.indexOf(step).coerceAtLeast(0)
     val back = { if (index == 0) onBack() else step = steps[index - 1] }
     val canNext = when (step) {
         ShieldStep.Name -> name.isNotBlank()
         ShieldStep.Apps, ShieldStep.Sites -> true
-        ShieldStep.Type -> true
-        ShieldStep.Settings -> mode != Mode.Cooldown || wait != null
+        ShieldStep.Type -> mode != Mode.Cooldown || wait != null
         ShieldStep.Review -> keys.isNotEmpty() || sites.isNotEmpty()
     }
     val save = {
@@ -220,14 +222,14 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                 siteEditor(sites) { sites = it }
             }
             ShieldStep.Type -> {
-                stepTitle(R.string.shield_type_title, R.string.shield_type_body)
+                stepTitle(R.string.shield_type_title, null)
                 items(Mode.entries, key = { "mode-" + it.name }) { m -> ChoiceCard(modeName(m), modeDescription(m), mode == m, { mode = m }, swatch = modeColor(m)) }
-                if (mode == Mode.AlwaysBlock) item(key = "ab-note") {
-                    Text(stringResource(R.string.shield_always_block_note), Modifier.padding(top = Space.XS), color = colors.dawnText, style = AuroraType.Secondary)
+                if (mode.strict) item(key = "ab-note") {
+                    Text(stringResource(R.string.shield_always_block_note), Modifier.padding(top = Space.XS), color = colors.violetText, style = AuroraType.Secondary)
                 }
-            }
-            ShieldStep.Settings -> if (mode == Mode.Friction) {
-                stepTitle(R.string.start_friction_title, R.string.start_friction_body)
+                // The chosen type's settings follow on the same step.
+                if (mode == Mode.Friction) {
+                item(key = "friction-title") { SettingsTitle(stringResource(R.string.start_friction_title), stringResource(R.string.start_friction_body)) }
                 items(FrictionTask.entries, key = { "task-" + it.name }) { t -> ChoiceCard(taskName(t), taskDescription(t), task == t, { task = t }) }
                 if (task == FrictionTask.Math) item(key = "difficulty") {
                     Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
@@ -242,10 +244,11 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                     }
                 }
                 item(key = "access") { Text(stringResource(R.string.usage_hint), color = colors.textTertiary, style = AuroraType.Caption) }
-            } else {
-                stepTitle(R.string.duration_cooldown_prompt, R.string.duration_cooldown_hint)
+            } else if (mode == Mode.Cooldown) {
+                item(key = "wait-title") { SettingsTitle(stringResource(R.string.duration_cooldown_prompt), stringResource(R.string.duration_cooldown_hint)) }
                 item(key = "wait") { DurationPicker(wait, { wait = it }, ShieldWaitPresets, max = 12 * 60) }
-                item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.dawnText, style = AuroraType.BodyStrong) }
+                item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.violetText, style = AuroraType.BodyStrong) }
+            }
             }
             ShieldStep.Review -> {
                 stepTitle(R.string.cfg_review_title, R.string.shield_review_note)
@@ -260,6 +263,14 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsTitle(title: String, body: String) {
+    Column(Modifier.padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, color = Aurora.colors.textPrimary, style = AuroraType.Title)
+        Text(body, color = Aurora.colors.textSecondary, style = AuroraType.Secondary)
     }
 }
 

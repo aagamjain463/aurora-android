@@ -1,0 +1,5 @@
+# Baseline profile: ahead-of-time compiled at install by Play and profileinstaller.
+# Compose and AndroidX ship their own profiles. Aurora's code is small, so all of it is precompiled:
+# the first launch, Home, the tabs and the Shield stage run warm instead of through the interpreter.
+HSPLapp/aurora/**->**(**)**
+Lapp/aurora/**;

@@ -3,7 +3,8 @@ package app.aurora
 import app.aurora.plan.Plan
 import app.aurora.plan.alwaysBlockMinutesLeft
 import app.aurora.plan.reserveAlwaysBlock
-import app.aurora.progress.Habit
+import app.aurora.progress.Goal
+import app.aurora.progress.GoalKind
 import app.aurora.progress.ProtectionRecord
 import app.aurora.progress.record
 import app.aurora.protect.Activation
@@ -18,6 +19,7 @@ import app.aurora.protect.Session
 import app.aurora.protect.ShieldPreset
 import app.aurora.protect.Timing
 import app.aurora.protect.UsageConfig
+import app.aurora.protect.Rules
 import app.aurora.protect.attempted
 import app.aurora.protect.endedWindows
 import app.aurora.protect.entitledActivations
@@ -25,6 +27,7 @@ import app.aurora.protect.runFor
 import app.aurora.protect.intentOf
 import app.aurora.protect.key
 import app.aurora.protect.liveRuns
+import app.aurora.protect.lockedUntil
 import app.aurora.protect.migratedToConfigurations
 import app.aurora.protect.problem
 import app.aurora.protect.runsToMaterialize
@@ -37,7 +40,7 @@ import java.time.ZoneId
 import java.util.UUID
 
 /*
- * The things a person does with presets, configurations, activations and habits (docs/CONFIGURATIONS.md).
+ * The things a person does with presets, configurations, activations and goals (docs/CONFIGURATIONS.md).
  * Like Actions.kt: each change is one or two transactions, and callers handle IOException.
  */
 
@@ -71,6 +74,17 @@ suspend fun AuroraApplication.adoptOnboarding() {
             activations = merge(r.activations, made.activations) { it.id },
         )
     }
+}
+
+/**
+ * What Home can start in one tap: saved custom configurations, newest first, then saved Shields and Intents
+ * that no configuration uses yet. A preset starts as a one-off configuration (not saved), like Normal Use.
+ */
+fun Rules.readyToStart(max: Int = 3): List<UsageConfig> {
+    val used = configs.flatMap { listOfNotNull(it.shieldId, it.intentId) }.toSet()
+    val presets = shields.filter { it.id !in used && it.keys.isNotEmpty() }.map { UsageConfig("preset:${it.id}", it.name, custom = false, shield = it, createdAt = it.createdAt) } +
+        intentPresets.filter { it.id !in used && it.keys.isNotEmpty() }.map { UsageConfig("preset:${it.id}", it.name, custom = false, intent = it, createdAt = it.createdAt) }
+    return (configs.filter { it.custom }.sortedByDescending { it.createdAt } + presets.sortedByDescending { it.createdAt }).take(max)
 }
 
 /** The runs live right now (stored and not yet stored), for screens. */
@@ -117,22 +131,21 @@ suspend fun AuroraApplication.saveConfig(c: UsageConfig) {
 }
 
 /**
- * Deletes a configuration and its schedules. Linked habits are archived with their history, never erased,
- * and only when [archiveHabits] says the person chose that. Runs already going keep running: deleting
+ * Deletes a configuration and its schedules. Goals linked to it go with it, and only when [removeGoals]
+ * says the person chose that. Run history stays. Runs already going keep running: deleting
  * can't end a commitment early.
  */
-suspend fun AuroraApplication.deleteConfig(id: String, archiveHabits: Boolean): Boolean {
+suspend fun AuroraApplication.deleteConfig(id: String, removeGoals: Boolean): Boolean {
     syncRuns()
     var done = false
     rules.update { r ->
-        val linked = r.habits.filter { it.configId == id && !it.archived }
-        if (linked.isNotEmpty() && !archiveHabits) r
+        if (!removeGoals && r.trackGoals.any { it.configId == id }) r
         else {
             done = true
             r.copy(
                 configs = r.configs.filterNot { it.id == id },
                 activations = r.activations.filterNot { it.configId == id },
-                habits = r.habits.map { if (it.configId == id) it.copy(archived = true) else it },
+                trackGoals = r.trackGoals.filterNot { it.configId == id },
             )
         }
     }
@@ -230,6 +243,8 @@ suspend fun AuroraApplication.syncRuns() {
         }
         if (missed.isNotEmpty()) history.update { x -> missed.fold(x) { acc, run -> acc.withRun(recordOf(run, run.end ?: t.wall, turnedOff = false, x.service)) } }
     }
+    // No strict commitment running: the clock follows the system clock again (TrustedClock.kt).
+    policySnapshot(emptySet(), emptyMap())?.takeIf { it.lockedUntil(t.wall) == null }?.let { app.aurora.protect.TrustedClock.relax() }
     // A Later activation whose window is over is done; Normal Use configurations nothing uses are removed.
     val stale = r.activations.filter { a -> (a.timing as? Timing.Later)?.let { it.start + it.minutes * 60_000L <= t.wall } == true }
     if (stale.isNotEmpty()) rules.update { x ->
@@ -291,7 +306,7 @@ suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
 /** Pauses or resumes a schedule or an Always activation. Re-enabling Always starts a new occurrence from now. */
 suspend fun AuroraApplication.setActivationEnabled(id: String, enabled: Boolean) {
     syncRuns()
-    val now = System.currentTimeMillis()
+    val now = now().wall
     rules.update { r ->
         r.copy(activations = r.activations.map { a ->
             if (a.id != id) a else a.copy(enabled = enabled, createdAt = if (enabled && a.timing is Timing.Always) now else a.createdAt)
@@ -339,23 +354,51 @@ private var lastSeen = 0L
 
 /** Records that the Shield service is bound now (at most once a minute), or that it just unbound. */
 suspend fun AuroraApplication.serviceSeen(connected: Boolean, newSpan: Boolean = false) {
-    val now = System.currentTimeMillis()
+    val now = now().wall
     if (connected && !newSpan && now - lastSeen < 60_000L) return
     lastSeen = now
     history.update { it.serviceSeen(now, connected, newSpan) }
 }
 
-// ---- Habits ----------------------------------------------------------------------------------------
+// ---- Goals -----------------------------------------------------------------------------------------
 
-suspend fun AuroraApplication.saveHabit(h: Habit) {
-    rules.update { r -> r.copy(habits = r.habits.filterNot { it.id == h.id } + h) }
+suspend fun AuroraApplication.saveGoal(g: Goal) {
+    rules.update { r -> r.copy(trackGoals = r.trackGoals.filterNot { it.id == g.id } + g) }
 }
 
-suspend fun AuroraApplication.setHabitArchived(id: String, archived: Boolean) {
-    rules.update { r -> r.copy(habits = r.habits.map { if (it.id == id) it.copy(archived = archived) else it }) }
+suspend fun AuroraApplication.deleteGoal(id: String) {
+    rules.update { r -> r.copy(trackGoals = r.trackGoals.filterNot { it.id == id }) }
+    history.update { it.copy(goalUsage = it.goalUsage - id) }
 }
 
-/** Deletes an archived habit. Its configuration's run history stays (Track still counts it). */
-suspend fun AuroraApplication.deleteHabit(id: String) {
-    rules.update { r -> r.copy(habits = r.habits.filterNot { it.id == id && it.archived }) }
+/**
+ * Each limit goal's foreground time per ISO date. Finished days are stored while Android still holds them;
+ * a day it can't read stays unknown. [includeToday] adds today so far, which is never stored.
+ */
+suspend fun AuroraApplication.goalUsage(includeToday: Boolean): Map<String, Map<String, Long>> {
+    val goals = rules.value?.trackGoals.orEmpty().filter { it.kind == GoalKind.Limit }
+    val stored = history.value?.goalUsage.orEmpty()
+    if (goals.isEmpty()) return stored
+    val zone = java.time.ZoneId.systemDefault()
+    val today = java.time.LocalDate.now(zone)
+    val read = HashMap<java.time.LocalDate, Map<String, Long>?>()
+    suspend fun usageOn(date: java.time.LocalDate): Map<String, Long>? {
+        if (date !in read) read[date] = screenTime.day(date)
+        return read[date]
+    }
+    val finished = HashMap<String, Map<String, Long>>()
+    val all = goals.associate { g ->
+        val first = g.periodStart(g.createdOn(zone))
+        val known = stored[g.id].orEmpty()
+        val fresh = (app.aurora.data.UsageKeepDays.toLong() downTo 1).map(today::minusDays)
+            .filter { !it.isBefore(first) && it.toString() !in known }
+            .mapNotNull { date -> usageOn(date)?.let { date.toString() to g.usedIn(it) } }.toMap()
+        if (fresh.isNotEmpty()) finished[g.id] = fresh
+        val now = if (includeToday) usageOn(today)?.let { mapOf(today.toString() to g.usedIn(it)) }.orEmpty() else emptyMap()
+        g.id to known + fresh + now
+    }
+    if (finished.isNotEmpty()) history.update { h ->
+        h.copy(goalUsage = finished.entries.fold(h.goalUsage) { acc, (id, days) -> acc + (id to acc[id].orEmpty() + days) })
+    }
+    return all
 }

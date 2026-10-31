@@ -17,6 +17,7 @@ package app.aurora.protect
  * - [Cooldown]: a wait, then timed access. [Friction]: a task, then timed access.
  * - [IntentCooldown]: closed after intentional use, until its timer ends.
  * - [Intent]: a deliberate decision and a chosen amount of time.
+ * - [Locked]: Settings or a package installer while a strict commitment runs ([PolicyState.locked]).
  */
 enum class ShieldReason {
     AlwaysBlock,
@@ -27,11 +28,18 @@ enum class ShieldReason {
     Friction,
     IntentCooldown,
     Intent,
+    Locked,
     ;
 
     /** True when the Shield itself can lead to access (after a wait, a task or a decision). */
     val canContinue: Boolean get() = this == Cooldown || this == Friction || this == Intent
 }
+
+/**
+ * Always Block, Cooldown and Friction are strict: no early exit in aurora, and while one with an end runs,
+ * Settings and uninstalling are locked and the clock can't be moved under it. Only Flexible can be undone.
+ */
+val Mode.strict: Boolean get() = this != Mode.Flexible
 
 val Mode.reason: ShieldReason
     get() = when (this) {
@@ -57,6 +65,8 @@ data class Restriction(
     val sessionId: String? = null,
     val scheduleId: String? = null,
     val label: String = "",
+    /** A strict commitment: while it runs, [PolicyState.locked] is shielded too. */
+    val locks: Boolean = false,
 ) {
     fun covers(key: String, now: Long) = key in keys && now >= start && now < end
 }
@@ -119,7 +129,13 @@ data class PolicyState(
     val intentUses: Map<String, IntentUse> = emptyMap(),
     val intentCooldowns: Map<String, Long> = emptyMap(),
     val midnight: Long = Long.MAX_VALUE,
+    /** Settings and package installers: shielded while a strict commitment runs ([lockedUntil]), exempt otherwise. */
+    val locked: Set<String> = emptySet(),
 )
+
+/** When the strict commitments running at [now] end, or null when none is running. */
+fun PolicyState.lockedUntil(now: Long): Long? =
+    restrictions.filter { it.locks && now >= it.start && now < it.end }.maxOfOrNull { it.end }
 
 /** The strongest restriction over [key] at [now], or null. Limits count as a restriction from [ShieldReason.Limit]. */
 fun PolicyState.strongest(key: String, now: Long): Restriction? =
@@ -136,6 +152,8 @@ fun PolicyState.strongest(key: String, now: Long): Restriction? =
 fun decide(packageName: String?, now: Long, state: PolicyState?): Decision {
     if (packageName.isNullOrBlank()) return Decision.Invalid
     if (state == null) return Decision.Unavailable
+    // While a strict commitment runs, Settings and installers can't be used to undo it.
+    if (packageName in state.locked) state.lockedUntil(now)?.let { return Decision.Shield(packageName, ShieldReason.Locked, it) }
     if (packageName in state.exempt) return Decision.Exempt
 
     val top = state.strongest(packageName, now)
@@ -191,8 +209,9 @@ fun nextChange(key: String, now: Long, state: PolicyState): Long? {
 }
 
 /**
- * Never shielded: the system UI, Settings (so the service can always be turned off), permission
- * screens, package installers (so aurora can always be uninstalled), and phone and emergency flows.
+ * Never shielded by an app restriction: the system UI, Settings, permission screens, package installers,
+ * and phone and emergency flows. Settings and the installers are locked during a strict commitment
+ * ([PolicyState.locked]); calls and emergency flows never are.
  * The device's launchers, keyboard, default dialer and Settings app are added at runtime (Exemptions.kt).
  */
 val SystemExempt = setOf(

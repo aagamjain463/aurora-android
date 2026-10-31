@@ -1,17 +1,17 @@
 package app.aurora.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -25,22 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.tween
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.Motion
-import app.aurora.ui.theme.DarkColors
-import app.aurora.R
-
-/** Decorative art only. The separate Aurora Light below represents recorded progress. */
-@Composable
-fun AuroraLandscape(modifier: Modifier = Modifier) {
-    Box(modifier) {
-        Image(painterResource(R.drawable.first_light_cinematic), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-            0f to DarkColors.sky,
-            0.18f to DarkColors.sky.copy(alpha = 0.1f),
-            0.48f to Color.Transparent,
-            1f to DarkColors.sky,
-        )))
-    }
-}
 
 /**
  * Aurora Light, the signature visual: the curve of a horizon seen from above, its rim lit by the first
@@ -52,7 +36,7 @@ fun AuroraLandscape(modifier: Modifier = Modifier) {
  * - [warmth] 0..1 moves the light from aurora green toward dawn.
  *
  * With no progress it is a thin, cool rim and a point resting on it: a first day starts at first light.
- * It rises into place once when shown (instantly with reduced motion), then holds still.
+ * It rises into place once when shown, then its halo breathes (still with reduced motion).
  */
 @Composable
 fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth: Float = 0.45f, description: String? = null) {
@@ -60,6 +44,7 @@ fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth:
     val reduced = Aurora.reducedMotion
     val shown = remember { Animatable(if (reduced) 1f else 0f) }
     LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, tween(1800, easing = Motion.Ease)) }
+    val breath = if (reduced) null else rememberInfiniteTransition(label = "halo").animateFloat(0.8f, 1.3f, infiniteRepeatable(tween(Motion.Breath, easing = Motion.Ease), RepeatMode.Reverse), label = "halo")
     Canvas(modifier.semantics { if (description != null) contentDescription = description }) {
         val k = shown.value
         val g = (0.4f + 0.6f * glow.coerceIn(0f, 1f)) * k
@@ -75,7 +60,7 @@ fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth:
             val r = h * (0.55f + 0.45f * g)
             drawCircle(
                 Brush.radialGradient(
-                    0f to colors.glowWarm.copy(alpha = 0.34f * g * strength * (0.45f + 0.55f * warmth)),
+                    0f to colors.glowTop.copy(alpha = 0.34f * g * strength * (0.45f + 0.55f * warmth)),
                     0.35f to colors.glowCool.copy(alpha = 0.20f * g * strength),
                     1f to Color.Transparent,
                     center = Offset(w / 2f, rim),
@@ -93,7 +78,7 @@ fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth:
         val rimBrush = Brush.horizontalGradient(
             0f to Color.Transparent,
             0.22f to colors.glowCool.copy(alpha = 0.55f * strength),
-            0.5f to colors.glowWarm.copy(alpha = (0.6f + 0.4f * warmth).coerceAtMost(1f)),
+            0.5f to colors.glowTop.copy(alpha = (0.6f + 0.4f * warmth).coerceAtMost(1f)),
             0.78f to colors.glowCool.copy(alpha = 0.55f * strength),
             1f to Color.Transparent,
         )
@@ -107,8 +92,8 @@ fun AuroraLight(glow: Float, rise: Float, modifier: Modifier = Modifier, warmth:
         // The rising point: you.
         val lift = (rim - h * 0.14f) * (0.04f + 0.96f * rise.coerceIn(0f, 1f) * k)
         val point = Offset(w / 2f, rim - lift)
-        val halo = 34.dp.toPx()
-        drawCircle(Brush.radialGradient(listOf(colors.glowWarm.copy(alpha = 0.30f + 0.25f * g), colors.glowCool.copy(alpha = 0.10f), Color.Transparent), point, halo), halo, point)
+        val halo = 34.dp.toPx() * (breath?.value ?: 1f)
+        drawCircle(Brush.radialGradient(listOf(colors.glowTop.copy(alpha = 0.30f + 0.25f * g), colors.glowCool.copy(alpha = 0.10f), Color.Transparent), point, halo), halo, point)
         drawCircle(colors.light, 5.dp.toPx(), point)
     }
 }

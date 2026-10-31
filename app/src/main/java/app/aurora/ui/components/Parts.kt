@@ -58,14 +58,11 @@ fun <T> ChipFlow(
     FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
         options.forEach { option ->
             val on = option in selected
-            val bg by animateColorAsState(if (on) colors.accentSoft else colors.surface, auroraTween(), label = "chip")
             val fg by animateColorAsState(if (on) colors.accent else colors.textSecondary, auroraTween(), label = "chipText")
             Box(
                 Modifier
                     .heightIn(min = 44.dp)
-                    .clip(Radius.Pill)
-                    .background(bg)
-                    .border(1.dp, if (on) colors.accent.copy(alpha = 0.5f) else colors.hairline, Radius.Pill)
+                    .glass(colors, Radius.Pill, tint = if (on) colors.accent else null)
                     .toggleable(on, role = Role.Checkbox, onValueChange = { onToggle(option) })
                     .padding(horizontal = 16.dp)
                     .semantics { contentDescription = spokenLabel(option) },
@@ -106,10 +103,9 @@ fun Tag(text: String, modifier: Modifier = Modifier, accent: Boolean = false) {
     Text(
         text.lowercase(),
         modifier
-            .clip(Radius.Pill)
-            .background(if (accent) colors.accentSoft else colors.dawn.copy(alpha = 0.16f))
+            .glass(colors, Radius.Pill, tint = if (accent) colors.accent else colors.violet)
             .padding(horizontal = 8.dp, vertical = 2.dp),
-        color = if (accent) colors.accent else colors.dawnText,
+        color = if (accent) colors.accent else colors.violetText,
         style = AuroraType.Caption,
     )
 }
@@ -148,9 +144,9 @@ fun MetricGrid(cells: List<Pair<String?, String>>, modifier: Modifier = Modifier
 @Composable
 fun ProgressLine(fraction: Float, modifier: Modifier = Modifier, warm: Boolean = false) {
     val colors = Aurora.colors
-    val f by animateFloatAsState(fraction.coerceIn(0f, 1f), auroraTween(Motion.Gentle), label = "line")
+    val f by rememberFill(fraction.coerceIn(0f, 1f))
     Box(modifier.fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.hairline)) {
-        Box(Modifier.fillMaxWidth(f).height(4.dp).clip(Radius.Pill).background(if (warm) colors.dawn else colors.accent))
+        Box(Modifier.fillMaxWidth(f).height(4.dp).clip(Radius.Pill).background(if (warm) colors.violet else colors.accent))
     }
 }
 

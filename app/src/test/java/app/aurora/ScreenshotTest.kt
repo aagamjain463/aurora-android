@@ -28,10 +28,10 @@ import app.aurora.protect.ShieldRequest
 import app.aurora.ui.focus.FocusScreen
 import app.aurora.startFocus
 import app.aurora.ui.home.HomeScreen
-import app.aurora.ui.insights.InsightsScreen
 import app.aurora.ui.onboarding.OnboardingScreen
-import app.aurora.progress.Habit
-import app.aurora.progress.HabitTarget
+import app.aurora.progress.Goal
+import app.aurora.progress.GoalKind
+import app.aurora.progress.GoalPeriod
 import app.aurora.progress.ServiceSpan
 import app.aurora.progress.record
 import app.aurora.protect.Activation
@@ -50,8 +50,9 @@ import app.aurora.ui.library.ShieldEditorScreen
 import app.aurora.ui.library.ShieldLibraryScreen
 import app.aurora.ui.strict.FocusRunScreen
 import app.aurora.ui.strict.StrictModeScreen
-import app.aurora.ui.track.HabitEditorScreen
-import app.aurora.ui.track.HabitScreen
+import app.aurora.ui.track.GoalEditorScreen
+import app.aurora.ui.track.TrackScreen
+import app.aurora.ui.track.TrackTab
 import java.time.LocalDate
 import app.aurora.ui.settings.SettingsScreen
 import app.aurora.ui.theme.Aurora
@@ -69,6 +70,8 @@ import java.time.LocalTime
 import java.time.ZoneOffset
 import java.util.TimeZone
 import kotlinx.coroutines.runBlocking
+import app.aurora.progress.RunRecord
+import app.aurora.progress.Outcome
 
 /**
  * Every screen, and the Shield, in light, dark, 200% font scale and reduced motion, rendered on the JVM.
@@ -85,10 +88,9 @@ import kotlinx.coroutines.runBlocking
 class ScreenshotTest(private val variant: Variant) {
 
     enum class Variant(val dark: Boolean, val fontScale: Float, val reduceMotion: Boolean) {
-        Light(false, 1f, false),
         Dark(true, 1f, false),
-        LargeText(false, 2f, false),
-        ReducedMotion(false, 1f, true),
+        LargeText(true, 2f, false),
+        ReducedMotion(true, 1f, true),
     }
 
     @get:Rule
@@ -128,16 +130,23 @@ class ScreenshotTest(private val variant: Variant) {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, variant.fontScale)) {
-                AuroraTheme(darkTheme = variant.dark, reduceMotion = variant.reduceMotion) {
+                AuroraTheme(reduceMotion = variant.reduceMotion) {
                     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) { content() }
                 }
             }
         }
         if (screen == "track" || screen == "insights") compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("Habits").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Succeeded").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (screen == "track_goals") compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Create a Goal").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (screen == "track_usage") compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("since midnight", substring = true).fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithText("See where your time goes").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen.startsWith("shield_")) compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("Photos").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Photos", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onRoot().captureRoboImage("src/test/screenshots/${screen}_${variant.name}.png")
     }
@@ -146,10 +155,13 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun home() = capture("home") { HomeUnderTest() }
 
-    @Composable
-    private fun HomeUnderTest() = HomeScreen(onNormalUse = {}, onCustom = {}, onOpenFocus = {}, onOpenLegacyFocus = {}, onOpenTrack = {}, onOpenSettings = {})
+    /** Include the real dock and system insets, including at 200% font scale. */
+    @Test fun homeNavigation() = capture("home_navigation") { app.aurora.ui.AuroraNavHost(startOnboarded = true) }
 
-    @Test fun track() = capture("insights") { InsightsScreen() }
+    @Composable
+    private fun HomeUnderTest() = HomeScreen(onNormalUse = {}, onCustom = {}, onOpenFocus = {}, onOpenLegacyFocus = {}, onOpenSettings = {})
+
+    @Test fun track() = capture("insights") { TrackScreen() }
 
     @Test fun settings() = capture("settings") { SettingsScreen(onBack = {}, onReplayIntro = {}) }
 
@@ -171,10 +183,10 @@ class ScreenshotTest(private val variant: Variant) {
     private val social = ShieldPreset("s1", "Social Media Shield", listOf("com.example.photos", "web:reddit.com"), Mode.Cooldown, cooldownWaitMinutes = 1, createdAt = 2)
     private val strict = ShieldPreset("s2", "Night Shield", listOf("com.example.photos"), Mode.AlwaysBlock, createdAt = 1)
     private val video = IntentPreset("i1", "Intentional YouTube", listOf("com.example.photos"), IntentConfig(reflectionSeconds = 15, expiry = IntentExpiry.Cooldown, cooldownMinutes = 45), createdAt = 1)
-    private val study = UsageConfig("c1", "Study Configuration", shieldId = "s1", intentId = "i1", focus = FocusPlan("Study mathematics", goal = "Finish chapter 4"), createdAt = 1)
+    private val study = UsageConfig("c1", "Study Session", shieldId = "s1", intentId = "i1", focus = FocusPlan("Study mathematics", goal = "Finish chapter 4"), createdAt = 1)
     private val night = UsageConfig("c2", "Night", shieldId = "s2", createdAt = 2)
 
-    /** A library, a weekday schedule, a habit with two weeks of evidence, and one run going now. */
+    /** A library, a weekday schedule, goals with two weeks of evidence, and one run going now. */
     private fun library(running: Boolean = false) = runBlocking {
         val now = System.currentTimeMillis()
         val day = 86_400_000L
@@ -182,17 +194,21 @@ class ScreenshotTest(private val variant: Variant) {
             it.copy(
                 version = 1, shields = listOf(social, strict), intentPresets = listOf(video), configs = listOf(study, night),
                 activations = listOf(Activation("a1", "c2", Timing.Recurring(setOf(1, 2, 3, 4, 5), 22 * 60, 8 * 60), createdAt = 0)),
-                habits = listOf(Habit("h1", "Daily Study", "c1", "Study Configuration", listOf(HabitTarget(LocalDate.now().minusDays(20).toString(), days = (1..7).toSet())), createdAt = now - 20 * day)),
+                trackGoals = listOf(
+                    Goal("g1", "Daily Study", GoalKind.Session, GoalPeriod.Daily, 180, configId = "c1", createdAt = now - 20 * day),
+                    Goal("g2", "Less Instagram", GoalKind.Limit, GoalPeriod.Daily, 45, apps = setOf("com.example.photos"), createdAt = now - 20 * day),
+                    Goal("g3", "Study sessions", GoalKind.Session, GoalPeriod.Weekly, sessions = 3, configId = "c1", createdAt = now - 20 * day),
+                ),
             )
         }
         val spans = listOf(ServiceSpan(now - 30 * day, now))
         val records = (1L..14L).filter { it % 5 != 0L }.map { back ->
             val start = now - back * day
-            record("r$back", "c1", "Study Configuration", true, "Social Media Shield", Mode.Cooldown, "Intentional YouTube", setOf("com.example.photos"), start, start + 7_200_000, start + 7_200_000, spans, false, null, 0, null, 0)
+            record("r$back", "c1", "Study Session", true, "Social Media Shield", Mode.Cooldown, "Intentional YouTube", setOf("com.example.photos"), start, start + 7_200_000, start + 7_200_000, spans, false, null, 0, null, 0)
         }
         application.history.update { it.copy(runs = records, service = spans) }
         if (running) application.runtime.update {
-            it.copy(runs = listOf(ConfigRun("now:x", "c1", "Study Configuration", shield = social, intent = video, focus = study.focus, start = now - 3_600_000, end = now + 18_000_000)))
+            it.copy(runs = listOf(ConfigRun("now:x", "c1", "Study Session", shield = social, intent = video, focus = study.focus, start = now - 3_600_000, end = now + 18_000_000)))
         }
     }
 
@@ -200,6 +216,13 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun homeActive() {
         library(running = true)
         capture("home_active") { HomeUnderTest() }
+    }
+
+    /** Saved sessions, nothing running: Home offers them one tap from starting. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun homeReady() {
+        library()
+        capture("home_ready") { HomeUnderTest() }
     }
 
     @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
@@ -237,17 +260,17 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun startNow() {
         library()
-        capture("configure_now") { Configure(custom = true, config = "c1", step = "Timing", timing = When.Now) }
+        capture("configure_now") { Configure(custom = true, config = "c1", step = "When", timing = When.Now) }
     }
 
     @Test fun startLater() {
         library()
-        capture("configure_later") { Configure(custom = true, config = "c1", step = "Timing", timing = When.Later) }
+        capture("configure_later") { Configure(custom = true, config = "c1", step = "When", timing = When.Later) }
     }
 
     @Test fun schedule() {
         library()
-        capture("configure_schedule") { Configure(custom = true, config = "c1", step = "Timing", timing = When.Recurring) }
+        capture("configure_schedule") { Configure(custom = true, config = "c1", step = "When", timing = When.Recurring) }
     }
 
     /** Always is shown but not offered with an Always Block Shield. */
@@ -261,21 +284,27 @@ class ScreenshotTest(private val variant: Variant) {
         capture("configure_commit") { Configure(custom = true, config = "c2", step = "Review", timing = When.Now) }
     }
 
-    @Test fun habitCreation() {
+    @Test fun goalTrackStep() {
         library()
-        capture("habit_create") { HabitEditorScreen(null, "c1", {}, {}, {}, startStep = 2) }
+        capture("goal_track") { GoalEditorScreen("c1", {}, {}, {}, startStep = "Track", startKind = GoalKind.Session) }
     }
 
     @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
-    @Test fun habitDetail() {
+    @Test fun trackProgress() {
         library()
-        capture("habit_detail") { HabitScreen("h1", {}, {}) }
+        capture("track") { TrackScreen() }
     }
 
     @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
-    @Test fun trackHabits() {
+    @Test fun trackGoals() {
         library()
-        capture("track") { InsightsScreen() }
+        capture("track_goals") { TrackScreen(start = TrackTab.Goals) }
+    }
+
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun trackUsage() {
+        library()
+        capture("track_usage") { TrackScreen(start = TrackTab.Usage) }
     }
 
     @Test fun strictMode() = capture("strict") { StrictModeScreen {} }
@@ -305,6 +334,18 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun shieldFriction() = capture("shield_friction") { ShieldContent(shield(ShieldReason.Friction)) { } }
 
     @Test fun shieldIntent() = capture("shield_intent") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
+
+    @Test fun plus() = capture("plus") { app.aurora.ui.plus.PlusScreen(onBack = {}) }
+
+    /** A run that just succeeded: Home opens on its finish. */
+    @Test fun homeFinished() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        val now = System.currentTimeMillis()
+        runBlocking {
+            app.history.update { it.copy(runs = listOf(RunRecord("f1", "c1", "Study Session", start = now - 7_800_000, plannedEnd = now - 600_000, end = now - 600_000, verifiedMs = 7_200_000, protection = Outcome.Succeeded))) }
+        }
+        capture("home_finished") { HomeUnderTest() }
+    }
 
     companion object {
         @JvmStatic

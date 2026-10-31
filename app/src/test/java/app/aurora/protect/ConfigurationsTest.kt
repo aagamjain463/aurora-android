@@ -118,7 +118,14 @@ class ConfigurationsTest {
         val p = policy(rules, Runtime(runs = listOf(weak, committed), access = mapOf("com.instagram.android" to Grant(now + 30 * min, Mode.Friction))), now + min)
         assertEquals(ShieldReason.AlwaysBlock, (decide("com.instagram.android", now + min, p) as Decision.Shield).reason)
         assertTrue(!committed.cancellable(t(now + min)))
-        assertTrue(weak.cancellable(t(now + min)))
+        // Friction and Cooldown are strict too: only Flexible can be turned off, and an Always run stays cancellable.
+        assertTrue(!weak.cancellable(t(now + min)))
+        assertTrue(weak.copy(shield = social.copy(mode = Mode.Flexible)).cancellable(t(now + min)))
+        assertTrue(weak.copy(end = null).cancellable(t(now + min)))
+        assertTrue(committed.restrictions(t(now + min)).single().locks)
+        assertTrue(weak.copy(shield = social.copy(mode = Mode.Flexible)).restrictions(t(now + min)).none { it.locks })
+        val cooling = rules.copy(shields = rules.shields + social.copy(id = "cd", mode = Mode.Cooldown))
+        assertEquals(ActivationProblem.AlwaysWithAlwaysBlock, cooling.problem(UsageConfig("w", "W", shieldId = "cd"), Timing.Always, Plan.Plus, emptyList(), now))
     }
 
     /** Free: committed only for the allowance, then the same window is Flexible and can be turned off. */
