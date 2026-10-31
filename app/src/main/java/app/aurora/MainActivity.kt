@@ -3,8 +3,10 @@ package app.aurora
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.os.SystemClock
-import android.view.animation.PathInterpolator
+import android.view.ViewTreeObserver
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -13,55 +15,60 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.ui.AuroraNavHost
 import app.aurora.ui.components.AuroraUnveil
 import app.aurora.ui.components.Opening
+import app.aurora.ui.components.opensWithFirstLight
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraTheme
-import app.aurora.ui.theme.DarkColors
+import app.aurora.ui.theme.systemAnimationsOff
+import kotlinx.coroutines.flow.first
 
-private const val ReopenAfterMs = 5 * 60 * 1000L
+/** When the person last left, in this process. A new activity in a process Shield kept alive is still a return. */
+private var lastSeenAt = 0L
 
 class MainActivity : ComponentActivity() {
-    private var stoppedAt = 0L
+    private var ready = false
 
     override fun onResume() {
         super.onResume()
         SessionNotification.nudge()
     }
 
-    override fun onStart() {
-        super.onStart()
-        // Back after a real absence is an opening too; hopping out to a permission page is not.
-        if (stoppedAt > 0L && SystemClock.elapsedRealtime() - stoppedAt > ReopenAfterMs) Opening.play(fadeIn = true)
-    }
-
     override fun onStop() {
         super.onStop()
-        stoppedAt = SystemClock.elapsedRealtime()
+        lastSeenAt = SystemClock.elapsedRealtime()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // The approved symbol holds a moment on its midnight green, then fades, and only then does the opening start.
-            splashScreen.setOnExitAnimationListener { splash ->
-                val drawn = splash.iconAnimationStart?.plus(splash.iconAnimationDuration)
-                val left = if (drawn == null) 0L else java.time.Duration.between(java.time.Instant.now(), drawn).toMillis().coerceAtLeast(0L)
-                splash.animate().alpha(0f).setStartDelay(left + LogoHoldMs).setDuration(240).setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f)).withEndAction { splash.remove(); Opening.splashLeft() }.start()
+        // The splash started with the process, or with this activity if Shield had the process running already.
+        val created = SystemClock.elapsedRealtime()
+        val forked = Process.getStartElapsedRealtime()
+        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && created - forked < ColdStartMs) forked else created
+        // Nothing to draw until the preferences say which screen it is: the splash keeps running over that moment.
+        window.decorView.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val go = ready || SystemClock.elapsedRealtime() - created > ReadyWaitMs
+                if (go) window.decorView.viewTreeObserver.removeOnPreDrawListener(this)
+                return go
             }
-        }
-        // A recreated activity (the theme settling, a rotation) restarts an opening that was still playing.
-        if (savedInstanceState == null || Opening.playing) Opening.play()
-        // Recreated, there is no splash coming: the opening must not sit on black waiting for one.
-        if (savedInstanceState != null) Opening.splashLeft()
-        val preferences = (application as AuroraApplication).preferences
+        })
+        val away = if (lastSeenAt == 0L) null else SystemClock.elapsedRealtime() - lastSeenAt
+        val exploring = getSystemService(AccessibilityManager::class.java)?.isTouchExplorationEnabled == true
+        if (opensWithFirstLight(savedInstanceState != null, away, exploring)) Opening.play(started) else Opening.finish()
+        val aurora = application as AuroraApplication
+        val preferences = aurora.preferences
 
         setContent {
             val prefs by preferences.preferences.collectAsStateWithLifecycle(initialValue = null)
@@ -71,20 +78,35 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(style, style)
                 onDispose { }
             }
+            val still = current?.reduceMotion == true || systemAnimationsOff(this)
+            LaunchedEffect(still) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) splashScreen.setSplashScreenTheme(if (still) R.style.Theme_Aurora_StillSplash else 0)
+            }
             AuroraTheme(reduceMotion = current?.reduceMotion == true) {
                 if (current == null) {
                     // DataStore answers within a frame or two; hold the window colour until it does.
-                    if (Opening.playing) Box(Modifier.fillMaxSize().background(DarkColors.sky))
+                    if (Opening.playing) Box(Modifier.fillMaxSize().background(colorResource(R.color.aurora_splash)))
                     else app.aurora.ui.components.LoadingSurface()
                 } else {
                     val startOnboarded = remember { current.onboarded }
-                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (Opening.pageHidden) 0f else 1f }) { AuroraNavHost(startOnboarded) }
-                    if (Opening.playing) AuroraUnveil(interactive = !startOnboarded)
+                    SideEffect { ready = true }
+                    // Coming back to a running session isn't an arrival. Once the rules are read, cut it short.
+                    LaunchedEffect(Unit) {
+                        aurora.rules.state.first { it != null }
+                        aurora.runtime.state.first { it != null }
+                        if (Opening.playing && SessionNotification.running(aurora)) Opening.brief = true
+                    }
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        alpha = if (Opening.pageHidden) 0f else 1f
+                        translationY = Opening.lift * PageRiseDp.dp.toPx()
+                    }) { AuroraNavHost(startOnboarded) }
+                    if (Opening.playing) AuroraUnveil()
                 }
             }
         }
     }
 }
 
-/** How long the symbol holds on the splash before it fades. */
-private const val LogoHoldMs = 500L
+private const val ColdStartMs = 5000L
+private const val ReadyWaitMs = 1000L
+private const val PageRiseDp = 18

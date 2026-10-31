@@ -78,6 +78,10 @@
         "$type": "color",
         "$value": "#7FB8E6"
       },
+      "gold-400": {
+        "$type": "color",
+        "$value": "#F2C46D"
+      },
       "starlight": {
         "$type": "color",
         "$value": "#F4FFF0"

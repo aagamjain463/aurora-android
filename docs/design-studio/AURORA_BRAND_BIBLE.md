@@ -130,7 +130,7 @@ The brand continues where people meet it without opening Aurora, always quiet an
 - **Widget** (`AuroraWidget`): night surface, the small-size symbol (`ic_mark`), gold eyebrow, Cormorant title. Idle it carries the
   promise; running it names the session and counts down.
 - **Quick Settings tile** (`AuroraTile`): lit while protection runs, naming it.
-- **Splash**: the approved symbol still on midnight green (`splash_symbol`), then the opening with the full logo.
+- **Splash and opening (First Light)**: the approved symbol forms along its own ribbons on midnight green (`splash_first_light`, the same reveal as `AuroraUnveil`), the wordmark follows, and the night fades off the page as it rises. About 1.5 seconds on a real arrival only; never on a return, during a session, or over a screen reader. Assets: `brand/tools/first_light.py`.
 - **The opening** (`AuroraUnveil`): see section 8.
 - **Store art**: `brand/tools/store.sh` frames the verified dark baselines; the feature graphic is the
   lockup and the promise over First Light.

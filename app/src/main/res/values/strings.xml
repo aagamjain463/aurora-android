@@ -520,7 +520,6 @@
     <string name="usage_records_unavailable_title">Usage records aren\'t available</string>
     <string name="usage_records_unavailable_body">Android couldn\'t provide usage records right now. Try again later.</string>
     <!-- Four pillars: Home (activate), Shield (create), Intent (configure), Track (improve) -->
-    <string name="opening_hint">Swipe up to unravel</string>
     <string name="tab_home">Home</string>
     <string name="tab_shield">Shield</string>
     <string name="tab_intent">Intent</string>

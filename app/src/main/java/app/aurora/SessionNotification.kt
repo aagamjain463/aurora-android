@@ -31,6 +31,12 @@ object SessionNotification {
 
     fun nudge() = resumed.update { it + 1 }
 
+    /** A session with an end, or Focus, is running. An Always configuration doesn't count: it is ambient. */
+    fun running(app: AuroraApplication): Boolean {
+        val t = app.now()
+        return app.runsNow(t).any { it.endAt(t) != null } || app.runtime.value?.focus?.isOver(t) == false
+    }
+
     fun start(app: AuroraApplication) {
         val manager = app.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(

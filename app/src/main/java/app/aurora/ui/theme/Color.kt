@@ -38,6 +38,9 @@ object Palette {
     val Rose300 = Color(0xFFF58BD0)
     val Mint100 = Color(0xFFDDF9D4)
 
+    // Gold: the warm end of the logo's ribbon. Only in the opening's halo.
+    val Gold400 = Color(0xFFF2C46D)
+
     // Glacier: the Cooldown mode, cool and patient.
     val Glacier400 = Color(0xFF7FB8E6)
 
