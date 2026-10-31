@@ -50,6 +50,9 @@ object Opening {
     /** The night is opaque and animating: skip drawing the page under it, so all the GPU goes to the light. */
     var pageHidden by mutableStateOf(false)
         private set
+    /** The page is drawing under the night for the first time, so its art and shaders are ready before they're wanted. */
+    var warming by mutableStateOf(false)
+        private set
 
     /** The opening's curtains are going: the page's own sky can take over without both costing the GPU at once. */
     var leaving by mutableStateOf(false)
@@ -60,11 +63,12 @@ object Opening {
 
     /** Back to a running session: no formation, just the finished logo fading off the page. */
     var brief by mutableStateOf(false)
-    fun play() { brief = false; playing = true; covering = true; pageHidden = false; leaving = false; lift = 1f }
-    fun hidePage() { pageHidden = true }
-    fun part() { covering = false; pageHidden = false }
+    fun play() { brief = false; playing = true; covering = true; pageHidden = false; warming = true; leaving = false; lift = 1f }
+    fun hidePage() { warming = false; pageHidden = true }
+    fun showPage() { pageHidden = false }
+    fun part() { covering = false; pageHidden = false; warming = false }
     fun leave() { leaving = true }
-    fun finish() { covering = false; pageHidden = false; leaving = false; lift = 0f; playing = false }
+    fun finish() { covering = false; pageHidden = false; warming = false; leaving = false; lift = 0f; playing = false }
     suspend fun awaitParted() { snapshotFlow { covering }.first { !it } }
     suspend fun awaitSkyTurn() { snapshotFlow { !playing || leaving }.first { it } }
 }
@@ -97,17 +101,32 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         if (reduced) Opening.lift = 0f
         var last = withFrameNanos { it }
-        var frames = 0
+        // Nothing has been seen yet. The clock waits for the page's heavy first frames, so the light never starts on a stutter.
+        if (!reduced) {
+            val first = last
+            var calm = 0
+            while (calm < CalmFrames && last - first < SettleMaxNs) {
+                val now = withFrameNanos { it }
+                calm = if (now - last < CalmFrameNs) calm + 1 else 0
+                last = now
+            }
+            Opening.hidePage()
+        }
+        val began = last
+        var shown = false
         var parted = false
         while (p < 1f) {
             withFrameNanos { now ->
-                p = stepOpening(p, (now - last) / 1e9f, pace)
+                // A dropped frame slows the light for a moment instead of making it jump. Past that, a device that
+                // can't keep up runs on real time, so the opening can never hold anyone up for long.
+                val real = (now - last) / 1e9f
+                val dt = if (now - began < TotalMs * 1_400_000L) real.coerceAtMost(MaxStep) else real
+                p = stepOpening(p, dt, pace)
                 last = now
             }
             if (Opening.brief && p < PartAt) { p = PartAt; pace = ReducedMs }
-            // The page has drawn under the night by now, so its art is uploaded before it's wanted.
-            if (++frames == PageReadyFrames && p < PartAt) Opening.hidePage()
-            if (!parted && p >= PartAt) { parted = true; Opening.part() }
+            if (!shown && p >= ShowAt) { shown = true; Opening.showPage() }
+            if (!parted && p >= ContentAt) { parted = true; Opening.part() }
             if (p >= LeaveAt) Opening.leave()
             if (!reduced) Opening.lift = 1f - leaving(p)
         }
@@ -191,15 +210,22 @@ private fun rememberReveal(logo: ImageBitmap): Reveal {
 private fun linear(image: ImageBitmap) =
     BitmapShader(image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { filterMode = BitmapShader.FILTER_MODE_LINEAR }
 
-private const val TotalMs = 4500
-private const val FormMs = 3000
+private const val TotalMs = 5500
+private const val FormMs = 3800
 private const val HurryMs = 350
-private const val ReducedMs = 1000
-private const val PageReadyFrames = 3
+private const val ReducedMs = 1100
+private const val MaxStep = 1f / 30f
+private const val CalmFrames = 4
+private const val CalmFrameNs = 24_000_000L
+private const val SettleMaxNs = 700_000_000L
+/** The page draws again under the opaque night, while the logo is still, so that frame's cost is never seen. */
+private const val ShowAt = 4250f / TotalMs
 /** The finished logo has held for its moment: the night starts to fade and the page rises. */
-private const val PartAt = 3700f / TotalMs
-/** The sky over the page can start to rise. */
-private const val LeaveAt = 3800f / TotalMs
+private const val PartAt = 4600f / TotalMs
+/** The night is nearly gone: Home's content can start its own entrance. Together they drop frames on a mid-range phone. */
+private const val ContentAt = 5300f / TotalMs
+/** The night has gone: the sky over the page can start to rise. */
+private const val LeaveAt = 5450f / TotalMs
 private const val RiseDp = 14f
 private const val HaloDp = 230f
 private const val ReopenAfterMs = 5 * 60 * 1000L

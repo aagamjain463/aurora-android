@@ -39,6 +39,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import app.aurora.R
+import kotlinx.coroutines.delay
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraColors
 import app.aurora.ui.theme.Motion
@@ -99,10 +100,10 @@ private fun SkyCanvas(sky: Sky, glow: Float, mask: ImageBitmap, alignment: BiasA
     // The sky lights as the app opens, like the art's first light. Once: after that every screen is simply still lit.
     var woken by SkyClock.woken
     val shown = remember { Animatable(if (reduced || woken) 1f else 0f) }
-    LaunchedEffect(Unit) { if (!reduced && !woken) { Opening.awaitSkyTurn(); shown.animateTo(1f, tween(Motion.Reveal * 2, easing = Motion.Ease)) } }
+    LaunchedEffect(Unit) { if (!reduced && !woken) { Opening.awaitSkyTurn(); delay(SkyAfterContentMs); shown.animateTo(1f, tween(Motion.Reveal * 2, easing = Motion.Ease)) } }
     val surge = remember { Animatable(0f) }
     // Waking: the ribbon brightens and hurry as the screen opens, then slow to their pace.
-    LaunchedEffect(Unit) { if (!reduced && !woken) { woken = true; Opening.awaitSkyTurn(); surge.snapTo(0.12f); surge.animateTo(0f, tween(2600, easing = Motion.Ease)) } }
+    LaunchedEffect(Unit) { if (!reduced && !woken) { woken = true; Opening.awaitSkyTurn(); delay(SkyAfterContentMs); surge.snapTo(0.12f); surge.animateTo(0f, tween(2600, easing = Motion.Ease)) } }
     LaunchedEffect(sky == Sky.Flare, reduced) {
         if (reduced) surge.snapTo(0f)
         else if (sky == Sky.Flare) {
@@ -123,8 +124,8 @@ private fun SkyCanvas(sky: Sky, glow: Float, mask: ImageBitmap, alignment: BiasA
     val colors = Aurora.colors
     Box(modifier.clearAndSetSemantics { }) { Canvas(Modifier.softLight()) {
         val k = (strength + 0.6f * surge.value) * shown.value
-        // Under the opening it still draws, faintly, so the shader compiles now and not as the night parts.
-        if (k <= 0.005f && !Opening.covering) return@Canvas
+        // While the page warms up under the opening it still draws, faintly, so the shader compiles now and not as the night parts.
+        if (k <= 0.005f && !Opening.warming) return@Canvas
         // The art is drawn with ContentScale.Crop at [alignment]; place the mask and the light the same way.
         val scale = maxOf(size.width / ArtWidth, size.height / ArtHeight)
         val w = ArtWidth * scale
@@ -148,6 +149,9 @@ private fun SkyCanvas(sky: Sky, glow: Float, mask: ImageBitmap, alignment: BiasA
  * Soft light drawn at half resolution, scaled up from its own layer. Curtains this soft look the same at a
  * quarter of the pixels, and the layer only redraws when the light moves, not every time the page does.
  */
+/** The sky rises once the page's content has arrived. Together they drop frames on a mid-range phone. */
+private const val SkyAfterContentMs = 900L
+
 internal fun Modifier.softLight(): Modifier = fillMaxSize(0.5f).graphicsLayer {
     scaleX = 2f
     scaleY = 2f
