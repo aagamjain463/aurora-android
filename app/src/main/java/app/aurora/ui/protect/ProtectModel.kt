@@ -50,6 +50,16 @@ data class ProtectData(
     val labels: Map<String, String> = emptyMap(),
     val history: History = History(),
 ) {
+    /** What "Start blocking" repeats: the last session's apps and mode, else the newest Shield, else the apps chosen at setup. */
+    val lastUsed: Pair<List<String>, Mode> get() {
+        val run = history.runs.lastOrNull { it.shieldMode != null && it.keys.isNotEmpty() }
+        val shield = rules.shields.filter { it.keys.isNotEmpty() }.maxByOrNull { it.createdAt }
+        return when {
+            run != null -> run.keys.toList() to run.shieldMode!!
+            shield != null -> shield.keys to shield.mode
+            else -> activeKeys.toList() to rules.defaultRule.mode
+        }
+    }
     val active: List<ProtectedItem> get() = list.active(plan)
     val paused: List<ProtectedItem> get() = list.paused(plan)
     val activeKeys: Set<String> get() = active.map { it.key }.toSet()

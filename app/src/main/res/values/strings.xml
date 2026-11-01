@@ -299,18 +299,15 @@
     <string name="onb_pillar_track_body">Real progress, measured on this phone.</string>
     <string name="onb_welcome_body">Aurora helps you choose when to open the apps that pull you away, and protects the time you want back.</string>
     <string name="onb_apps_eyebrow">What pulls you away</string>
-    <string name="onb_apps_title">Choose your apps.</string>
-    <string name="onb_apps_body">Every app on your phone is here. Choosing one saves it; nothing is blocked until you start protection.</string>
+    <string name="onb_apps_title">Pick 3 apps.</string>
+    <string name="onb_apps_body">The ones that pull you away most. Nothing is blocked until you start.</string>
     <string name="onb_shield_eyebrow">Shield</string>
     <string name="onb_shield_title">Turn on Shield.</string>
     <string name="onb_shield_body">Shield is what blocks apps. It needs Android\'s accessibility permission, which only you can turn on.</string>
     <string name="onb_shield_permission">Accessibility permission</string>
     <string name="onb_shield_running">Shield running</string>
     <string name="onb_shield_privacy">Shield reads only the name of the app in front. Nothing leaves your phone.</string>
-    <string name="onb_keep_body">Usage access lets Aurora measure your time reclaimed and daily limits.</string>
-    <string name="onb_keep_usage">Usage access</string>
     <string name="onb_keep_xiaomi">Your phone can stop apps in the background, and Shield with them. Turn on Autostart for Aurora, set its battery saver to No restrictions, and lock Aurora in Recents.</string>
-    <string name="onb_keep_other">Some phones stop apps in the background. If Shield ever stops, Aurora shows it on Home.</string>
     <string name="onb_first_light_eyebrow">Northern lights</string>
     <string name="onb_first_light_title">You\'re ready.</string>
     <string name="onb_first_light_none">Add apps in the Shield tab when you\'re ready. Home shows your time reclaimed once protection runs.</string>
@@ -446,7 +443,6 @@
     <string name="settings_stored_history">• Days of counts: %1$d · Focus sessions: %2$d\n</string>
     <string name="settings_stored_motivations">• What you want more time for: %1$s\n</string>
     <string name="insights_average_days">Daily average · measured days: %1$d of %2$d</string>
-    <string name="insights_xp_today">XP today: %1$d</string>
     <string name="plus_compare_items">Protected apps and sites</string>
     <string name="plus_compare_always">Always Block time each day</string>
     <string name="plus_compare_intent">Apps with Intentional App Opening</string>
@@ -505,9 +501,19 @@
     <!-- Home -->
     <string name="shield_library_headline">Shield yourself from distractions.</string>
     <string name="home_normal_title">Normal Session</string>
-    <string name="home_normal_body">Pick apps and a time. Starts now.</string>
-    <string name="home_custom_title">Custom Session</string>
-    <string name="home_custom_body">Your own, saved to reuse</string>
+    <string name="home_start_title">Start blocking</string>
+    <string name="home_start_body">%1$s · %2$s</string>
+    <string name="home_start_empty">Choose your apps, then start.</string>
+    <string name="home_change">Change apps or time</string>
+    <string name="home_new_custom">New custom session</string>
+    <string name="need_name">Give it a name to continue.</string>
+    <string name="need_when">Choose when it starts.</string>
+    <string name="need_task">Add a task to focus on, and a target time if you set one.</string>
+    <string name="need_shield">Turn on Shield to start.</string>
+    <string name="need_commit">Tick “I\'m ready to commit” to start.</string>
+    <string name="need_apps">Choose at least one app.</string>
+    <string name="need_time">Choose a time to continue.</string>
+    <string name="need_option">Choose an option to continue.</string>
     <string name="home_active">Active now</string>
     <string name="home_scheduled">Scheduled</string>
     <string name="home_always">Always active</string>
@@ -667,6 +673,7 @@
     <string name="intent_save">Save Intent</string>
 
     <!-- Track -->
+    <string name="track_from_last_night">Includes protection from last night.</string>
     <string name="track_recent_runs">Recent sessions</string>
     <string name="track_no_runs">No finished sessions yet.</string>
     <string name="today_protection_title">Protection</string>
@@ -675,7 +682,6 @@
     <string name="track_tab_goals">Goals</string>
     <string name="track_tab_usage">Usage</string>
     <string name="track_level">Level %1$d</string>
-    <string name="track_xp">%1$d of %2$d XP</string>
     <string name="track_stat_sessions">Sessions started</string>
     <string name="track_stat_succeeded">Succeeded</string>
     <string name="track_stat_time_set">Time set</string>
@@ -817,8 +823,6 @@
     <string name="quick_apps">Which apps?</string>
     <string name="quick_more">More options</string>
     <string name="quick_choose_apps">Choose at least one app to start.</string>
-    <string name="onb_almost_title">Almost there.</string>
-    <string name="onb_ready_no_shield">Shield is still off, so nothing can be held back yet. Aurora will ask again when you start your first session.</string>
     <string name="onb_start_now">Start protection</string>
     <string name="onb_start_later">Not now</string>
     <string name="limit_items_title">That\'s the most for now</string>

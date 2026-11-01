@@ -91,11 +91,12 @@ visuals are drawn as light from real data; never fake the sky with sample progre
 - Hero screens: header (mark, wordmark, one round control), art, headline at the left over the lake,
   then cards.
 - Configuration screens: large title, `SectionLabel`, `RowGroup`, no art.
-- One primary action per screen, full width, near the content it acts on. Home puts Normal Use first
-  in a filled horizontal row and Custom Session second in a neutral row, before statistics.
+- One primary action per screen, full width, near the content it acts on. Home's is Start blocking,
+  a filled row: one hour with the last-used apps. Saved sessions follow as neutral cards, each holding
+  its own schedule; statistics come after them.
 - Home shows what matters now. Shield attention, a finish, Focus reports and running sessions sit
-  directly under the headline, above the two ways in; while a run or report shows, Normal Use is a
-  neutral row so the screen keeps one filled action. Scheduled and always-on follow; past runs live on Track.
+  directly under the headline. A Shield problem is a large warning card with a one-tap fix, and it holds
+  the filled action. While a session runs it fills Home: nothing to start, no statistics. Past runs live on Track.
 - A store caption never repeats the headline already visible on the phone in the same image.
 - Tabs sit in a floating 72dp dock, inset 16dp with 12dp above and below; reserve at least 96dp plus system
   navigation insets. The dock and content clearance grow with font scale. The selected tab carries a ribbon of aurora.

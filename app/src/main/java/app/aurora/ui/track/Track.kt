@@ -61,7 +61,6 @@ import app.aurora.progress.goalProgress
 import app.aurora.progress.levelFor
 import app.aurora.progress.sessionStats
 import app.aurora.progress.totalXp
-import app.aurora.progress.xp
 import app.aurora.runsNow
 import app.aurora.serviceSeen
 import app.aurora.syncRuns
@@ -74,7 +73,9 @@ import app.aurora.ui.components.AuroraScreen
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ChoicePills
 import app.aurora.ui.components.EmptyState
+import app.aurora.ui.components.CountUpText
 import app.aurora.ui.components.ProgressLine
+import app.aurora.ui.components.glass
 import app.aurora.ui.components.SectionLabel
 import app.aurora.ui.components.SkeletonRows
 import app.aurora.ui.components.auroraSurface
@@ -82,6 +83,7 @@ import app.aurora.ui.components.clockTime
 import app.aurora.ui.home.AwayState
 import app.aurora.ui.home.OutcomeTag
 import app.aurora.ui.home.measureReclaimed
+import app.aurora.ui.home.protectionToday
 import app.aurora.ui.insights.InsightsViewModel
 import app.aurora.ui.insights.usageSection
 import app.aurora.ui.library.TabHeader
@@ -109,7 +111,8 @@ data class GoalRow(val goal: Goal, val subject: String, val progress: GoalProgre
 private data class TrackState(
     val loading: Boolean = true,
     val level: Level = levelFor(0),
-    val xpToday: Int = 0,
+    /** Something protecting today began before midnight, so today's time can outrun today's sessions. */
+    val fromLastNight: Boolean = false,
     val stats: Map<StatPeriod, SessionStats> = emptyMap(),
     /** Null: Time Reclaimed can't be measured right now. */
     val reclaimed: Reclaimed? = null,
@@ -143,7 +146,7 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
             _state.value = TrackState(
                 loading = false,
                 level = levelFor(history.totalXp()),
-                xpToday = history.day(today).xp(),
+                fromLastNight = fromLastNight(history, rules, startOf(today), t.wall, zone),
                 stats = mapOf(
                     StatPeriod.Today to startOf(today),
                     StatPeriod.Week to startOf(today.with(DayOfWeek.MONDAY)),
@@ -157,6 +160,12 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
                 usageAccess = app.access.isGranted(Access.Usage),
             )
         }
+    }
+
+    private fun fromLastNight(history: app.aurora.progress.History, rules: app.aurora.protect.Rules, from: Long, to: Long, zone: ZoneId): Boolean {
+        val runtime = app.runtime.value ?: return false
+        val list = app.protectedList.value ?: return false
+        return protectionToday(history, rules, runtime, list, app.plan, from, to, zone).any { it.start < from && it.keys.isNotEmpty() }
     }
 
     private suspend fun subject(g: Goal): String = when {
@@ -175,7 +184,7 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
     }
 }
 
-/** Track: Progress (XP, what sessions achieved), Goals, and Usage (screen time). */
+/** Track: Progress (time reclaimed, what sessions achieved), Goals, and Usage (screen time). */
 @Composable
 fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, onCreateGoal: () -> Unit = {}, start: TrackTab = TrackTab.Progress) {
     val vm = auroraViewModel { TrackModel(it) }
@@ -231,7 +240,7 @@ fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, o
 }
 
 private fun LazyListScope.progressSection(state: TrackState, period: StatPeriod, onPeriod: (StatPeriod) -> Unit) {
-    item(key = "xp") { XpCard(state.level, state.xpToday) }
+    item(key = "hero") { ReclaimedHero(state) }
     item(key = "stats") {
         val resources = LocalResources.current
         val stats = state.stats.getValue(period)
@@ -249,24 +258,41 @@ private fun LazyListScope.progressSection(state: TrackState, period: StatPeriod,
                 StatRow(stringResource(R.string.track_stat_succeeded), stats.succeeded.toString())
                 StatRow(stringResource(R.string.track_stat_time_set), formatDuration(stats.setMs))
                 StatRow(stringResource(R.string.today_metric_label), reclaimed?.let(::formatDuration) ?: "—")
+                // Sessions count on the day they began; time counts on the day it passed.
+                if (period == StatPeriod.Today && state.fromLastNight && (reclaimed ?: 0) > 0) {
+                    Text(stringResource(R.string.track_from_last_night), color = Aurora.colors.textTertiary, style = AuroraType.Caption)
+                }
             }
         }
     }
     item(key = "recent") { RecentSessions(state.recent) }
 }
 
+/** Track's one big number: time reclaimed this week, with the level as a small badge beside its label. */
 @Composable
-private fun XpCard(level: Level, xpToday: Int) {
+private fun ReclaimedHero(state: TrackState) {
     val colors = Aurora.colors
-    Column(Modifier.padding(horizontal = Space.M).fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+    val context = LocalContext.current
+    Column(Modifier.padding(horizontal = Space.M).fillMaxWidth().auroraSurface(colors).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(level.name, Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
-            Text(stringResource(R.string.track_level, level.number), color = colors.rose, style = AuroraType.Label)
+            Text(
+                stringResource(R.string.today_metric_label) + " · " + stringResource(R.string.reclaimed_week),
+                Modifier.weight(1f).semantics { heading() }, color = colors.textSecondary, style = AuroraType.Label,
+            )
+            Text(stringResource(R.string.track_level, state.level.number), Modifier.glass(colors, Radius.Pill, tint = colors.rose).padding(horizontal = 10.dp, vertical = 5.dp), color = colors.rose, style = AuroraType.Caption, maxLines = 1)
         }
-        ProgressLine(level.progress, warm = true)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.track_xp, level.intoLevel, level.levelSize), Modifier.weight(1f), color = colors.textSecondary, style = AuroraType.Caption)
-            Text(stringResource(R.string.insights_xp_today, xpToday), color = colors.textSecondary, style = AuroraType.Caption)
+        when {
+            state.reclaimed != null -> CountUpText(formatDuration(state.reclaimed.weekMs), colors.textPrimary, AuroraType.Hero)
+            // The first time Track needs usage access is when it asks for it.
+            !state.usageAccess -> {
+                Text(stringResource(R.string.today_metric_not_measured), color = colors.textPrimary, style = AuroraType.Headline)
+                Text(stringResource(R.string.today_metric_no_access), color = colors.textSecondary, style = AuroraType.Secondary)
+                AuroraButton(stringResource(R.string.today_metric_allow), { openUsageAccessSettings(context) }, Modifier.padding(top = Space.XS), kind = ButtonKind.Secondary)
+            }
+            else -> {
+                Text("—", color = colors.textPrimary, style = AuroraType.Metric)
+                Text(stringResource(R.string.usage_records_unavailable_body), color = colors.textSecondary, style = AuroraType.Secondary)
+            }
         }
     }
 }

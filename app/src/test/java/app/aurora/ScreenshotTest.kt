@@ -135,7 +135,7 @@ class ScreenshotTest(private val variant: Variant) {
                 }
             }
         }
-        if (screen == "track" || screen == "insights") compose.waitUntil(5_000) {
+        if (screen == "track" || screen == "track_last_night" || screen == "insights") compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Succeeded").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen == "track_goals") compose.waitUntil(5_000) {
@@ -260,23 +260,17 @@ class ScreenshotTest(private val variant: Variant) {
     }
 
     @Test fun onboardingShield() {
-        runBlocking { application.preferences.setOnboardingStep(2) }
+        runBlocking { application.preferences.setOnboardingStep(3) }
         capture("onboarding_shield") { OnboardingScreen(onFinish = {}) }
     }
 
-    /** Apps chosen and Shield on: the last step starts the first session. */
+    /** Apps chosen: the third step starts the first session. */
     @Test fun onboardingReady() {
-        grantShield()
         runBlocking {
             application.protection.add(app.aurora.plan.ProtectedItem.App.of("com.example.photos")!!, application.plan)
-            application.preferences.setOnboardingStep(3)
+            application.preferences.setOnboardingStep(2)
         }
         capture("onboarding_ready") { OnboardingScreen(onFinish = {}) }
-    }
-
-    @Test fun onboardingAlmost() {
-        runBlocking { application.preferences.setOnboardingStep(3) }
-        capture("onboarding_almost") { OnboardingScreen(onFinish = {}) }
     }
 
     /** Review as a person sees it with Shield on, and with Shield off. */
@@ -328,6 +322,14 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun trackProgress() {
         library()
         capture("track") { TrackScreen() }
+    }
+
+    /** Protection that crossed midnight: today's time is explained, since today's sessions don't count it. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun trackLastNight() {
+        val midnight = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        runBlocking { application.history.update { it.copy(protection = listOf(app.aurora.progress.ProtectionRecord("night", midnight - 2 * 3_600_000, midnight + 6 * 3_600_000, setOf("com.example.photos")))) } }
+        capture("track_last_night") { TrackScreen() }
     }
 
     @Config(qualifiers = "w411dp-h1900dp-xxhdpi")

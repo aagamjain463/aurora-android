@@ -101,8 +101,9 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
             .padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
-        Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
+        if (!good) app.aurora.ui.components.LitBadge(app.aurora.ui.components.AuroraIcons.Protect, size = 44, tint = colors.rose)
+        Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = if (good) AuroraType.Title else AuroraType.Headline)
+        Text(body, color = if (good) colors.textSecondary else colors.textPrimary, style = if (good) AuroraType.Secondary else AuroraType.Body)
         when (status) {
             ProtectionStatus.NeedsPermission -> AuroraButton(stringResource(R.string.status_turn_on), onTurnOn, Modifier.padding(top = Space.XS).fillMaxWidth())
             ProtectionStatus.NotRunning -> {

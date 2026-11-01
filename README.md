@@ -6,9 +6,9 @@ intentional use.
 This repository is the native Android app: Kotlin and Jetpack Compose, local-first, with no
 account, no analytics and no `INTERNET` permission.
 
-| Home · day | Home · night | Shield | Intent | Track |
+| Home | Home, reduced motion | Shield | Intent | Track |
 | --- | --- | --- | --- | --- |
-| ![Home, day](app/src/test/screenshots/home_navigation_Light.png) | ![Home, night](app/src/test/screenshots/home_navigation_Dark.png) | ![Shield](app/src/test/screenshots/library_shield_Light.png) | ![Intent](app/src/test/screenshots/intent_library_Dark.png) | ![Track](app/src/test/screenshots/track_Light.png) |
+| ![Home](app/src/test/screenshots/home_navigation_Dark.png) | ![Home, reduced motion](app/src/test/screenshots/home_navigation_ReducedMotion.png) | ![Shield](app/src/test/screenshots/library_shield_Dark.png) | ![Intent](app/src/test/screenshots/intent_library_Dark.png) | ![Track](app/src/test/screenshots/track_Dark.png) |
 
 [View the design preview](docs/design-studio/evidence/editorial-refinement/aurora-design-preview.png) ·
 [Brand specimen](docs/design-studio/brand-specimen.html)
@@ -24,7 +24,7 @@ account, no analytics and no `INTERNET` permission.
 
 ## Status: configurations and Habits (`feat/aurora-configurations-habits`)
 
-Home activates Normal Use or Custom Sessions. Shield and Intent hold reusable presets;
+Home starts blocking in one tap, or from a saved Custom Session. Shield and Intent hold reusable presets;
 Track has Progress (XP, session results), Goals and Usage (screen time). Sessions support
 starting now, later, on recurring schedules or Always, with optional Focus. Always Block keeps
 its commitment rules. Existing billing, data controls and optional Web & content protection remain.

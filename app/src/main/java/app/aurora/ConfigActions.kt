@@ -15,6 +15,7 @@ import app.aurora.protect.Decision
 import app.aurora.protect.DeviceTime
 import app.aurora.protect.FocusOutcome
 import app.aurora.protect.IntentPreset
+import app.aurora.protect.FrictionSettings
 import app.aurora.protect.Mode
 import app.aurora.protect.Session
 import app.aurora.protect.ShieldPreset
@@ -86,6 +87,12 @@ fun Rules.readyToStart(max: Int = 3): List<UsageConfig> {
     val presets = shields.filter { it.id !in used && it.keys.isNotEmpty() }.map { UsageConfig("preset:${it.id}", it.name, custom = false, shield = it, createdAt = it.createdAt) } +
         intentPresets.filter { it.id !in used && it.keys.isNotEmpty() }.map { UsageConfig("preset:${it.id}", it.name, custom = false, intent = it, createdAt = it.createdAt) }
     return (configs.filter { it.custom }.sortedByDescending { it.createdAt } + presets.sortedByDescending { it.createdAt }).take(max)
+}
+
+/** A Normal Session: its own copy of a Shield, saved nowhere. */
+fun normalSession(name: String, keys: List<String>, mode: Mode, friction: FrictionSettings = FrictionSettings(), cooldownMinutes: Int = 5): UsageConfig {
+    val now = System.currentTimeMillis()
+    return UsageConfig(newId(), name, custom = false, shield = ShieldPreset(newId(), name, keys, mode, friction = friction, cooldownWaitMinutes = cooldownMinutes, createdAt = now), createdAt = now)
 }
 
 /** The runs live right now (stored and not yet stored), for screens. */

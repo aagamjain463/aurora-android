@@ -57,6 +57,7 @@ import app.aurora.protect.shieldOf
 import app.aurora.protect.strict
 import app.aurora.protect.intentOf
 import app.aurora.activate
+import app.aurora.normalSession
 import app.aurora.SessionNotification
 import app.aurora.ui.components.minutesText
 import app.aurora.ui.configure.problemText
@@ -99,23 +100,75 @@ import app.aurora.ui.components.BrandEyebrow
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.sp
 
-/** The two ways in: quick setup from built-ins, or the person's own saved presets. */
+/**
+ * Home's one big action: an hour with the apps used last, in one tap. Below it, quietly, the ways to
+ * change that or build something new.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun ChooseCard(onNormalUse: () -> Unit, onCustom: () -> Unit, primary: Boolean = true) {
-    val colors = Aurora.colors
+fun StartBlocking(d: ProtectData, app: AuroraApplication, onChoose: () -> Unit, onCustom: () -> Unit, primary: Boolean) {
+    val (keys, mode) = d.lastUsed
+    val context = LocalContext.current
+    val access = rememberAccess(Access.Accessibility)
+    val connected by ShieldService.connected.collectAsStateWithLifecycle()
+    val enforcing = app.runsNow(d.time).isNotEmpty() || d.sessions.isNotEmpty() || d.rules.activations.any { it.enabled }
+    // While Home asks to turn Shield on, that is its one filled action.
+    val attention = protectionStatus(enforcing, blocked = false, access, connected, d.list.readable && d.rulesReadable) !in setOf(ProtectionStatus.Active, ProtectionStatus.Off)
+    var disclosure by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<ActivationProblem?>(null) }
+    val start = rememberStarter(app)
+    val name = stringResource(R.string.home_normal_title)
+    val hour = minutesText(StartMinutes)
+    fun begin() = start(normalSession(name, keys, mode), StartMinutes) { problem = it }
     Column(Modifier.rise().padding(horizontal = Space.M, vertical = Space.S).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        if (primary) {
-            Choice(AuroraIcons.Play, stringResource(R.string.home_normal_title), stringResource(R.string.home_normal_body), onNormalUse, primary = true)
-            Choice(AuroraIcons.Layers, stringResource(R.string.home_custom_title), stringResource(R.string.home_custom_body), onCustom)
-        } else {
-            // Once Home has something better to offer, the two ways in step back to a pair of tiles.
-            // Large text stacks the tiles, so a title never breaks mid-word.
-            if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) {
-                SmallChoice(AuroraIcons.Play, stringResource(R.string.home_normal_title), onNormalUse, Modifier.fillMaxWidth())
-                SmallChoice(AuroraIcons.Layers, stringResource(R.string.home_custom_title), onCustom, Modifier.fillMaxWidth())
-            } else Row(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-                SmallChoice(AuroraIcons.Play, stringResource(R.string.home_normal_title), onNormalUse, Modifier.weight(1f))
-                SmallChoice(AuroraIcons.Layers, stringResource(R.string.home_custom_title), onCustom, Modifier.weight(1f))
+        Choice(
+            AuroraIcons.Play, stringResource(R.string.home_start_title),
+            if (keys.isEmpty()) stringResource(R.string.home_start_empty)
+            else stringResource(R.string.home_start_body, hour, androidx.compose.ui.res.pluralStringResource(R.plurals.count_apps, keys.size, keys.size)),
+            {
+                when {
+                    keys.isEmpty() -> onChoose()
+                    access != AccessState.Granted -> disclosure = true
+                    mode.strict -> confirm = true
+                    else -> begin()
+                }
+            },
+            primary = primary && !attention,
+        )
+        problem?.let { Text(problemText(it), color = Aurora.colors.danger, style = AuroraType.Secondary) }
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
+            AuroraButton(stringResource(R.string.home_change), onChoose, kind = ButtonKind.Quiet, compact = true)
+            AuroraButton(stringResource(R.string.home_new_custom), onCustom, kind = ButtonKind.Quiet, compact = true)
+        }
+    }
+    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
+    if (confirm) AuroraDialog(
+        stringResource(R.string.home_ready_confirm, name, hour), { confirm = false },
+        stringResource(R.string.always_block_confirm), { confirm = false; begin() },
+        stringResource(R.string.start_commit_body) + "\n\n" + stringResource(R.string.start_commit_limits), stringResource(R.string.action_cancel),
+    )
+}
+
+private const val StartMinutes = 60
+
+/** Starts a config now, from the application's scope so leaving Home can't cancel it halfway. */
+@Composable
+private fun rememberStarter(app: AuroraApplication): (UsageConfig, Int, (ActivationProblem?) -> Unit) -> Unit {
+    val context = LocalContext.current
+    val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    return { c, minutes, onResult ->
+        // Asked first: the card leaves Home as soon as the run starts (Android 13+).
+        if (android.os.Build.VERSION.SDK_INT >= 33 && !SessionNotification.allowed(context)) {
+            runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
+        }
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+        app.scope.launch {
+            try {
+                onResult(app.activate(c, Timing.Now(minutes)))
+            } catch (_: IOException) {
+                app.saveFailed.value = true
             }
         }
     }
@@ -141,19 +194,6 @@ private fun Choice(icon: androidx.compose.ui.graphics.vector.ImageVector, title:
             Text(body, color = if (primary) foreground else colors.textSecondary, style = AuroraType.Caption)
         }
         Icon(AuroraIcons.Chevron, null, tint = foreground, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
-private fun SmallChoice(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, onClick: () -> Unit, modifier: Modifier) {
-    val colors = Aurora.colors
-    // Icon over title, so the whole tile's width holds the name on one line.
-    Column(
-        modifier.heightIn(min = 64.dp).pressable(Radius.L, onClick = onClick).auroraSurface(colors).padding(Space.M),
-        verticalArrangement = Arrangement.spacedBy(Space.XS),
-    ) {
-        Icon(icon, null, tint = colors.accent, modifier = Modifier.size(20.dp))
-        Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -205,10 +245,13 @@ fun skyNow(d: ProtectData, app: AuroraApplication): Sky {
  * what is running. Returns true when a report or run is shown, so Home can give up its filled row; a finish
  * has no action of its own, so starting the next one stays primary.
  */
-/** Something on Home needs the person now: a Focus report to answer, a timed run, a session or Focus. */
+/** A timed run, a session or Focus is going now. */
+fun sessionRunning(d: ProtectData, app: AuroraApplication): Boolean =
+    app.runsNow(d.time).any { it.end != null || it.time != null } || d.sessions.isNotEmpty() || d.runtime.focus?.isOver(d.time) == false
+
+/** Something on Home needs the person now: a Focus report to answer, or something running. */
 fun busyNow(d: ProtectData, app: AuroraApplication): Boolean =
-    d.history.runs.any { it.awaitingReport } || app.runsNow(d.time).any { it.end != null || it.time != null } ||
-        d.sessions.isNotEmpty() || d.runtime.focus?.isOver(d.time) == false
+    d.history.runs.any { it.awaitingReport } || sessionRunning(d, app)
 
 fun LazyListScope.homeNow(d: ProtectData, app: AuroraApplication, onOpenFocus: (String) -> Unit, onOpenLegacyFocus: () -> Unit) {
     val runs = app.runsNow(d.time).sortedBy { it.endAt(d.time) ?: Long.MAX_VALUE }
@@ -237,16 +280,19 @@ fun LazyListScope.homeNow(d: ProtectData, app: AuroraApplication, onOpenFocus: (
     }
 }
 
-/** Scheduled, always active and recent: each only when it has something. */
-fun LazyListScope.homeLater(d: ProtectData, app: AuroraApplication, onOpenFocus: (String) -> Unit) {
+/**
+ * Scheduled and always active, each only when it has something. A schedule whose session is in [listed]
+ * lives on that session's card instead.
+ */
+fun LazyListScope.homeLater(d: ProtectData, app: AuroraApplication, onOpenFocus: (String) -> Unit, listed: Set<String>, showScheduled: Boolean) {
     val runs = app.runsNow(d.time)
     val zone = ZoneId.systemDefault()
     val entitled = d.rules.entitledActivations(d.plan)
-    val scheduled = d.rules.activations.filter { it.timing is Timing.Later || it.timing is Timing.Recurring }
+    val scheduled = d.rules.activations.filter { (it.timing is Timing.Later || it.timing is Timing.Recurring) && showScheduled && it.configId !in listed }
     if (scheduled.isNotEmpty()) item(key = "scheduled-label") { Column(Modifier.animateItem()) { HomeLabel(stringResource(R.string.home_scheduled)) } }
     items(scheduled, key = { "act-" + it.id }) { a -> Column(Modifier.animateItem()) { ActivationCard(a, d, app, a.id in entitled, zone) } }
 
-    val always = d.rules.activations.filter { it.timing is Timing.Always }
+    val always = d.rules.activations.filter { a -> a.timing is Timing.Always && (a.configId !in listed || runs.any { it.activationId == a.id }) }
     if (always.isNotEmpty()) item(key = "always-label") { Column(Modifier.animateItem()) { HomeLabel(stringResource(R.string.home_always)) } }
     items(always, key = { "always-" + it.id }) { a ->
         val run = runs.find { it.activationId == a.id }
@@ -351,35 +397,44 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
 /** A schedule or an Always activation that isn't running now: when it next starts, and pause, resume or remove. */
 @Composable
 private fun ActivationCard(a: Activation, d: ProtectData, app: AuroraApplication, entitled: Boolean, zone: ZoneId) {
-    val colors = Aurora.colors
-    val scope = app.scope
-    val config = d.rules.configs.find { it.id == a.configId }
-    val next = a.nextStart(d.time.wall, zone)
     Column(
-        Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.L),
+        Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(Aurora.colors).padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        Text(config?.name.orEmpty(), color = colors.textPrimary, style = AuroraType.Title)
-        Text(timingText(a.timing, zone), color = colors.textSecondary, style = AuroraType.Secondary)
-        Text(
-            when {
-                !a.enabled -> stringResource(R.string.home_paused)
-                !entitled -> stringResource(R.string.home_paused_plan)
-                next != null -> stringResource(R.string.home_next_start, java.time.Instant.ofEpochMilli(next).atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, ")) + clockTime(next))
-                else -> ""
-            },
-            color = if (a.enabled && entitled) colors.accent else colors.violetText, style = AuroraType.Label,
-        )
-        Row(Modifier.padding(top = Space.XS), horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-            AuroraButton(
-                stringResource(if (a.enabled) R.string.home_pause else R.string.home_resume),
-                { scope.launch { app.saving { app.setActivationEnabled(a.id, !a.enabled) } } },
-                Modifier.weight(1f), kind = ButtonKind.Secondary, compact = true,
-            )
-            AuroraButton(stringResource(R.string.home_remove), { scope.launch { app.saving { app.deleteActivation(a.id) } } }, Modifier.weight(1f), kind = ButtonKind.Quiet, compact = true)
-        }
+        Text(d.rules.configs.find { it.id == a.configId }?.name.orEmpty(), color = Aurora.colors.textPrimary, style = AuroraType.Title)
+        Text(timingText(a.timing, zone), color = Aurora.colors.textSecondary, style = AuroraType.Secondary)
+        ActivationControls(a, d, app, entitled, zone)
     }
 }
+
+@Composable
+private fun ActivationControls(a: Activation, d: ProtectData, app: AuroraApplication, entitled: Boolean, zone: ZoneId) {
+    val colors = Aurora.colors
+    val scope = app.scope
+    val next = a.nextStart(d.time.wall, zone)
+    Text(
+        when {
+            !a.enabled -> stringResource(R.string.home_paused)
+            !entitled -> stringResource(R.string.home_paused_plan)
+            next != null -> stringResource(R.string.home_next_start, java.time.Instant.ofEpochMilli(next).atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, ")) + clockTime(next))
+            else -> ""
+        },
+        color = if (a.enabled && entitled) colors.accent else colors.violetText, style = AuroraType.Label,
+    )
+    Row(Modifier.padding(top = Space.XS), horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
+        AuroraButton(
+            stringResource(if (a.enabled) R.string.home_pause else R.string.home_resume),
+            { scope.launch { app.saving { app.setActivationEnabled(a.id, !a.enabled) } } },
+            Modifier.weight(1f), kind = ButtonKind.Secondary, compact = true,
+        )
+        AuroraButton(stringResource(R.string.home_remove), { scope.launch { app.saving { app.deleteActivation(a.id) } } }, Modifier.weight(1f), kind = ButtonKind.Quiet, compact = true)
+    }
+}
+
+/** A schedule in a few words, as it reads after a session's name: "weekdays 10 PM". */
+@Composable
+private fun scheduleWords(t: Timing, zone: ZoneId): String =
+    if (t is Timing.Recurring) app.aurora.ui.protect.daysText(t.days) + " " + app.aurora.ui.protect.minuteOfDay(t.startMinute) else timingText(t, zone)
 
 /** A finished run with a Focus task asks how it went. A timer alone never decides. */
 @Composable
@@ -477,54 +532,36 @@ fun OutcomeTag(o: Outcome) {
 private val QuickMinutes = listOf(30, 60, 120)
 
 /**
- * Saved custom sessions, one tap from starting now: the most common thing a person does after
- * setting up. Strict ones (Always Block, Cooldown, Friction) still ask for the commitment first.
+ * Saved custom sessions, one tap from starting now, each with its schedule on the same card. Strict ones
+ * (Always Block, Cooldown, Friction) still ask for the commitment first.
  */
 @Composable
-fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplication, primary: Boolean = true) {
+fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplication) {
     val colors = Aurora.colors
     val context = LocalContext.current
-    val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
-    // While Home asks to turn Shield on, that is its one filled action.
     val access = rememberAccess(Access.Accessibility)
-    val connected by ShieldService.connected.collectAsStateWithLifecycle()
-    val enforcing = app.runsNow(d.time).isNotEmpty() || d.sessions.isNotEmpty() || d.rules.activations.any { it.enabled }
-    val attention = protectionStatus(enforcing, blocked = false, access, connected, d.list.readable && d.rulesReadable) !in setOf(ProtectionStatus.Active, ProtectionStatus.Off)
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val zone = ZoneId.systemDefault()
+    val entitled = d.rules.entitledActivations(d.plan)
     var pending by remember { mutableStateOf<Pair<UsageConfig, Int>?>(null) }
     // Without Shield a session is only a timer: nothing starts until it's on.
     var disclosure by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<Pair<String, ActivationProblem>?>(null) }
-    fun start(c: UsageConfig, minutes: Int) {
-        // Asked first: this card leaves Home as soon as the run starts. The first time protection starts,
-        // Aurora asks to show it in the notification shade (Android 13+).
-        if (android.os.Build.VERSION.SDK_INT >= 33 && !SessionNotification.allowed(context)) {
-            runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
-        }
-        // The application's scope, so leaving Home can't cancel a start halfway.
-        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
-        app.scope.launch {
-            val p = try {
-                app.activate(c, Timing.Now(minutes))
-            } catch (_: IOException) {
-                app.saveFailed.value = true
-                return@launch
-            }
-            problem = p?.let { c.id to it }
-        }
-    }
+    val starter = rememberStarter(app)
+    fun start(c: UsageConfig, minutes: Int) = starter(c, minutes) { p -> problem = p?.let { c.id to it } }
     HomeLabel(stringResource(R.string.home_ready_title))
-    configs.forEachIndexed { index, c ->
+    configs.forEach { c ->
         val shield = d.rules.shieldOf(c)
         val intent = d.rules.intentOf(c)
         val keys = (shield?.keys.orEmpty() + intent?.keys.orEmpty()).distinct()
+        val schedules = d.rules.activations.filter { it.configId == c.id && it.timing !is Timing.Now }
         Column(
             Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth()
                 .auroraSurface(colors, edge = shield?.let { modeColor(it.mode) }).padding(Space.L),
             verticalArrangement = Arrangement.spacedBy(Space.S),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-                Text(c.name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
+                val only = schedules.singleOrNull()
+                Text(if (only == null) c.name else c.name + " · " + scheduleWords(only.timing, zone), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
                 IconStack(keys, d, max = 4, size = 28.dp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
@@ -543,14 +580,17 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
                             }
                         },
                         Modifier.weight(1f),
-                        // Only the first card's middle choice is filled: one primary action on Home.
-                        kind = if (primary && index == 0 && m == 60 && !attention) ButtonKind.Primary else ButtonKind.Secondary,
+                        kind = ButtonKind.Secondary,
                         compact = true,
                     )
                 }
             }
             problem?.takeIf { it.first == c.id }?.let { (_, p) ->
                 Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
+            }
+            schedules.forEach { a ->
+                if (schedules.size > 1) Text(scheduleWords(a.timing, zone), color = colors.textSecondary, style = AuroraType.Secondary)
+                ActivationControls(a, d, app, a.id in entitled, zone)
             }
         }
     }

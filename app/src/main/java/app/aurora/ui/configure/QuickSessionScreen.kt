@@ -69,8 +69,8 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
     val colors = Aurora.colors
     val context = LocalContext.current
     val last = d.rules.shields.maxByOrNull { it.createdAt }
-    var keys by rememberSaveable { mutableStateOf(last?.keys.orEmpty()) }
-    var mode by rememberSaveable { mutableStateOf(last?.mode ?: d.rules.defaultRule.mode) }
+    var keys by rememberSaveable { mutableStateOf(d.lastUsed.first) }
+    var mode by rememberSaveable { mutableStateOf(d.lastUsed.second) }
     var minutes by rememberSaveable { mutableStateOf<Int?>(60) }
     var committed by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -95,15 +95,9 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
         onPrimary = {
             val m = minutes
             if (m != null) {
-                val now = System.currentTimeMillis()
-                val shield = ShieldPreset(
-                    newId(), name, keys, mode,
-                    friction = last?.friction ?: FrictionSettings(),
-                    cooldownWaitMinutes = last?.takeIf { it.mode == Mode.Cooldown }?.cooldownWaitMinutes ?: 5,
-                    createdAt = now,
-                )
+                val config = app.aurora.normalSession(name, keys, mode, last?.friction ?: FrictionSettings(), last?.takeIf { it.mode == Mode.Cooldown }?.cooldownWaitMinutes ?: 5)
                 vm.run {
-                    problem = vm.app.activate(UsageConfig(newId(), name, custom = false, shield = shield, createdAt = now), Timing.Now(m))
+                    problem = vm.app.activate(config, Timing.Now(m))
                     if (problem == null) {
                         if (android.os.Build.VERSION.SDK_INT >= 33 && !SessionNotification.allowed(context)) {
                             runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
@@ -113,6 +107,14 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
                 }
             }
         },
+        whyDisabled = stringResource(
+            when {
+                keys.isEmpty() -> R.string.quick_choose_apps
+                minutes == null -> R.string.duration_problem_empty
+                !shieldOn -> R.string.need_shield
+                else -> R.string.need_commit
+            },
+        ),
         footer = {
             problem?.let { p ->
                 Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
@@ -120,7 +122,6 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
                     AuroraButton(stringResource(R.string.plus_see), onPlus, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                 }
             }
-            if (keys.isEmpty()) Text(stringResource(R.string.quick_choose_apps), color = colors.textSecondary, style = AuroraType.Secondary)
             AuroraButton(stringResource(R.string.quick_more), onMore, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
         },
     ) {

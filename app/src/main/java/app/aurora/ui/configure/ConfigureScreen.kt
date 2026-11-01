@@ -133,7 +133,7 @@ fun ConfigureScreen(
     var intentId by rememberSaveable { mutableStateOf(start?.intentId) }
 
     var whenKind by rememberSaveable { mutableStateOf(startWhen) }
-    var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
+    var minutes by rememberSaveable { mutableStateOf<Int?>(60) }
     var laterDay by rememberSaveable { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
     var laterMinute by rememberSaveable { mutableIntStateOf(7 * 60) }
     var days by rememberSaveable { mutableStateOf(setOf(1, 2, 3, 4, 5)) }
@@ -178,6 +178,9 @@ fun ConfigureScreen(
     }
 
     val shieldOn = app.aurora.rememberAccess(app.aurora.data.Access.Accessibility) == app.aurora.data.AccessState.Granted
+    // Free's Always Block minutes left today: the pre-picked hour shrinks to fit.
+    val blockLeft = if (alwaysBlock && whenKind == When.Now) vm.app.alwaysBlockLeft() else null
+    androidx.compose.runtime.LaunchedEffect(blockLeft) { if (blockLeft != null && (minutes ?: 0) > blockLeft) minutes = blockLeft.takeIf { it > 0 } }
     val hasSites = shield?.keys.orEmpty().any { it.startsWith(app.aurora.protect.WebPrefix) }
     val gate = app.aurora.ui.protect.shieldGateNeeded(hasSites)
     val steps = buildList {
@@ -264,6 +267,26 @@ fun ConfigureScreen(
             else -> stringResource(R.string.cfg_schedule)
         },
         primaryEnabled = canNext,
+        whyDisabled = when (step) {
+            Step.Saved -> null
+            Step.Contents -> stringResource(if (shield == null && intent == null) R.string.cfg_problem_empty else R.string.need_name)
+            Step.When -> when {
+                whenKind == null -> stringResource(R.string.need_when)
+                whenKind == When.Always -> stringResource(R.string.when_always_blocked)
+                minutes == null -> stringResource(R.string.duration_problem_empty)
+                whenKind == When.Recurring -> stringResource(R.string.cfg_problem_days)
+                else -> null // A start in the past is already said beside the date.
+            }
+            Step.Focus -> stringResource(R.string.need_task)
+            Step.Review -> stringResource(
+                when {
+                    !hasContent -> R.string.cfg_problem_empty
+                    !shieldOn -> R.string.need_shield
+                    strict && !committed -> R.string.need_commit
+                    else -> R.string.need_task
+                },
+            )
+        },
         onPrimary = {
             when {
                 step == Step.Focus && forGoal -> saveOnly()

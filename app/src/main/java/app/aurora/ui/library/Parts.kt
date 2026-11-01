@@ -84,6 +84,8 @@ fun StepFlow(
     primary: String,
     primaryEnabled: Boolean,
     onPrimary: () -> Unit,
+    /** Said above a disabled button, so it is never silently grey. */
+    whyDisabled: String? = null,
     footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
@@ -126,6 +128,7 @@ fun StepFlow(
         }
         Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
             footer?.invoke(this)
+            if (!primaryEnabled && whyDisabled != null) Text(whyDisabled, color = colors.textSecondary, style = AuroraType.Secondary)
             AuroraButton(primary, onPrimary, Modifier.fillMaxWidth(), enabled = primaryEnabled)
         }
     }

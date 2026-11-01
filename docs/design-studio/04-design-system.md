@@ -105,7 +105,7 @@ produce a fragile, unverified copy of what the code already defines. The editabl
   reserves at least 96dp and grows with font scale; system navigation padding is added by the screen.
 - Display and DisplayXL use locally bundled Newsreader 400 at optical size 48. Everything functional,
   including timers, stays Manrope. See the current brand bible and token file for exact values.
-- Home starts with the brand promise, then the filled Normal Use row and neutral Custom Session
-  row. Measurement follows the actions; unavailable measurement keeps its existing explanation.
+- Home starts with the brand promise, then the filled Start blocking row with two quiet links, then
+  saved sessions. Measurement follows; without usage access Home stays quiet and Track asks.
 - Tinted surface edges are intentionally quieter than selection borders. Gold belongs to progress,
   intention and the rising point; filled actions stay emerald.

@@ -168,6 +168,13 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
         steps.size, index, back,
         primary = if (step == IntentStep.Review) stringResource(R.string.intent_save) else stringResource(R.string.action_next),
         primaryEnabled = canNext,
+        whyDisabled = stringResource(
+            when (step) {
+                IntentStep.Name -> R.string.need_name
+                IntentStep.Apps -> R.string.need_apps
+                else -> R.string.need_time
+            },
+        ),
         onPrimary = {
             if (step != IntentStep.Review) step = steps[index + 1]
             else {

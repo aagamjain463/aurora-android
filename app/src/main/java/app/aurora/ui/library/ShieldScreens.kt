@@ -208,6 +208,13 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
         steps.size, index, back,
         primary = if (step == ShieldStep.Review) stringResource(R.string.shield_save) else stringResource(R.string.action_next),
         primaryEnabled = canNext,
+        whyDisabled = stringResource(
+            when (step) {
+                ShieldStep.Name -> R.string.need_name
+                ShieldStep.Type -> R.string.need_time
+                else -> R.string.need_apps
+            },
+        ),
         onPrimary = { if (step == ShieldStep.Review) save() else step = steps[index + 1] },
     ) {
         when (step) {

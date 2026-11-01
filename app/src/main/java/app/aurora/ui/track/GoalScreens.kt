@@ -112,6 +112,15 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
         steps.size, index, back,
         primary = stringResource(if (last) R.string.goal_save else R.string.action_next),
         primaryEnabled = canNext,
+        whyDisabled = stringResource(
+            when (step) {
+                GoalStep.Name -> R.string.need_name
+                GoalStep.Apps -> R.string.need_apps
+                GoalStep.Limit -> R.string.need_time
+                GoalStep.Track -> if (track == null) R.string.need_option else R.string.need_time
+                else -> R.string.need_option
+            },
+        ),
         onPrimary = {
             if (!last) step = steps[index + 1]
             else {
