@@ -223,14 +223,7 @@ suspend fun AuroraApplication.syncRuns() {
         if (ended.isEmpty() && started.isEmpty() && next.runs == rt.runs) rt
         else next.copy(runs = next.runs - ended.toSet(), closed = next.closed + ended.map { it.id to (it.endAt(t) ?: t.wall) })
     }
-    if (started.isNotEmpty()) history.update { h ->
-        started.fold(h) { acc, run ->
-            val recorded = acc.withProtection(ProtectionRecord(run.id, run.start, run.end ?: Long.MAX_VALUE, run.shield?.keys.orEmpty().toSet()))
-            // A scheduled Always Block earns what one started by hand does: its committed minutes.
-            val until = run.committedUntil ?: run.end
-            if (run.shield?.mode == Mode.AlwaysBlock && until != null) recorded.withAlwaysBlock(dayOf(run.start), run.start, ((until - run.start) / 60_000).toInt()) else recorded
-        }
-    }
+    if (started.isNotEmpty()) history.update { h -> started.fold(h) { acc, run -> acc.withStarted(run) } }
     if (ended.isNotEmpty()) {
         val spans = history.value?.service.orEmpty()
         history.update { h -> ended.fold(h) { acc, run -> acc.withRun(recordOf(run, run.endAt(t) ?: t.wall, turnedOff = false, spans)) } }
@@ -247,7 +240,8 @@ suspend fun AuroraApplication.syncRuns() {
                 r.runFor(a, w)?.takeIf { it.id !in known }
             }
         }
-        if (missed.isNotEmpty()) history.update { x -> missed.fold(x) { acc, run -> acc.withRun(recordOf(run, run.end ?: t.wall, turnedOff = false, x.service)) } }
+        // Screen-off time counts as away, so a window slept through is protected time like any other.
+        if (missed.isNotEmpty()) history.update { x -> missed.fold(x) { acc, run -> acc.withStarted(run).withRun(recordOf(run, run.end ?: t.wall, turnedOff = false, x.service)) } }
     }
     // No strict commitment running: the clock follows the system clock again (TrustedClock.kt).
     policySnapshot(emptySet(), emptyMap())?.takeIf { it.lockedUntil(t.wall) == null }?.let { app.aurora.protect.TrustedClock.relax() }
@@ -257,6 +251,13 @@ suspend fun AuroraApplication.syncRuns() {
         val activations = x.activations - stale.toSet()
         x.copy(activations = activations, configs = x.configs.filter { c -> c.custom || activations.any { it.configId == c.id } })
     }
+}
+
+/** A run has begun: its protection span, and for a scheduled Always Block what one started by hand earns, its committed minutes. */
+private fun app.aurora.progress.History.withStarted(run: ConfigRun): app.aurora.progress.History {
+    val recorded = withProtection(ProtectionRecord(run.id, run.start, run.end ?: Long.MAX_VALUE, run.shield?.keys.orEmpty().toSet()))
+    val until = run.committedUntil ?: run.end
+    return if (run.shield?.mode == Mode.AlwaysBlock && until != null) recorded.withAlwaysBlock(dayOf(run.start), run.start, ((until - run.start) / 60_000).toInt()) else recorded
 }
 
 private fun recordOf(run: ConfigRun, end: Long, turnedOff: Boolean, spans: List<app.aurora.progress.ServiceSpan>) = record(

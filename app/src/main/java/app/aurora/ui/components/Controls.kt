@@ -2,6 +2,8 @@ package app.aurora.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -55,6 +57,7 @@ import androidx.compose.ui.layout.positionInParent
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Motion
@@ -162,7 +165,11 @@ fun <T> ChoicePills(
                     .semantics { contentDescription = spokenLabel(option) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(label(option), Modifier.clearAndSetSemantics { }, color = fg, style = AuroraType.Label)
+                // Large text shrinks to fit a segment instead of breaking a word across two lines.
+                BasicText(
+                    label(option), Modifier.clearAndSetSemantics { }, style = AuroraType.Label.copy(color = fg), maxLines = 1,
+                    autoSize = if (fill) TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = AuroraType.Label.fontSize) else null,
+                )
             }
         }
     }

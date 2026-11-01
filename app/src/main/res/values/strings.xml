@@ -328,6 +328,7 @@
     <string name="onb_shield_permission">Accessibility permission</string>
     <string name="onb_shield_running">Shield running</string>
     <string name="onb_shield_privacy">Shield reads only the name of the app in front. Nothing leaves your phone.</string>
+    <string name="onb_shield_next">Next, Home gives you one clear start: a 25-minute session with the apps you chose.</string>
     <string name="onb_keep_eyebrow">Keep it running</string>
     <string name="onb_keep_title">Make sure Shield keeps working.</string>
     <string name="onb_keep_body">Usage access lets Aurora measure your time reclaimed and daily limits.</string>
@@ -338,9 +339,11 @@
     <string name="onb_first_light_title">You\'re ready.</string>
     <string name="onb_first_light_none">Add apps in the Shield tab when you\'re ready. Home shows your time reclaimed once protection runs.</string>
     <plurals name="onb_first_light_body">
-        <item quantity="one">%d app saved in a Shield. Start it from Home whenever you\'re ready.</item>
-        <item quantity="other">%d apps saved in a Shield. Start it from Home whenever you\'re ready.</item>
+        <item quantity="one">%d app saved in a Shield. One tap from Home starts a 25-minute session.</item>
+        <item quantity="other">%d apps saved in a Shield. One tap from Home starts a 25-minute session.</item>
     </plurals>
+    <string name="onb_ready_summary">%1$d apps · %2$s</string>
+    <string name="onb_ready_later">Intent, usage access and battery guidance can wait. Aurora asks when each one is useful.</string>
 
     <!-- Focus -->
     <string name="focus_length_prompt">How long do you want to focus?</string>
