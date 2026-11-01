@@ -96,7 +96,8 @@ fun StepFlow(
             AuroraIconButton(AuroraIcons.Back, stringResource(R.string.action_back), onBack)
             // The horizon fills step by step; the light marks where the person is.
             Row(Modifier.weight(1f).padding(horizontal = Space.S).semantics(mergeDescendants = true) { contentDescription = "${index + 1}/$steps" }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                repeat(steps) { i ->
+                // One step has no progress to show.
+                if (steps > 1) repeat(steps) { i ->
                     val filled by androidx.compose.animation.core.animateFloatAsState(if (i <= index) 1f else 0f, app.aurora.ui.theme.auroraTween(app.aurora.ui.theme.Motion.Gentle), label = "step")
                     Box(Modifier.weight(1f).height(8.dp), contentAlignment = Alignment.CenterStart) {
                         Box(Modifier.fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.hairline))
@@ -152,6 +153,8 @@ fun LazyListScope.appChecklist(
     selected: Set<String>,
     query: String,
     onQuery: (String) -> Unit,
+    /** The plan's most, when it has one: said up front, not at the end of the flow. */
+    cap: Int? = null,
     onToggle: (String) -> Unit,
 ) {
     item(key = "search") { AuroraTextField(query, onQuery, stringResource(R.string.picker_search), icon = AuroraIcons.Search) }
@@ -162,10 +165,13 @@ fun LazyListScope.appChecklist(
     val q = query.trim()
     val visible = apps.filter { it.packageName !in exempt || it.packageName in selected }.filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) }
     item(key = "count") {
+        Column {
         Text(
             if (q.isEmpty()) stringResource(R.string.picker_count, visible.size, selected.count { !it.startsWith(WebPrefix) }) else stringResource(R.string.picker_matches, visible.size),
             color = Aurora.colors.textSecondary, style = AuroraType.Caption,
         )
+        if (cap != null) Text(androidx.compose.ui.res.pluralStringResource(R.plurals.picker_cap, cap, cap), color = Aurora.colors.textTertiary, style = AuroraType.Caption)
+        }
     }
     items(visible, key = { "app-" + it.packageName }, contentType = { "app" }) { app ->
         val on = app.packageName in selected

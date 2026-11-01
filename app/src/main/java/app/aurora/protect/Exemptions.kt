@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.telecom.TelecomManager
+import androidx.core.net.toUri
 
 /**
  * [SystemExempt] plus this device's own recovery surfaces: its launchers, Settings and Accessibility
@@ -19,7 +20,7 @@ fun exemptPackages(context: Context): Set<String> {
     val launchers = handlers(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
     val settings = handlers(Intent(Settings.ACTION_SETTINGS)) + handlers(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     val dialer = context.getSystemService(TelecomManager::class.java)?.defaultDialerPackage
-    return SystemExempt + launchers + settings + listOfNotNull(keyboard(context), dialer, context.packageName)
+    return SystemExempt + LockedSystem + installers(context) + launchers + settings + listOfNotNull(keyboard(context), dialer, context.packageName)
 }
 
 /**
@@ -31,13 +32,26 @@ fun lockedPackages(context: Context): Set<String> {
     @Suppress("DEPRECATION")
     fun handlers(intent: Intent) = context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY).map { it.activityInfo.packageName }
     val settings = handlers(Intent(Settings.ACTION_SETTINGS)) + handlers(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) + handlers(Intent(Settings.ACTION_DATE_SETTINGS))
-    return (settings + LockedSystem - context.packageName).toSet()
+    return (settings + installers(context) + LockedSystem - context.packageName).toSet()
+}
+
+/** Whatever handles "uninstall this app" here. Device makers ship their own (Xiaomi: com.miui.global.packageinstaller). */
+private fun installers(context: Context): List<String> {
+    @Suppress("DEPRECATION")
+    fun handlers(action: String) = context.packageManager
+        .queryIntentActivities(Intent(action, "package:${context.packageName}".toUri()), PackageManager.MATCH_DEFAULT_ONLY)
+        .map { it.activityInfo.packageName }
+    @Suppress("DEPRECATION")
+    return handlers(Intent.ACTION_DELETE) + handlers(Intent.ACTION_UNINSTALL_PACKAGE)
 }
 
 val LockedSystem = setOf(
     "com.android.settings",
     "com.android.packageinstaller",
     "com.google.android.packageinstaller",
+    "com.miui.packageinstaller",
+    "com.miui.global.packageinstaller",
+    "com.samsung.android.packageinstaller",
     "com.miui.securitycenter",
     "com.google.android.apps.safetyhub",
 )

@@ -48,6 +48,15 @@
         <intent>
             <action android:name="android.settings.DATE_SETTINGS" />
         </intent>
+        <!-- The uninstall screens, also locked during a strict commitment. Device makers use their own packages. -->
+        <intent>
+            <action android:name="android.intent.action.DELETE" />
+            <data android:scheme="package" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.UNINSTALL_PACKAGE" />
+            <data android:scheme="package" />
+        </intent>
     </queries>
 
     <application

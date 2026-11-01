@@ -253,6 +253,41 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun normalUse() = capture("configure_normal") { Configure(custom = false) }
 
+    @Test fun quickSession() {
+        library()
+        grantShield()
+        capture("quick_session") { app.aurora.ui.configure.QuickSessionScreen({}, {}, {}, {}, {}, {}) }
+    }
+
+    @Test fun onboardingShield() {
+        runBlocking { application.preferences.setOnboardingStep(2) }
+        capture("onboarding_shield") { OnboardingScreen(onFinish = {}) }
+    }
+
+    /** Apps chosen and Shield on: the last step starts the first session. */
+    @Test fun onboardingReady() {
+        grantShield()
+        runBlocking {
+            application.protection.add(app.aurora.plan.ProtectedItem.App.of("com.example.photos")!!, application.plan)
+            application.preferences.setOnboardingStep(3)
+        }
+        capture("onboarding_ready") { OnboardingScreen(onFinish = {}) }
+    }
+
+    @Test fun onboardingAlmost() {
+        runBlocking { application.preferences.setOnboardingStep(3) }
+        capture("onboarding_almost") { OnboardingScreen(onFinish = {}) }
+    }
+
+    /** Review as a person sees it with Shield on, and with Shield off. */
+    private fun grantShield() = android.provider.Settings.Secure.putString(application.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "app.aurora/.protect.ShieldService")
+
+    @Test fun reviewShieldOff() {
+        library()
+        android.provider.Settings.Secure.putString(application.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "")
+        capture("configure_shield_off") { Configure(custom = true, config = "c1", step = "Review", timing = When.Now) }
+    }
+
     @Test fun customConfiguration() {
         library()
         capture("configure_custom") { Configure(custom = true, config = "c1", step = "Contents") }

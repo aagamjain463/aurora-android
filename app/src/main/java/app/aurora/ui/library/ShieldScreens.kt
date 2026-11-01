@@ -26,6 +26,7 @@ import app.aurora.auroraViewModel
 import app.aurora.configsUsing
 import app.aurora.deletePreset
 import app.aurora.newId
+import app.aurora.plan.Allowance
 import app.aurora.protect.Difficulty
 import app.aurora.protect.FrictionSettings
 import app.aurora.protect.FrictionTask
@@ -42,6 +43,7 @@ import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraRow
 import app.aurora.ui.components.AuroraScreen
 import app.aurora.ui.components.AuroraTextField
+import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Chevron
 import app.aurora.ui.components.Chip
 import app.aurora.ui.components.ChoiceCard
@@ -52,6 +54,7 @@ import app.aurora.ui.components.RowGroup
 import app.aurora.ui.components.minutesText
 import app.aurora.ui.components.secondsText
 import app.aurora.ui.components.auroraSurface
+import app.aurora.ui.protect.LimitNoticeDialog
 import app.aurora.ui.protect.ModeChip
 import app.aurora.ui.protect.ProtectModel
 import app.aurora.ui.protect.ReflectionPauses
@@ -151,14 +154,15 @@ private enum class ShieldStep { Name, Apps, Sites, Type, Review }
  * it. [onSaved] gets the preset's id, so a Home flow that sent the person here can select it.
  */
 @Composable
-fun ShieldEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0) {
+fun ShieldEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0, onPlus: (() -> Unit)? = null) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val d = data ?: return
     // A new preset keeps one id for the whole flow, however often the screen recomposes.
     val fresh = rememberSaveable { newId() }
     val existing = id?.let { i -> d.rules.shields.find { it.id == i } }
-    ShieldEditor(vm, existing ?: ShieldPreset(fresh, "", createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
+    ShieldEditor(vm, existing ?: ShieldPreset(fresh, "", mode = d.rules.defaultRule.mode, createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
+    LimitNoticeDialog(vm, onPlus)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -178,7 +182,10 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
     var query by rememberSaveable { mutableStateOf("") }
     var step by rememberSaveable { mutableStateOf(ShieldStep.entries[startStep]) }
 
-    val steps = ShieldStep.entries
+    // Websites are one tap away from the apps, for those who want them; most Shields are apps.
+    var sitesOpen by rememberSaveable(initial.id) { mutableStateOf(initial.keys.any { it.startsWith(WebPrefix) }) }
+    val steps = ShieldStep.entries.filter { it != ShieldStep.Sites || sitesOpen }
+    val cap = vm.data.collectAsStateWithLifecycle().value?.max(Allowance.ProtectedItems)
     val index = steps.indexOf(step).coerceAtLeast(0)
     val back = { if (index == 0) onBack() else step = steps[index - 1] }
     val canNext = when (step) {
@@ -209,17 +216,28 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                 item(key = "name") { AuroraTextField(name, { name = it.take(40) }, stringResource(R.string.shield_name_placeholder), capitalization = KeyboardCapitalization.Words) }
                 item(key = "ideas") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        listOf("Social Media Shield", "Entertainment Shield", "Gaming Shield", "Night Shield").forEach { Chip(it, name == it) { name = it } }
+                        listOf(R.string.shield_idea_social, R.string.shield_idea_entertainment, R.string.shield_idea_gaming, R.string.shield_idea_night).map { stringResource(it) }.forEach { Chip(it, name == it) { name = it } }
                     }
                 }
             }
             ShieldStep.Apps -> {
                 stepTitle(R.string.shield_apps_title, R.string.shield_apps_body)
-                appChecklist(apps, exempt, keys.toSet(), query, { query = it }) { pkg -> keys = if (pkg in keys) keys - pkg else keys + pkg }
+                if (!sitesOpen) item(key = "add-sites") {
+                    AuroraButton(stringResource(R.string.shield_add_sites), { sitesOpen = true; step = ShieldStep.Sites }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true, icon = AuroraIcons.Globe)
+                }
+                appChecklist(apps, exempt, keys.toSet(), query, { query = it }, cap) { pkg ->
+                    when {
+                        pkg in keys -> keys = keys - pkg
+                        cap != null && keys.size + sites.size >= cap -> vm.atLimit(Allowance.ProtectedItems)
+                        else -> keys = keys + pkg
+                    }
+                }
             }
             ShieldStep.Sites -> {
                 stepTitle(R.string.shield_sites_title, R.string.shield_sites_body)
-                siteEditor(sites) { sites = it }
+                siteEditor(sites) { next ->
+                    if (cap != null && next.size > sites.size && keys.size + next.size > cap) vm.atLimit(Allowance.ProtectedItems) else sites = next
+                }
             }
             ShieldStep.Type -> {
                 stepTitle(R.string.shield_type_title, null)

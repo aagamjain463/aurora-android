@@ -145,8 +145,9 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
             when (decision.reason) {
                 ShieldReason.AlwaysBlock, ShieldReason.Flexible, ShieldReason.Focus, ShieldReason.Limit, ShieldReason.IntentCooldown, ShieldReason.Locked ->
                     Blocked(decision, label, now, home, onEnded = { close(false) })
-                ShieldReason.Cooldown -> CooldownFlow(app, decision, label, now, home, onOpen = { close(false) })
-                ShieldReason.Friction -> FrictionFlow(app, decision, label, home, onOpen = { close(false) })
+                // Ended while on screen: nothing is left to wait for or solve.
+                ShieldReason.Cooldown -> if (decision.over(now)) Blocked(decision, label, now, home, onEnded = { close(false) }) else CooldownFlow(app, decision, label, now, home, onOpen = { close(false) })
+                ShieldReason.Friction -> if (decision.over(now)) Blocked(decision, label, now, home, onEnded = { close(false) }) else FrictionFlow(app, decision, label, home, onOpen = { close(false) })
                 ShieldReason.Intent -> IntentFlow(app, decision, label, now, home, onOpen = { close(false) })
             }
         }
@@ -375,6 +376,7 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
     // The app's scope: going home closes this overlay, and what was just chosen must still be stored.
     val scope = app.scope
     val haptics = LocalHapticFeedback.current
+    var failed by remember { mutableStateOf(false) }
     if (!ready) {
         Eyebrow(stringResource(R.string.mode_cooldown))
         Headline(stringResource(R.string.shield_cooldown_title, label), label)
@@ -398,12 +400,19 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
                     app.grantAccess(decision.packageName, minutes, Mode.Cooldown)
                     onOpen()
                 } catch (_: IOException) {
-                    // Not stored, so not granted: the Shield stays.
+                    // Not stored, so not granted: the Shield stays, and says why.
+                    failed = true
                 }
             }
         }
+        if (failed) SaveFailed()
         Actions { AuroraButton(stringResource(R.string.shield_return_home), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
     }
+}
+
+@Composable
+private fun SaveFailed() {
+    Text(stringResource(R.string.error_save_body), Modifier.fillMaxWidth().padding(top = Space.S), color = Aurora.colors.danger, style = AuroraType.Secondary, textAlign = TextAlign.Center)
 }
 
 /** "How long do you want to use {app}?": presets and a custom time, then open. */
@@ -438,6 +447,7 @@ private enum class FrictionStep { Task, Usage }
 private fun FrictionFlow(app: AuroraApplication, decision: Decision.Shield, label: String, home: () -> Unit, onOpen: () -> Unit) {
     val settings = decision.restriction?.friction ?: FrictionSettings()
     var step by remember { mutableStateOf(FrictionStep.Task) }
+    var failed by remember { mutableStateOf(false) }
     // The app's scope: going home closes this overlay, and what was just chosen must still be stored.
     val scope = app.scope
     val goHome = {
@@ -471,9 +481,11 @@ private fun FrictionFlow(app: AuroraApplication, decision: Decision.Shield, labe
                                 onOpen()
                             } catch (_: IOException) {
                                 // Not stored, so not granted.
+                                failed = true
                             }
                         }
                     }
+                    if (failed) SaveFailed()
                     Actions { AuroraButton(stringResource(R.string.shield_return_home), goHome, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
                 }
             }

@@ -38,9 +38,11 @@ import app.aurora.protect.policyState
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import java.io.IOException
 import java.time.ZoneId
 
 /** Long-lived dependencies. A handful of objects don't need a DI framework. */
@@ -69,6 +71,18 @@ class AuroraApplication : Application() {
 
     /** The one source of the current plan: what Google Play last confirmed (plan/Entitlement.kt). */
     val plan: Plan get() = billing.plan.value
+
+    /** Storage refused a write. The app's root shows it once; nothing changed. */
+    val saveFailed = MutableStateFlow(false)
+
+    /** Runs a change the person asked for, and tells them if it couldn't be stored. */
+    suspend fun saving(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (_: IOException) {
+            saveFailed.value = true
+        }
+    }
 
     val catalog by lazy { AppCatalog(this) }
     val screenTime by lazy { ScreenTimeRepository(this) }

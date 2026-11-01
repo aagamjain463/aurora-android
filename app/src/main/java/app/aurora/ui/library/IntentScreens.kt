@@ -123,7 +123,7 @@ private enum class IntentStep { Name, Apps, Reflect, Time, Review }
 
 /** Create or edit an Intent: name, apps, reflection, then usage time and what happens after on one step, save. */
 @Composable
-fun IntentEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0) {
+fun IntentEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0, onPlus: (() -> Unit)? = null) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val d = data ?: return
@@ -131,6 +131,7 @@ fun IntentEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Uni
     val fresh = rememberSaveable { newId() }
     val existing = id?.let { i -> d.rules.intentPresets.find { it.id == i } }
     IntentEditor(vm, existing ?: IntentPreset(fresh, "", createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
+    app.aurora.ui.protect.LimitNoticeDialog(vm, onPlus)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -190,7 +191,14 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
             }
             IntentStep.Apps -> {
                 stepTitle(R.string.shield_apps_title, R.string.intent_overview_body)
-                appChecklist(apps, exempt, keys.toSet(), query, { query = it }) { pkg -> keys = if (pkg in keys) keys - pkg else keys + pkg }
+                val cap = vm.data.value?.max(app.aurora.plan.Allowance.IntentApps)
+                appChecklist(apps, exempt, keys.toSet(), query, { query = it }, cap) { pkg ->
+                    when {
+                        pkg in keys -> keys = keys - pkg
+                        cap != null && keys.size >= cap -> vm.atLimit(app.aurora.plan.Allowance.IntentApps)
+                        else -> keys = keys + pkg
+                    }
+                }
             }
             IntentStep.Reflect -> {
                 stepTitle(R.string.intent_reflection_title, R.string.intent_reflection_hint)
