@@ -71,6 +71,9 @@ data class Restriction(
     fun covers(key: String, now: Long) = key in keys && now >= start && now < end
 }
 
+/** The restriction behind this Shield has ended while it was on screen. */
+fun Decision.Shield.over(now: Long): Boolean = until != null && now >= until
+
 sealed interface Decision {
     /** Not protected, or nothing applies right now. */
     data object Allow : Decision

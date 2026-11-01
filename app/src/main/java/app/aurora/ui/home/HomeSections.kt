@@ -38,6 +38,7 @@ import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.ui.components.Sky
 import app.aurora.data.Access
+import app.aurora.data.AccessState
 import app.aurora.data.ProtectionStatus
 import app.aurora.data.formatClock
 import app.aurora.data.openAccessSettings
@@ -229,7 +230,7 @@ fun LazyListScope.homeNow(d: ProtectData, app: AuroraApplication, onOpenFocus: (
     val lead = leadRun(d, app)
     items(timed, key = { "run-" + it.id }) { r -> Column(Modifier.animateItem()) { RunCard(r, d, app, onOpenFocus, inHero = r.id == lead?.id) } }
     items(legacy, key = { "legacy-" + it.id }) { s ->
-        SessionCard(s, d, onTurnOff = { app.scope.launch { runCatching { app.turnOff(s.id) } } }, Modifier.padding(top = Space.XS))
+        SessionCard(s, d, onTurnOff = { app.scope.launch { app.saving { app.turnOff(s.id) } } }, Modifier.padding(top = Space.XS))
     }
     if (legacyFocus != null) item(key = "legacy-focus") {
         LegacyFocusCard(legacyFocus.intention.ifBlank { stringResource(R.string.home_legacy_focus) }, legacyFocus.remaining(d.time), onOpenLegacyFocus)
@@ -342,7 +343,7 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
     }
     if (confirm) AuroraDialog(
         stringResource(R.string.session_turn_off_title), { confirm = false }, stringResource(R.string.home_turn_off),
-        { confirm = false; scope.launch { runCatching { app.turnOffRun(run.id) } } },
+        { confirm = false; scope.launch { app.saving { app.turnOffRun(run.id) } } },
         stringResource(R.string.session_turn_off_body), stringResource(R.string.action_cancel),
     )
 }
@@ -372,10 +373,10 @@ private fun ActivationCard(a: Activation, d: ProtectData, app: AuroraApplication
         Row(Modifier.padding(top = Space.XS), horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
             AuroraButton(
                 stringResource(if (a.enabled) R.string.home_pause else R.string.home_resume),
-                { scope.launch { try { app.setActivationEnabled(a.id, !a.enabled) } catch (_: IOException) { } } },
+                { scope.launch { app.saving { app.setActivationEnabled(a.id, !a.enabled) } } },
                 Modifier.weight(1f), kind = ButtonKind.Secondary, compact = true,
             )
-            AuroraButton(stringResource(R.string.home_remove), { scope.launch { try { app.deleteActivation(a.id) } catch (_: IOException) { } } }, Modifier.weight(1f), kind = ButtonKind.Quiet, compact = true)
+            AuroraButton(stringResource(R.string.home_remove), { scope.launch { app.saving { app.deleteActivation(a.id) } } }, Modifier.weight(1f), kind = ButtonKind.Quiet, compact = true)
         }
     }
 }
@@ -391,7 +392,7 @@ private fun FocusReport(r: RunRecord, app: AuroraApplication) {
     ) {
         Text(stringResource(R.string.focus_name), color = colors.rose, style = AuroraType.Eyebrow)
         Text(stringResource(R.string.home_focus_prompt, r.focusTask.orEmpty()), color = colors.textPrimary, style = AuroraType.Title)
-        val report = { o: FocusOutcome -> scope.launch { runCatching { app.reportFocus(r.id, o) } }; Unit }
+        val report = { o: FocusOutcome -> scope.launch { app.saving { app.reportFocus(r.id, o) } }; Unit }
         // The hoped-for answer gets the full width; the other two share a row (stacked with large text),
         // so no label ever wraps.
         AuroraButton(stringResource(R.string.focus_completed), { report(FocusOutcome.Completed) }, Modifier.fillMaxWidth(), compact = true)
@@ -491,6 +492,8 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
     val attention = protectionStatus(enforcing, blocked = false, access, connected, d.list.readable && d.rulesReadable) !in setOf(ProtectionStatus.Active, ProtectionStatus.Off)
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var pending by remember { mutableStateOf<Pair<UsageConfig, Int>?>(null) }
+    // Without Shield a session is only a timer: nothing starts until it's on.
+    var disclosure by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<Pair<String, ActivationProblem>?>(null) }
     fun start(c: UsageConfig, minutes: Int) {
         // Asked first: this card leaves Home as soon as the run starts. The first time protection starts,
@@ -501,7 +504,12 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
         // The application's scope, so leaving Home can't cancel a start halfway.
         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
         app.scope.launch {
-            val p = try { app.activate(c, Timing.Now(minutes)) } catch (_: IOException) { return@launch }
+            val p = try {
+                app.activate(c, Timing.Now(minutes))
+            } catch (_: IOException) {
+                app.saveFailed.value = true
+                return@launch
+            }
             problem = p?.let { c.id to it }
         }
     }
@@ -527,7 +535,13 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
                 QuickMinutes.forEach { m ->
                     AuroraButton(
                         minutesText(m),
-                        { if (shield?.mode?.strict == true) pending = c to m else start(c, m) },
+                        {
+                            when {
+                                access != AccessState.Granted -> disclosure = true
+                                shield?.mode?.strict == true -> pending = c to m
+                                else -> start(c, m)
+                            }
+                        },
                         Modifier.weight(1f),
                         // Only the first card's middle choice is filled: one primary action on Home.
                         kind = if (primary && index == 0 && m == 60 && !attention) ButtonKind.Primary else ButtonKind.Secondary,
@@ -540,6 +554,7 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
             }
         }
     }
+    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
     pending?.let { (c, m) ->
         AuroraDialog(
             stringResource(R.string.home_ready_confirm, c.name, minutesText(m)), { pending = null },

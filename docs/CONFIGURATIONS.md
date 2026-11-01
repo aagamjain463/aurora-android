@@ -25,14 +25,18 @@ Each step is one decision; settings that belong to a choice appear under it on t
 | Flow | Steps |
 | --- | --- |
 | Custom Configuration | (Saved, when some exist) · What: name, Shield, Intent · When: timing and its length · Review: summary, optional Focus, Always Block commitment |
-| Normal Session | The same as Custom, without the name or Saved steps: What: Shield, Intent · When · Review. Not saved. |
+| Normal Session | One screen: how long, mode, apps, Start. Opens on the latest Shield, so a repeat is one tap. Not saved. "More options" opens the full flow: What: Shield, Intent · When · Review. |
 | Configuration for a Habit | What · Focus, then save |
-| Shield preset | Name · Apps · Websites · Type with its settings · Review |
+| Shield preset | Name · Apps (with "Add websites too") · Websites, only if asked for · Type with its settings · Review |
 | Intent preset | Name · Apps · Reflection · Time: usage length and what happens after · Review |
 
 "None" for a Shield or Intent is a small chip beside the heading, offered once something is chosen;
 tapping a chosen card again also clears it. Library cards open the editor on tap; Duplicate and Delete
 sit behind the overflow control.
+
+Nothing starts without the Accessibility switch: Review, Normal Session and Home's quick starts send the
+person to turn Shield on first, because without it a session is only a timer. Plan limits show in the app
+list and stop at the limit, not at the end of the flow.
 
 ## Model and persistence
 

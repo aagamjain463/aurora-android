@@ -157,7 +157,7 @@ fun FocusRunScreen(runId: String, onBack: () -> Unit) {
                 if (reported != null) Text(stringResource(R.string.focusrun_reported, outcomeLabel(reported)), color = colors.accent, style = AuroraType.BodyStrong)
                 listOf(FocusOutcome.Completed, FocusOutcome.Partial, FocusOutcome.NotCompleted).forEach { o ->
                     AuroraButton(
-                        outcomeLabel(o), { scope.launch { runCatching { vm.app.reportFocusNow(run.id, o) } } }, Modifier.fillMaxWidth(),
+                        outcomeLabel(o), { scope.launch { vm.app.saving { vm.app.reportFocusNow(run.id, o) } } }, Modifier.fillMaxWidth(),
                         kind = if (reported == o) ButtonKind.Primary else ButtonKind.Secondary,
                     )
                 }

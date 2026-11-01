@@ -93,14 +93,14 @@ class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
     }
 
     private fun launch(block: suspend () -> Unit) {
-        viewModelScope.launch { runCatching { block() } }
+        viewModelScope.launch { app.saving(block) }
     }
 }
 
 private enum class Sheet { DefaultMode, Privacy, Stored, ClearHistory, DeleteAll, Help, Licenses, Disclosure, Diagnostics }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> Unit = {}, onOpenProtect: () -> Unit = {}, onOpenStrict: () -> Unit = {}) {
+fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> Unit = {}, onOpenWeb: () -> Unit = {}, onOpenStrict: () -> Unit = {}) {
     val vm = auroraViewModel { SettingsViewModel(it) }
     val prefs = vm.prefs.collectAsStateWithLifecycle().value ?: UserPreferences()
     val list by vm.list.collectAsStateWithLifecycle()
@@ -188,7 +188,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
                     title = stringResource(R.string.settings_web_content_shield),
                     subtitle = stringResource(R.string.settings_optional_websites_and_shorts_reels),
                     icon = AuroraIcons.Globe,
-                    onClick = onOpenProtect,
+                    onClick = onOpenWeb,
                     trailing = { Allowed(contentAccess == AccessState.Granted) },
                 )
                 RowDivider(56.dp)
@@ -297,7 +297,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
             title = stringResource(R.string.settings_what_aurora_stores),
             body = buildString {
                 append(stringResource(R.string.settings_stored_items , list?.items?.size ?: 0))
-                append(stringResource(R.string.settings_stored_rules , rules.apps.size, rules.groups.size, rules.schedules.size, rules.limits.size))
+                append(stringResource(R.string.settings_stored_rules , rules.shields.size, rules.intentPresets.size, rules.configs.count { it.custom }, rules.limits.size))
                 append(stringResource(R.string.settings_stored_profiles , rules.profiles.size, rules.trackGoals.size))
                 append(stringResource(R.string.settings_stored_history , history.days.size, history.focus.size))
                 if (rules.motivations.isNotEmpty()) append(stringResource(R.string.settings_stored_motivations , rules.motivations.joinToString(", ")))

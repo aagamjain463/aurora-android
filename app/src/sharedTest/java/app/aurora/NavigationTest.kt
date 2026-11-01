@@ -5,6 +5,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
@@ -42,6 +43,14 @@ class NavigationTest {
     val compose = createEmptyComposeRule()
 
     private var scenario: ActivityScenario<MainActivity>? = null
+
+    /** Nothing starts without Shield. Under Robolectric the switch can be set; on a device, turn Shield on first. */
+    private fun shieldOn() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        runCatching {
+            android.provider.Settings.Secure.putString(app.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "app.aurora/.protect.ShieldService")
+        }
+    }
 
     /** Fixture: a known starting state, then the app as the person would open it. */
     private fun launch(onboarded: Boolean) {
@@ -82,13 +91,14 @@ class NavigationTest {
     fun onboardingCompletesOnHome() {
         launch(onboarded = false)
         compose.onNodeWithText("Begin").performClick()
-        // What matters, apps, modes, Intentional App Opening, Shield, keeping it running: nothing is required.
-        // Until Shield is on, its step offers only "Turn on Shield" and a quiet skip.
-        repeat(6) {
+        // Apps, then Shield: nothing is required. Until Shield is on, its step offers only "Turn on Shield" and a quiet skip.
+        repeat(2) {
             compose.waitUntil(5_000) { listOf("Continue", "Skip for now").any { t -> compose.onAllNodesWithText(t).fetchSemanticsNodes().isNotEmpty() } }
             val next = if (compose.onAllNodesWithText("Continue").fetchSemanticsNodes().isNotEmpty()) "Continue" else "Skip for now"
             compose.onNodeWithText(next).performClick()
         }
+        // Skipping leaves the last step honest about what's missing.
+        awaitText("Almost there.")
         awaitText("Go to Home")
         compose.onNodeWithText("Go to Home").performClick()
         scrollTo("Normal Session").assertIsDisplayed()
@@ -120,6 +130,7 @@ class NavigationTest {
     @Test
     fun customConfigurationStartsAndTurnsOff() {
         val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        shieldOn()
         runBlocking {
             app.runtime.update { it.copy(runs = emptyList()) }
             app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social")))) }
@@ -146,6 +157,46 @@ class NavigationTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Turn off").fetchSemanticsNodes().isEmpty() && app.history.value?.runs?.isNotEmpty() == true }
         org.junit.Assert.assertTrue(app.runtime.value!!.runs.isEmpty())
         org.junit.Assert.assertEquals("Study", app.history.value!!.runs.single { it.id == runId }.name)
+    }
+
+    /** A Normal Session is one screen: time, mode, apps, Start. */
+    @Test
+    fun normalSessionStartsFromOneScreen() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        shieldOn()
+        runBlocking {
+            app.runtime.update { it.copy(runs = emptyList()) }
+            app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
+        }
+        launch(onboarded = true)
+        scrollTo("Normal Session").performSemanticsAction(SemanticsActions.OnClick)
+        awaitText("Start")
+        compose.onNodeWithText("Start").assertIsEnabled()
+        compose.onNodeWithText("Start").performClick()
+        // Fetching nodes syncs with the main thread, where each step of the activation resumes.
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() && app.runtime.value?.runs?.size == 1 }
+        val run = app.runtime.value!!.runs.single()
+        org.junit.Assert.assertEquals(listOf("com.example.social"), run.shield?.keys)
+        org.junit.Assert.assertEquals(false, run.custom)
+        org.junit.Assert.assertTrue(app.rules.value!!.configs.isEmpty())
+        runBlocking { app.runtime.update { it.copy(runs = emptyList()) } }
+    }
+
+    /** Without the Accessibility switch a session would only be a timer, so Review won't start it. */
+    @Test
+    fun nothingStartsWithoutShield() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        android.provider.Settings.Secure.putString(app.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "")
+        runBlocking {
+            app.runtime.update { it.copy(runs = emptyList()) }
+            app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
+        }
+        launch(onboarded = true)
+        scrollTo("Normal Session").performSemanticsAction(SemanticsActions.OnClick)
+        awaitText("Start")
+        compose.onNodeWithText("Start").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertTrue(app.runtime.value!!.runs.isEmpty())
     }
 
     @Test

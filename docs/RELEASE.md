@@ -89,8 +89,8 @@ Declare that data isn't encrypted in transit only if asked (nothing is transmitt
 ## 4. Review risks to know before submitting
 
 1. **Strict commitments lock Settings and the package installer.** While Always Block, Cooldown or Friction
-   runs, Aurora Shield covers Android Settings and the uninstall screens (`protect/Exemptions.kt`,
-   `lockedPackages`). Google Play's accessibility policy forbids using the API to "prevent users from
+   runs, Aurora Shield covers Android Settings and every uninstall screen, whichever package the device
+   maker uses (`protect/Exemptions.kt`, `lockedPackages`). Google Play's accessibility policy forbids using the API to "prevent users from
    disabling or uninstalling any app or service", with exceptions only for parental-control and enterprise
    apps. Other self-control apps ship similar strict modes, but this is the most likely reason for a
    rejection or a later removal. The person opts in to each session, confirms "I'm ready to commit", and the

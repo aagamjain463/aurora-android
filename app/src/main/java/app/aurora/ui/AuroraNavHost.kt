@@ -47,6 +47,9 @@ import app.aurora.ui.protect.ItemScreen
 import app.aurora.ui.protect.LimitsScreen
 import app.aurora.ui.protect.ProtectRoutes
 import app.aurora.ui.configure.ConfigureScreen
+import app.aurora.ui.configure.QuickSessionScreen
+import app.aurora.ui.components.AuroraDialog
+import androidx.compose.ui.res.stringResource
 import app.aurora.ui.library.IntentEditorScreen
 import app.aurora.ui.library.IntentLibraryScreen
 import app.aurora.ui.library.ShieldEditorScreen
@@ -71,6 +74,7 @@ object Routes {
     const val Settings = "settings"
     const val Focus = "focus"
     const val Configure = "configure"
+    const val Quick = "quick"
     const val ShieldEdit = "shield-edit"
     const val IntentEdit = "intent-edit"
     const val GoalEdit = "goal-edit"
@@ -171,11 +175,21 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
             composable(Routes.Home) {
                 HomeScreen(
-                    onNormalUse = { nav.navigate("${Routes.Configure}?custom=false") },
+                    onNormalUse = { nav.navigate(Routes.Quick) },
                     onCustom = { nav.navigate("${Routes.Configure}?custom=true") },
                     onOpenFocus = { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") },
                     onOpenLegacyFocus = { nav.navigate(Routes.Focus) },
                     onOpenSettings = settings,
+                )
+            }
+            composable(Routes.Quick) {
+                QuickSessionScreen(
+                    onBack = back,
+                    onDone = { nav.popBackStack(Routes.Home, inclusive = false) },
+                    onMore = { nav.navigate("${Routes.Configure}?custom=false") },
+                    onStrict = { nav.navigate(Routes.Strict) },
+                    onPlus = plus,
+                    onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
                 )
             }
             composable(Routes.Shield) {
@@ -188,13 +202,13 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 )
             }
             composable("${Routes.ShieldEdit}?id={id}") { e ->
-                ShieldEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdShield", id) })
+                ShieldEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdShield", id) }, onPlus = plus)
             }
             composable(Routes.Intent) {
                 IntentLibraryScreen(onCreate = { nav.navigate(Routes.IntentEdit) }, onEdit = { id -> nav.navigate("${Routes.IntentEdit}?id=$id") }, onOpenSettings = settings)
             }
             composable("${Routes.IntentEdit}?id={id}") { e ->
-                IntentEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdIntent", id) })
+                IntentEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdIntent", id) }, onPlus = plus)
             }
             composable("${Routes.Configure}?custom={custom}&config={config}&goal={goal}") { e ->
                 val handle = e.savedStateHandle
@@ -213,6 +227,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onCreateIntent = { nav.navigate(Routes.IntentEdit) },
                     onStrict = { nav.navigate(Routes.Strict) },
                     onPlus = plus,
+                    onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
                 )
             }
             composable(Routes.Track) {
@@ -239,7 +254,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                         nav.navigate(Routes.Onboarding) { popUpTo(Routes.Home) { inclusive = true } }
                     },
                     onPlus = plus,
-                    onOpenProtect = { nav.selectTab(Routes.Shield) },
+                    onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
                     onOpenStrict = { nav.navigate(Routes.Strict) },
                 )
             }
@@ -252,6 +267,13 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 FocusScreen(onClose = { if (nav.currentDestination?.route == Routes.Focus) nav.popBackStack() }, onPlus = plus)
             }
         }
+
+        val failed by app.saveFailed.collectAsStateWithLifecycle()
+        if (failed) AuroraDialog(
+            stringResource(R.string.error_save_title), { app.saveFailed.value = false },
+            stringResource(R.string.action_ok), { app.saveFailed.value = false },
+            stringResource(R.string.error_save_body),
+        )
 
         AnimatedVisibility(
             visible = route in TabRoutes,

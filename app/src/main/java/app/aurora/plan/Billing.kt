@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.net.toUri
 import app.aurora.BuildConfig
+import app.aurora.R
 import app.aurora.data.JsonValue
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
@@ -50,7 +51,7 @@ data class BillingState(
  * verification is a launch dependency (docs/PRODUCT.md).
  */
 class BillingRepository(
-    context: Context,
+    private val context: Context,
     private val scope: CoroutineScope,
     private val cache: JsonValue<EntitlementCache>,
     private val wallClock: () -> Long = System::currentTimeMillis,
@@ -110,7 +111,7 @@ class BillingRepository(
             offers = offers,
             message = when {
                 purchasesResult.responseCode != BillingResponseCode.OK -> describe(purchasesResult)
-                offers.isEmpty() -> "Aurora Plus isn't available to buy in this version of Aurora yet."
+                offers.isEmpty() -> context.getString(R.string.billing_not_for_sale)
                 else -> null
             },
         )
@@ -170,12 +171,12 @@ class BillingRepository(
     }
 
     private fun describe(result: BillingResult): String = when (result.responseCode) {
-        BillingResponseCode.BILLING_UNAVAILABLE -> "Google Play billing isn't available on this phone or account."
-        BillingResponseCode.SERVICE_UNAVAILABLE, BillingResponseCode.NETWORK_ERROR -> "Google Play can't be reached right now. Try again when you're online."
-        BillingResponseCode.SERVICE_DISCONNECTED -> "Aurora couldn't connect to Google Play on this phone. Make sure the Play Store is installed and signed in, then try again."
-        BillingResponseCode.ITEM_UNAVAILABLE -> "Aurora Plus isn't available to buy in this version of Aurora yet."
-        BillingResponseCode.DEVELOPER_ERROR -> "This version of Aurora can't sell Aurora Plus."
-        else -> "Google Play couldn't complete that (code ${result.responseCode})."
+        BillingResponseCode.BILLING_UNAVAILABLE -> context.getString(R.string.billing_unavailable)
+        BillingResponseCode.SERVICE_UNAVAILABLE, BillingResponseCode.NETWORK_ERROR -> context.getString(R.string.billing_unreachable)
+        BillingResponseCode.SERVICE_DISCONNECTED -> context.getString(R.string.billing_disconnected)
+        BillingResponseCode.ITEM_UNAVAILABLE -> context.getString(R.string.billing_not_for_sale)
+        BillingResponseCode.DEVELOPER_ERROR -> context.getString(R.string.billing_cant_sell)
+        else -> context.getString(R.string.billing_other, result.responseCode)
     }
 }
 

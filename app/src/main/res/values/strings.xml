@@ -248,7 +248,6 @@
     <!-- Groups -->
 
     <!-- Intentional App Opening — PROPOSED -->
-    <string name="intent_card_eyebrow">Pause · Decide · Set a time</string>
     <string name="intent_overview_body">Aurora asks first, and you choose how long.</string>
     <string name="intent_step_pause">Pause</string>
     <string name="intent_step_pause_body">Pause for a moment to decide if you actually want to use the app you opened.</string>
@@ -299,37 +298,15 @@
     <string name="onb_pillar_track">Track</string>
     <string name="onb_pillar_track_body">Real progress, measured on this phone.</string>
     <string name="onb_welcome_body">Aurora helps you choose when to open the apps that pull you away, and protects the time you want back.</string>
-    <string name="onb_motivation_eyebrow">What matters</string>
-    <string name="onb_motivation_title">What do you want more time for?</string>
-    <string name="onb_motivation_body">Choose any. Aurora shows them back to you, and nothing leaves your phone.</string>
-    <string name="onb_motivation_custom">Something else</string>
-    <string name="onb_m_deep_work">Deep work</string>
-    <string name="onb_m_study">Study</string>
-    <string name="onb_m_people">People I love</string>
-    <string name="onb_m_sleep">Sleep</string>
-    <string name="onb_m_reading">Reading</string>
-    <string name="onb_m_health">Health</string>
-    <string name="onb_m_creating">Making things</string>
     <string name="onb_apps_eyebrow">What pulls you away</string>
     <string name="onb_apps_title">Choose your apps.</string>
     <string name="onb_apps_body">Every app on your phone is here. Choosing one saves it; nothing is blocked until you start protection.</string>
-    <string name="onb_modes_eyebrow">How Shield works</string>
-    <string name="onb_modes_title">Four ways to protect.</string>
-    <string name="onb_modes_body">Each time you start protection, you choose a mode and how long it lasts. Pick the one to suggest first.</string>
-    <string name="onb_modes_note">Android always lets you reach Settings, calls and emergency services.</string>
-    <string name="onb_intent_body">For the apps you open out of habit. Aurora pauses, asks how long you want, and follows through when the time is up.</string>
-    <string name="onb_intent_no_apps">Choose some apps first. You can set this up later in the Intent tab.</string>
-    <string name="onb_intent_choose">Ask before these apps open</string>
-    <string name="onb_intent_default_reason">I want more time for %1$s.</string>
-    <string name="onb_intent_note">You can add your own reason, a pause and what happens afterwards in the Intent tab.</string>
     <string name="onb_shield_eyebrow">Shield</string>
     <string name="onb_shield_title">Turn on Shield.</string>
     <string name="onb_shield_body">Shield is what blocks apps. It needs Android\'s accessibility permission, which only you can turn on.</string>
     <string name="onb_shield_permission">Accessibility permission</string>
     <string name="onb_shield_running">Shield running</string>
     <string name="onb_shield_privacy">Shield reads only the name of the app in front. Nothing leaves your phone.</string>
-    <string name="onb_keep_eyebrow">Keep it running</string>
-    <string name="onb_keep_title">Make sure Shield keeps working.</string>
     <string name="onb_keep_body">Usage access lets Aurora measure your time reclaimed and daily limits.</string>
     <string name="onb_keep_usage">Usage access</string>
     <string name="onb_keep_xiaomi">Your phone can stop apps in the background, and Shield with them. Turn on Autostart for Aurora, set its battery saver to No restrictions, and lock Aurora in Recents.</string>
@@ -338,8 +315,8 @@
     <string name="onb_first_light_title">You\'re ready.</string>
     <string name="onb_first_light_none">Add apps in the Shield tab when you\'re ready. Home shows your time reclaimed once protection runs.</string>
     <plurals name="onb_first_light_body">
-        <item quantity="one">%d app saved in a Shield. Start it from Home whenever you\'re ready.</item>
-        <item quantity="other">%d apps saved in a Shield. Start it from Home whenever you\'re ready.</item>
+        <item quantity="one">%d app chosen. Pick a time and start, or do it later from Home.</item>
+        <item quantity="other">%d apps chosen. Pick a time and start, or do it later from Home.</item>
     </plurals>
 
     <!-- Focus -->
@@ -355,13 +332,13 @@
     <string name="settings_reduce_motion">Reduce motion</string>
     <string name="settings_on_because_animations_are_off_in_android_settings">On, because animations are off in Android settings.</string>
     <string name="settings_no_ambient_movement_or_sliding_transitions">No ambient movement or sliding transitions.</string>
-    <string name="settings_preferred_mode_for_new_apps">Preferred mode for new apps</string>
+    <string name="settings_preferred_mode_for_new_apps">Preferred mode for new Shields</string>
     <string name="settings_web_content_shield">Web &amp; content Shield</string>
     <string name="settings_optional_websites_and_shorts_reels">Optional. Websites and Shorts/Reels.</string>
     <string name="settings_what_aurora_can_see_about_shield_on_this_phone">What Aurora can see about Shield on this phone.</string>
     <string name="settings_permissions">Permissions</string>
-    <string name="settings_turned_off_in_android_settings_insights_and_daily_limits_need_it">Turned off in Android Settings. Insights and daily limits need it.</string>
-    <string name="settings_powers_insights_goals_and_daily_limits_read_on_this_phone_only">Powers Insights, goals and daily limits. Read on this phone only.</string>
+    <string name="settings_turned_off_in_android_settings_insights_and_daily_limits_need_it">Turned off in Android Settings. Track and daily limits need it.</string>
+    <string name="settings_powers_insights_goals_and_daily_limits_read_on_this_phone_only">Powers Track, goals and daily limits. Read on this phone only.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_aurora_doesn_t_send_notifications_yet">A quiet notice while protection runs</string>
     <string name="settings_privacy_data">Privacy &amp; data</string>
@@ -380,11 +357,11 @@
     <string name="settings_open_source_licenses">Open-source licenses</string>
     <string name="settings_version">Version</string>
     <string name="settings_take_back_your_attention">take back your attention</string>
-    <string name="settings_the_mode_suggested_when_you_start_protection_for_an_app_you_add">The mode suggested when you start protection for an app you add from now on. You can change any app on its own page.</string>
+    <string name="settings_the_mode_suggested_when_you_start_protection_for_an_app_you_add">The mode a new Shield or Normal Session starts on. You can change it each time.</string>
     <string name="settings_done">Done</string>
     <string name="settings_everything_aurora_keeps_is_stored_only_on_this_phone_your_protec">Everything Aurora keeps is stored only on this phone: your protected apps and sites, rules, sessions, daily counts and preferences. </string>
     <string name="settings_there_s_no_account_no_analytics_and_no_ads_and_aurora_doesn_t_ha">There\'s no account, no analytics and no ads, and Aurora doesn\'t have internet access.\n\n</string>
-    <string name="settings_screen_time_is_read_from_android_when_you_open_insights_or_today">Screen time is read from Android when you open Insights or Today, and when a daily limit needs it. It isn\'t copied or shared.\n\n</string>
+    <string name="settings_screen_time_is_read_from_android_when_you_open_insights_or_today">Screen time is read from Android when you open Home or Track, and when a daily limit needs it. It isn\'t copied or shared.\n\n</string>
     <string name="settings_shield_reads_only_the_name_of_the_app_in_front_the_optional_web">Shield reads only the name of the app in front. The optional Web &amp; content Shield reads the address in supported browsers. Neither stores nor sends what it sees.\n\n</string>
     <string name="settings_purchases_go_through_google_play_which_aurora_asks_whether_you_h">Purchases go through Google Play, which Aurora asks whether you have Aurora Plus.</string>
     <string name="settings_got_it">Got it</string>
@@ -464,7 +441,7 @@
     <string name="focus_this_group">This group</string>
     <string name="focus_spoken_remaining">%1$s remaining</string>
     <string name="settings_stored_items">• Protected apps and sites: %1$d\n</string>
-    <string name="settings_stored_rules">• App settings: %1$d · groups: %2$d · schedules: %3$d · daily limits: %4$d\n</string>
+    <string name="settings_stored_rules">• Shields: %1$d · Intents: %2$d · saved sessions: %3$d · daily limits: %4$d\n</string>
     <string name="settings_stored_profiles">• Focus profiles: %1$d · goals: %2$d\n</string>
     <string name="settings_stored_history">• Days of counts: %1$d · Focus sessions: %2$d\n</string>
     <string name="settings_stored_motivations">• What you want more time for: %1$s\n</string>
@@ -528,7 +505,7 @@
     <!-- Home -->
     <string name="shield_library_headline">Shield yourself from distractions.</string>
     <string name="home_normal_title">Normal Session</string>
-    <string name="home_normal_body">Same setup, just for this once</string>
+    <string name="home_normal_body">Pick apps and a time. Starts now.</string>
     <string name="home_custom_title">Custom Session</string>
     <string name="home_custom_body">Your own, saved to reuse</string>
     <string name="home_active">Active now</string>
@@ -622,7 +599,6 @@
     <string name="cfg_review_when_always">Always, until you turn it off</string>
     <string name="cfg_review_focus">Focus: %1$s</string>
     <string name="cfg_overlap">Also covered by something already running: %s. All rules apply; the strongest decides.</string>
-    <string name="cfg_snapshot_note">Editing a Shield or Intent changes only later starts.</string>
     <string name="cfg_start">Start</string>
     <string name="home_ready_title">Custom Sessions</string>
     <string name="home_ready_confirm">Start %1$s for %2$s?</string>
@@ -822,4 +798,59 @@
     <string name="home_finished_verified">%s of verified protection. Well kept.</string>
     <string name="home_finished_body">It ran to the end.</string>
     <string name="cfg_focus_label">Focus, if you like</string>
+
+    <!-- Ship pass -->
+    <string name="error_save_title">That didn\'t save</string>
+    <string name="error_save_body">Aurora couldn\'t write to this phone\'s storage, so nothing changed. Free up some space and try again.</string>
+    <plurals name="picker_cap">
+        <item quantity="other">Aurora Free: up to %1$d apps and sites.</item>
+    </plurals>
+    <string name="gate_sites_title">Websites need one more switch</string>
+    <string name="gate_sites_body">This session includes websites. They\'re only held back once Web &amp; content is on.</string>
+    <string name="shield_add_sites">Add websites too</string>
+    <string name="shield_idea_social">Social Media Shield</string>
+    <string name="shield_idea_entertainment">Entertainment Shield</string>
+    <string name="shield_idea_gaming">Gaming Shield</string>
+    <string name="shield_idea_night">Night Shield</string>
+    <string name="quick_body">A time, a mode and your apps. That\'s all.</string>
+    <string name="quick_mode">How should it hold them back?</string>
+    <string name="quick_apps">Which apps?</string>
+    <string name="quick_more">More options</string>
+    <string name="quick_choose_apps">Choose at least one app to start.</string>
+    <string name="onb_almost_title">Almost there.</string>
+    <string name="onb_ready_no_shield">Shield is still off, so nothing can be held back yet. Aurora will ask again when you start your first session.</string>
+    <string name="onb_start_now">Start protection</string>
+    <string name="onb_start_later">Not now</string>
+    <string name="limit_items_title">That\'s the most for now</string>
+    <plurals name="limit_items_body">
+        <item quantity="other">You\'re protecting %1$d items, the most Aurora Free allows. Remove one to add another, or protect everything with Aurora Plus.</item>
+    </plurals>
+    <plurals name="limit_intent_title">
+        <item quantity="other">Intentional opening is on for %1$d apps</item>
+    </plurals>
+    <plurals name="limit_intent_body">
+        <item quantity="other">Aurora Free asks first on up to %1$d apps. Turn it off for one, or use it on every app with Aurora Plus.</item>
+    </plurals>
+    <plurals name="limit_daily_title">
+        <item quantity="other">%1$d daily limits are on</item>
+    </plurals>
+    <plurals name="limit_daily_body">
+        <item quantity="other">Aurora Free includes %1$d daily limits. Turn one off, or set as many as you like with Aurora Plus.</item>
+    </plurals>
+    <string name="limit_schedule_title">Your schedule is on</string>
+    <plurals name="limit_schedule_body">
+        <item quantity="other">Aurora Free includes %1$d schedule. Turn it off to use another, or add more with Aurora Plus.</item>
+    </plurals>
+    <string name="limit_focus_title">One Focus profile on Free</string>
+    <string name="limit_focus_body">Aurora Plus adds profiles for each kind of focus.</string>
+    <string name="limit_always_title">Not enough Always Block time left</string>
+    <plurals name="limit_always_body">
+        <item quantity="other">Aurora Free includes %1$d minutes of Always Block a day. Choose a shorter time, use Flexible, or get unlimited Always Block with Aurora Plus.</item>
+    </plurals>
+    <string name="billing_not_for_sale">Aurora Plus isn\'t available to buy in this version of Aurora yet.</string>
+    <string name="billing_unavailable">Google Play billing isn\'t available on this phone or account.</string>
+    <string name="billing_unreachable">Google Play can\'t be reached right now. Try again when you\'re online.</string>
+    <string name="billing_disconnected">Aurora couldn\'t connect to Google Play on this phone. Make sure the Play Store is installed and signed in, then try again.</string>
+    <string name="billing_cant_sell">This version of Aurora can\'t sell Aurora Plus.</string>
+    <string name="billing_other">Google Play couldn\'t complete that (code %1$d).</string>
 </resources>

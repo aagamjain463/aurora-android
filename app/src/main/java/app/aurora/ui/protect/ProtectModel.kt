@@ -3,6 +3,7 @@ package app.aurora.ui.protect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.aurora.AuroraApplication
+import app.aurora.R
 import app.aurora.data.InstalledApp
 import app.aurora.data.clockTicks
 import app.aurora.plan.Allowance
@@ -160,16 +161,12 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
     fun atLimit(allowance: Allowance) {
         val max = limit(app.plan, allowance) ?: return
         _notice.value = when (allowance) {
-            Allowance.ProtectedItems -> LimitNotice(
-                "That's the most for now",
-                "You're protecting $max items, the most Aurora Free allows. Remove one to add another, or protect everything with Aurora Plus.",
-                plus = true,
-            )
-            Allowance.IntentApps -> LimitNotice("Intentional opening is on for $max apps", "Aurora Free asks first on up to $max apps. Turn it off for one, or use it on every app with Aurora Plus.", true)
-            Allowance.DailyLimitRules -> LimitNotice("$max daily limits are on", "Aurora Free includes $max daily limits. Turn one off, or set as many as you like with Aurora Plus.", true)
-            Allowance.Schedules -> LimitNotice("Your schedule is on", "Aurora Free includes $max schedule. Turn it off to use another, or add more with Aurora Plus.", true)
-            Allowance.FocusProfiles -> LimitNotice("One Focus profile on Free", "Aurora Plus adds profiles for each kind of focus.", true)
-            Allowance.AlwaysBlockMinutesPerDay -> LimitNotice("Not enough Always Block time left", "Aurora Free includes $max minutes of Always Block a day. Choose a shorter time, use Flexible, or get unlimited Always Block with Aurora Plus.", true)
+            Allowance.ProtectedItems -> LimitNotice(app.getString(R.string.limit_items_title), app.resources.getQuantityString(R.plurals.limit_items_body, max, max), plus = true)
+            Allowance.IntentApps -> LimitNotice(app.resources.getQuantityString(R.plurals.limit_intent_title, max, max), app.resources.getQuantityString(R.plurals.limit_intent_body, max, max), true)
+            Allowance.DailyLimitRules -> LimitNotice(app.resources.getQuantityString(R.plurals.limit_daily_title, max, max), app.resources.getQuantityString(R.plurals.limit_daily_body, max, max), true)
+            Allowance.Schedules -> LimitNotice(app.getString(R.string.limit_schedule_title), app.resources.getQuantityString(R.plurals.limit_schedule_body, max, max), true)
+            Allowance.FocusProfiles -> LimitNotice(app.getString(R.string.limit_focus_title), app.getString(R.string.limit_focus_body), true)
+            Allowance.AlwaysBlockMinutesPerDay -> LimitNotice(app.getString(R.string.limit_always_title), app.resources.getQuantityString(R.plurals.limit_always_body, max, max), true)
         }
     }
 
@@ -179,6 +176,7 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
                 block()
             } catch (_: IOException) {
                 // The screens read the stored state back, so they keep showing the truth.
+                app.saveFailed.value = true
             }
         }
     }

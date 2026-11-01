@@ -114,6 +114,7 @@ fun ConfigureScreen(
     onCreateIntent: () -> Unit,
     onStrict: () -> Unit,
     onPlus: () -> Unit,
+    onOpenWeb: () -> Unit = {},
     /** Screenshots only: open on a later step, with a timing chosen. */
     startStep: String? = null,
     startWhen: When? = null,
@@ -176,6 +177,9 @@ fun ConfigureScreen(
         null -> null
     }
 
+    val shieldOn = app.aurora.rememberAccess(app.aurora.data.Access.Accessibility) == app.aurora.data.AccessState.Granted
+    val hasSites = shield?.keys.orEmpty().any { it.startsWith(app.aurora.protect.WebPrefix) }
+    val gate = app.aurora.ui.protect.shieldGateNeeded(hasSites)
     val steps = buildList {
         if (custom && saved.isNotEmpty() && !forGoal) add(Step.Saved)
         add(Step.Contents)
@@ -194,7 +198,8 @@ fun ConfigureScreen(
             else -> minutes != null && (whenKind != When.Later || laterStart > System.currentTimeMillis()) && (whenKind != When.Recurring || days.isNotEmpty())
         }
         Step.Focus -> focusValid
-        Step.Review -> hasContent && (!strict || committed) && (whenKind == When.Always || focusValid)
+        // Without Shield this would only be a timer, so nothing starts until it's on.
+        Step.Review -> hasContent && shieldOn && (!strict || committed) && (whenKind == When.Always || focusValid)
     }
     // Both run in the ViewModel's scope (the main thread), so navigating afterwards is always safe.
     val saveOnly = {
@@ -396,31 +401,19 @@ fun ConfigureScreen(
                 focusItems()
             }
             Step.Review -> {
-                stepTitle(R.string.cfg_review_title, R.string.cfg_snapshot_note)
+                stepTitle(R.string.cfg_review_title, null)
+                if (gate) item(key = "gate") { app.aurora.ui.protect.ShieldGate(hasSites, onOpenWeb) }
                 item(key = "summary") { Summary(d, configName, shield, intent, focus, timing, zone) }
-                if (whenKind != When.Always) {
-                    item(key = "focus-label") { Label(stringResource(R.string.cfg_focus_label)) }
-                    focusItems()
-                }
                 val overlap = d.rules.copy(shields = d.rules.shields + listOfNotNull(shield), intentPresets = d.rules.intentPresets + listOfNotNull(intent))
                     .overlaps(config, vm.app.runsNow(d.time))
                 if (overlap.isNotEmpty()) item(key = "overlap") {
                     Text(stringResource(R.string.cfg_overlap, overlap.joinToString(", ") { d.label(it).ifBlank { it.removePrefix("web:") } }), color = colors.textSecondary, style = AuroraType.Secondary)
                 }
-                if (strict) item(key = "commit") {
-                    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                        Text(stringResource(R.string.start_commit_body), color = colors.textSecondary, style = AuroraType.Body)
-                        Row(
-                            Modifier.fillMaxWidth().auroraSurface(colors, warm = committed).toggleable(committed, role = Role.Checkbox) { committed = it }.padding(Space.M),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
-                        ) {
-                            SelectionMark(committed)
-                            Text(stringResource(R.string.always_block_confirm), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                        }
-                        Text(stringResource(R.string.start_commit_limits), color = colors.textTertiary, style = AuroraType.Caption)
-                        UninstallProtection()
-                        AuroraButton(stringResource(R.string.cfg_strict_link), onStrict, kind = ButtonKind.Quiet)
-                    }
+                if (strict) item(key = "commit") { CommitBlock(committed, { committed = it }, onStrict) }
+                // Focus is an addition, so it comes after what the session is.
+                if (whenKind != When.Always) {
+                    item(key = "focus-label") { Label(stringResource(R.string.cfg_focus_label)) }
+                    focusItems()
                 }
             }
         }
@@ -437,6 +430,25 @@ fun ConfigureScreen(
             if (goals.isEmpty()) stringResource(R.string.config_delete_body) else stringResource(R.string.config_delete_habits, goals.joinToString(", ") { it.name }) + " " + stringResource(R.string.config_delete_body),
             stringResource(R.string.action_cancel),
         )
+    }
+}
+
+/** The commitment every strict session asks for, wherever it is started. */
+@Composable
+fun CommitBlock(committed: Boolean, onChange: (Boolean) -> Unit, onStrict: (() -> Unit)?) {
+    val colors = Aurora.colors
+    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+        Text(stringResource(R.string.start_commit_body), color = colors.textSecondary, style = AuroraType.Body)
+        Row(
+            Modifier.fillMaxWidth().auroraSurface(colors, warm = committed).toggleable(committed, role = Role.Checkbox, onValueChange = onChange).padding(Space.M),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
+        ) {
+            SelectionMark(committed)
+            Text(stringResource(R.string.always_block_confirm), color = colors.textPrimary, style = AuroraType.BodyStrong)
+        }
+        Text(stringResource(R.string.start_commit_limits), color = colors.textTertiary, style = AuroraType.Caption)
+        UninstallProtection()
+        if (onStrict != null) AuroraButton(stringResource(R.string.cfg_strict_link), onStrict, kind = ButtonKind.Quiet)
     }
 }
 

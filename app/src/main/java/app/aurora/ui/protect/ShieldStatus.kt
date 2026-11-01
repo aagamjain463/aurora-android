@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +32,7 @@ import app.aurora.R
 import app.aurora.data.Access
 import app.aurora.data.AccessState
 import app.aurora.data.ProtectionStatus
+import app.aurora.data.openAccessSettings
 import app.aurora.data.protectionStatus
 import app.aurora.protect.ProtectedList
 import app.aurora.protect.ShieldService
@@ -109,6 +111,60 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
             }
             else -> Unit
         }
+    }
+}
+
+/** Whether [ShieldGate] has something to say. */
+@Composable
+fun shieldGateNeeded(hasSites: Boolean): Boolean {
+    val connected by ShieldService.connected.collectAsStateWithLifecycle()
+    return rememberAccess(Access.Accessibility) != AccessState.Granted || !connected || (hasSites && rememberAccess(Access.Content) != AccessState.Granted)
+}
+
+/**
+ * Before anything starts: what would stop it being enforced, and the one step that fixes it. Screens
+ * refuse to start without the Accessibility switch; a service still connecting only gets a note, since a
+ * fresh process reads as not connected for a moment.
+ */
+@Composable
+fun ShieldGate(hasSites: Boolean, onOpenWeb: () -> Unit) {
+    val colors = Aurora.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val access = rememberAccess(Access.Accessibility)
+    val connected by ShieldService.connected.collectAsStateWithLifecycle()
+    val content = rememberAccess(Access.Content)
+    var disclosure by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+        if (access != AccessState.Granted) GateCard(R.string.status_permission_title, R.string.status_permission_body, R.string.status_turn_on, primary = true) { disclosure = true }
+        else if (!connected) GateCard(R.string.status_not_running_title, if (isXiaomi) R.string.status_not_running_body_xiaomi else R.string.status_not_running_body, R.string.status_open_accessibility, onAction = { openAccessSettings(context, Access.Accessibility) })
+        if (hasSites && content != AccessState.Granted) GateCard(R.string.gate_sites_title, R.string.gate_sites_body, R.string.web_turn_on, onAction = onOpenWeb)
+    }
+    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
+}
+
+@Composable
+private fun GateCard(title: Int, body: Int, action: Int, primary: Boolean = false, onAction: () -> Unit) {
+    val colors = Aurora.colors
+    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        Text(stringResource(title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
+        Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
+        AuroraButton(stringResource(action), onAction, Modifier.padding(top = Space.XS).fillMaxWidth(), kind = if (primary) ButtonKind.Primary else ButtonKind.Secondary, compact = true)
+    }
+}
+
+/** Why something wasn't added, from [ProtectModel.notice], with the way to Plus where it applies. */
+@Composable
+fun LimitNoticeDialog(vm: ProtectModel, onPlus: (() -> Unit)?) {
+    val notice by vm.notice.collectAsStateWithLifecycle()
+    notice?.let { n ->
+        val plus = onPlus.takeIf { n.plus }
+        AuroraDialog(
+            n.title, vm::dismissNotice,
+            stringResource(if (plus != null) R.string.plus_see else R.string.action_ok),
+            { vm.dismissNotice(); plus?.invoke() },
+            n.body,
+            if (plus != null) stringResource(R.string.action_not_now) else null,
+        )
     }
 }
 
