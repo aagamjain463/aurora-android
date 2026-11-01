@@ -392,6 +392,7 @@ fun ConfigureScreen(
                         minutes, { minutes = it }, ProtectionPresets.filter { it <= max }.let { if (whenKind == When.Now) listOf(15, 30, 60, 360).filter { m -> m <= max } else it },
                         title = stringResource(R.string.cfg_how_long), hint = stringResource(R.string.cfg_how_long_hint),
                         max = max.coerceAtLeast(1), endsFromNow = whenKind == When.Now,
+                        customInitially = custom,
                     )
                 }
                 if (allowance != null) item(key = "allowance") {

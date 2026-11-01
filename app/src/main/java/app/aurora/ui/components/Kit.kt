@@ -127,6 +127,7 @@ fun parseDuration(hours: String, minutes: String, min: Int, max: Int): Int? =
  * [value] null means nothing chosen yet. [title] says exactly what this time is ("How long should
  * protection last?"), [hint] what it means. With [endsFromNow] the end time is shown, for durations that
  * start now.
+ * [customInitially] opens the hours and minutes fields even when [value] matches a preset.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -140,11 +141,12 @@ fun DurationPicker(
     min: Int = 1,
     max: Int = 24 * 60,
     endsFromNow: Boolean = false,
+    customInitially: Boolean = false,
 ) {
     val colors = Aurora.colors
-    var custom by rememberSaveable { mutableStateOf(value != null && value !in presets) }
-    var hours by rememberSaveable { mutableStateOf(if (value != null && value !in presets) (value / 60).takeIf { it > 0 }?.toString().orEmpty() else "") }
-    var minutes by rememberSaveable { mutableStateOf(if (value != null && value !in presets) (value % 60).toString() else "") }
+    var custom by rememberSaveable { mutableStateOf(customInitially || (value != null && value !in presets)) }
+    var hours by rememberSaveable { mutableStateOf(if (custom && value != null) (value / 60).takeIf { it > 0 }?.toString().orEmpty() else "") }
+    var minutes by rememberSaveable { mutableStateOf(if (custom && value != null) (value % 60).toString() else "") }
     val problem = if (custom && (hours.isNotEmpty() || minutes.isNotEmpty())) durationProblem(hours, minutes, min, max) else null
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.S)) {
