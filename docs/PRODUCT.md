@@ -113,12 +113,12 @@ Free: five protected apps/sites, three Intent apps, three daily limits, one sche
 profile, 120 Always Block minutes per day and Today/7-day Insights. Plus removes these limits and
 adds 30-day Insights. Paused items remain saved after downgrade; restoring them is explicit.
 
-Play Billing uses the configured subscription product and Play-formatted prices, acknowledges
-purchases and restores by querying Play. Pending purchases do not grant Plus. Cached Plus lasts up
-to seven days offline. Play Console products, license testers, purchase lifecycle checks, signing,
-server verification and accessibility policy approval remain launch requirements. Release builds are
-signed with the upload key when `keystore.properties` exists (docs/RELEASE.md); CI builds stay unsigned. The manifest removes INTERNET/ACCESS_NETWORK_STATE from Billing diagnostics; purchase
-flows with those removals need license-tester validation.
+Play Billing uses the configured subscription products and Play-formatted prices. A purchase unlocks Plus only
+through a snapshot the verification server signs after asking Google (docs/BILLING.md). Pending purchases do
+not grant Plus. A verified snapshot lasts up to seven days offline. Play Console products, license testers,
+purchase lifecycle checks, deploying the server, signing and accessibility policy approval remain launch
+requirements. Release builds are signed with the upload key when `keystore.properties` exists (docs/RELEASE.md);
+CI builds stay unsigned. Builds without a verification server configured don't sell Plus at all.
 
 ## Validation and launch gates
 

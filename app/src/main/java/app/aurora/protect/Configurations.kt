@@ -1,8 +1,15 @@
 package app.aurora.protect
 
 import app.aurora.plan.Allowance
+import app.aurora.plan.EntitlementPolicy
+import app.aurora.plan.LedgerEntry
+import app.aurora.plan.LimitDecision
 import app.aurora.plan.Plan
+import app.aurora.plan.committedFits
+import app.aurora.plan.keepActive
 import app.aurora.plan.limit
+import app.aurora.plan.quotaNow
+import app.aurora.plan.quotaZone
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant
@@ -116,7 +123,7 @@ data class ConfigRun(
     val start: Long,
     val end: Long? = null,
     val time: Session? = null,
-    /** Free plan: Always Block is committed until here (the day's allowance); after it the Shield is Flexible. */
+    /** Only in runs stored by older versions: Always Block was committed until here, then the Shield was Flexible. */
     val committedUntil: Long? = null,
     val focusOutcome: FocusOutcome? = null,
     /** Times the person continued past their chosen time at an Intent reminder. */
@@ -194,65 +201,160 @@ fun Activation.endedWindows(from: Long, to: Long, zone: ZoneId): List<Pair<Long,
 /** The next start after [now], within a week, or null. */
 fun Activation.nextStart(now: Long, zone: ZoneId): Long? = windows(now, zone).map { it.first }.firstOrNull { it > now }
 
+/** What the person chose to keep active on Free after a downgrade. */
+@Serializable
+data class FreeKeep(val shield: Set<String> = emptySet(), val intent: Set<String> = emptySet(), val goalId: String? = null)
+
+/** One identity per target: "Www.Example.com" and "example.com" are the same site. */
+fun canonicalKey(key: String): String = itemOf(key)?.key ?: key
+
+private fun Rules.liveActivations(now: Long, zone: ZoneId) =
+    activations.filter { it.enabled && it.windows(now, zone).isNotEmpty() }.sortedBy { it.createdAt }
+
+/** Every Shield target the person has switched on, oldest first: enabled activations, then Daily Limits. */
+fun Rules.requestedShield(now: Long, zone: ZoneId): List<String> =
+    (liveActivations(now, zone).flatMap { a -> configs.find { it.id == a.configId }?.let { shieldOf(it)?.keys }.orEmpty() } + activeLimits().map { it.key })
+        .map(::canonicalKey).distinct()
+
+fun Rules.requestedIntent(now: Long, zone: ZoneId): List<String> =
+    liveActivations(now, zone).flatMap { a -> configs.find { it.id == a.configId }?.let { intentOf(it)?.keys }.orEmpty() }.distinct()
+
 /**
- * The activations [plan] enforces. On Free, the oldest that fit come first: one recurring schedule, five
- * protected items and three Intent apps across them, counting an app once however many reference it.
- * The rest stay saved and paused: a downgrade never deletes anything.
+ * The targets [plan] enforces, or null for all of them. On Free: the person's choice first, then the oldest.
+ * This is computed, never stored, so a downgrade is one idempotent function of the plan and the saved
+ * configuration: it survives process death, deletes nothing, and renewing restores everything at once.
  */
-fun Rules.entitledActivations(plan: Plan): Set<String> {
-    val enabled = activations.filter { it.enabled }.sortedBy { it.createdAt }
+fun Rules.retainedShield(plan: Plan, now: Long, zone: ZoneId): Set<String>? =
+    if (limit(plan, Allowance.ProtectedItems) == null) null else keepActive(plan, Allowance.ProtectedItems, requestedShield(now, zone), keep.shield).toSet()
+
+fun Rules.retainedIntent(plan: Plan, now: Long, zone: ZoneId): Set<String>? =
+    if (limit(plan, Allowance.IntentApps) == null) null else keepActive(plan, Allowance.IntentApps, requestedIntent(now, zone), keep.intent).toSet()
+
+/**
+ * The activations [plan] enforces: enabled ones with something left to do once [retainedShield] and
+ * [retainedIntent] are applied. The rest stay saved and paused.
+ */
+fun Rules.entitledActivations(plan: Plan, now: Long, zone: ZoneId): Set<String> {
+    val enabled = activations.filter { it.enabled }
     if (plan == Plan.Plus) return enabled.map { it.id }.toSet()
-    val items = mutableSetOf<String>()
-    val intentApps = mutableSetOf<String>()
-    var recurring = 0
-    val kept = mutableSetOf<String>()
-    for (a in enabled) {
-        val c = configs.find { it.id == a.configId } ?: continue
-        val shieldKeys = shieldOf(c)?.keys.orEmpty()
-        val intentKeys = intentOf(c)?.keys.orEmpty()
-        val r = if (a.timing is Timing.Recurring) 1 else 0
-        if (recurring + r > limit(plan, Allowance.Schedules)!!) continue
-        if ((items + shieldKeys).size > limit(plan, Allowance.ProtectedItems)!!) continue
-        if ((intentApps + intentKeys).size > limit(plan, Allowance.IntentApps)!!) continue
-        recurring += r
-        items += shieldKeys
-        intentApps += intentKeys
-        kept += a.id
-    }
-    return kept
+    val shieldKeep = retainedShield(plan, now, zone).orEmpty()
+    val intentKeep = retainedIntent(plan, now, zone).orEmpty()
+    return enabled.filter { a ->
+        val c = configs.find { it.id == a.configId } ?: return@filter false
+        val shield = shieldOf(c)?.keys.orEmpty()
+        val intent = intentOf(c)?.keys.orEmpty()
+        (shield.isEmpty() && intent.isEmpty()) || shield.any { canonicalKey(it) in shieldKeep } || intent.any { it in intentKeep }
+    }.map { it.id }.toSet()
+}
+
+/** The person's Goals that count as active under [plan]. On Free: the one they kept, or the oldest. */
+fun Rules.activeGoalIds(plan: Plan): Set<String> = keepActive(
+    plan, Allowance.ActiveGoals,
+    trackGoals.filter { it.status == app.aurora.progress.GoalStatus.Active }.sortedBy { it.createdAt }.map { it.id },
+    listOfNotNull(keep.goalId),
+).toSet()
+
+/** What a downgrade has paused: saved, not active, and restored at once when Plus returns. */
+data class PlanExcess(val shield: List<String>, val intent: List<String>, val goals: List<String>) {
+    val any: Boolean get() = shield.isNotEmpty() || intent.isNotEmpty() || goals.isNotEmpty()
+}
+
+fun Rules.planExcess(plan: Plan, now: Long, zone: ZoneId): PlanExcess {
+    val shieldKeep = retainedShield(plan, now, zone)
+    val intentKeep = retainedIntent(plan, now, zone)
+    val goalKeep = activeGoalIds(plan)
+    return PlanExcess(
+        requestedShield(now, zone).filter { shieldKeep != null && it !in shieldKeep },
+        requestedIntent(now, zone).filter { intentKeep != null && it !in intentKeep },
+        trackGoals.filter { it.status == app.aurora.progress.GoalStatus.Active && it.id !in goalKeep }.map { it.id },
+    )
+}
+
+/** Records when each Goal stops and starts being measured. Idempotent: called on every sync. */
+fun Rules.goalsReconciled(plan: Plan, now: Long): Rules {
+    val active = activeGoalIds(plan)
+    val next = trackGoals.map { it.withMeasuring(it.id in active, now) }
+    return if (next == trackGoals) this else copy(trackGoals = next)
 }
 
 fun Rules.shieldOf(c: UsageConfig): ShieldPreset? = c.shield ?: c.shieldId?.let { id -> shields.find { it.id == id } }
 fun Rules.intentOf(c: UsageConfig): IntentPreset? = c.intent ?: c.intentId?.let { id -> intentPresets.find { it.id == id } }
 
-/** A run for the occurrence of [a] in [window], from the presets as they are now. */
-fun Rules.runFor(a: Activation, window: Pair<Long, Long>): ConfigRun? {
+/** A run for the occurrence of [a] in [window], from the presets as they are now, over what [plan] retains. */
+fun Rules.runFor(a: Activation, window: Pair<Long, Long>, plan: Plan, now: Long, zone: ZoneId): ConfigRun? {
     val c = configs.find { it.id == a.configId } ?: return null
+    val shieldKeep = retainedShield(plan, now, zone)
+    val intentKeep = retainedIntent(plan, now, zone)
+    val shield = shieldOf(c)?.let { s -> if (shieldKeep == null) s else s.copy(keys = s.keys.filter { canonicalKey(it) in shieldKeep }) }?.takeIf { it.keys.isNotEmpty() || shieldOf(c)?.keys.isNullOrEmpty() }
+    val intent = intentOf(c)?.let { p -> if (intentKeep == null) p else p.copy(keys = p.keys.filter { it in intentKeep }) }?.takeIf { it.keys.isNotEmpty() || intentOf(c)?.keys.isNullOrEmpty() }
     return ConfigRun(
-        occurrenceId(a, window.first), c.id, c.name, a.id, c.custom, shieldOf(c), intentOf(c), c.focus,
+        occurrenceId(a, window.first), c.id, c.name, a.id, c.custom, shield, intent, c.focus,
         start = window.first, end = window.second.takeIf { it != Long.MAX_VALUE },
     )
 }
 
-/**
- * Every run that applies now or starts next: the stored runs, plus the occurrences of entitled
- * activations not stored yet (computed from the current presets until [materialize] freezes them).
- * [closed] occurrences were turned off or settled and never come back.
- */
-fun liveRuns(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): List<ConfigRun> {
-    val stored = runtime.runs.filterNot { it.isOver(t) }
+/** A ledger entry for committed protection from [start] (at the earliest now) to [end], on the quota's clock and calendar. */
+fun Runtime.ledgerEntry(start: Long, end: Long, t: DeviceTime, zone: ZoneId): LedgerEntry {
+    val now = quotaNow(ledger, t.wall, t.elapsed, t.boot)
+    // The window is in wall-clock time; the quota's clock may disagree with a clock that was moved.
+    val shift = now - t.wall
+    val from = maxOf(start + shift, now)
+    return LedgerEntry(start = from, end = maxOf(from, end + shift), zone = quotaZone(ledger, from, zone).id, elapsed = t.elapsed + (from - now), boot = t.boot)
+}
+
+/** Today's committed allowance as shown to the person. */
+fun Runtime.quotaToday(plan: Plan, t: DeviceTime, zone: ZoneId): app.aurora.plan.QuotaStatus {
+    val now = quotaNow(ledger, t.wall, t.elapsed, t.boot)
+    return app.aurora.plan.quotaStatus(plan, ledger, now, quotaZone(ledger, now, zone))
+}
+
+/** Occurrences not stored yet, in start order: those that may run, and those the day's allowance refuses. */
+private fun occurrences(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): Pair<List<ConfigRun>, List<ConfigRun>> {
     val known = runtime.runs.map { it.id }.toSet() + runtime.closed.keys
-    val entitled = rules.entitledActivations(plan)
-    val virtual = rules.activations.filter { it.id in entitled }.flatMap { a ->
+    val entitled = rules.entitledActivations(plan, t.wall, zone)
+    val due = rules.activations.filter { it.id in entitled }.flatMap { a ->
         a.windows(t.wall, zone).mapNotNull { w ->
             val id = occurrenceId(a, w.first)
             // A Phase 3 schedule migrated with its id: its committed Always Block window is already a session.
             val legacy = runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }
-            if (id in known || legacy) null else rules.runFor(a, w)
+            if (id in known || legacy) null else rules.runFor(a, w, plan, t.wall, zone)
         }
+    }.sortedBy { it.start }
+    val allowed = mutableListOf<ConfigRun>()
+    val refused = mutableListOf<ConfigRun>()
+    var ledger = runtime.ledger
+    for (run in due) {
+        if (plan == Plan.Plus || run.shield?.mode?.usesQuota != true) {
+            allowed += run
+            continue
+        }
+        // Open-ended committed protection can't be reserved, so Free doesn't start it.
+        val end = run.end
+        if (end == null || run.id in runtime.quotaDenied) {
+            if (run.covers(t)) refused += run
+            continue
+        }
+        val entry = Runtime(ledger = ledger).ledgerEntry(run.start, end, t, zone)
+        if (committedFits(plan, ledger, entry.start, entry.end, ZoneId.of(entry.zone))) {
+            ledger = ledger + entry
+            allowed += run
+        } else if (run.covers(t)) refused += run
     }
-    return stored + virtual
+    return allowed to refused
 }
+
+/**
+ * Every run that applies now or starts next: the stored runs, plus the occurrences of entitled activations
+ * not stored yet (computed from the current presets until [materialize] freezes them). [closed] occurrences
+ * were turned off or settled and never come back. A committed occurrence that doesn't fit Free's allowance
+ * isn't here at all: no Flexible stand-in, and nothing enforced before its time is reserved.
+ */
+fun liveRuns(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): List<ConfigRun> =
+    runtime.runs.filterNot { it.isOver(t) } + occurrences(rules, runtime, plan, t, zone).first
+
+/** Committed occurrences due now that the day's allowance refuses. */
+fun runsRefusedByQuota(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): List<ConfigRun> =
+    occurrences(rules, runtime, plan, t, zone).second
 
 /** The virtual runs that cover [t] now: these are stored, freezing their presets. */
 fun runsToMaterialize(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): List<ConfigRun> {
@@ -276,42 +378,76 @@ fun intentsNow(runs: List<ConfigRun>, t: DeviceTime): Map<String, IntentConfig> 
     return out
 }
 
-/** Why a configuration can't be activated as asked, or null when it can. */
-enum class ActivationProblem { Empty, AlwaysWithAlwaysBlock, InThePast, NoDays, TooShort, OverItems, OverIntentApps, OverSchedules, OverAlwaysBlockAllowance }
+/** Why a configuration can't be activated as asked. The last three are plan limits, explained by a [LimitDecision]. */
+enum class ActivationProblem {
+    Empty, AlwaysWithAlwaysBlock, InThePast, NoDays, TooShort, OverItems, OverIntentApps, OverCommittedAllowance;
+
+    val overLimit: Boolean get() = this == OverItems || this == OverIntentApps || this == OverCommittedAllowance
+}
+
+/** A refused operation: nothing changed. [decision] says why, for plan limits. */
+data class Refusal(val problem: ActivationProblem, val decision: LimitDecision? = null)
+
+/** The targets holding a slot: what is running, and what [plan] retains of what is switched on. [focusKeys] are a running Focus's. */
+data class ActiveTargets(val shield: Set<String>, val intent: Set<String>)
+
+fun activeTargets(rules: Rules, runtime: Runtime, t: DeviceTime, zone: ZoneId, plan: Plan, focusKeys: Set<String> = emptySet()): ActiveTargets {
+    val runs = runtime.runs.filterNot { it.isOver(t) }
+    return ActiveTargets(
+        ((rules.retainedShield(plan, t.wall, zone) ?: rules.requestedShield(t.wall, zone)) + runs.flatMap { it.shield?.keys.orEmpty() } + runtime.sessions.filterNot { it.time.isOver(t) }.flatMap { it.keys } + focusKeys).map(::canonicalKey).toSet(),
+        ((rules.retainedIntent(plan, t.wall, zone) ?: rules.requestedIntent(t.wall, zone)) + runs.flatMap { it.intent?.keys.orEmpty() }).toSet(),
+    )
+}
+
+/** Checks whether more targets fit, given [rules] as they will be once the change is stored. */
+fun targetsRefusal(plan: Plan, active: ActiveTargets, shield: Collection<String>, intent: Collection<String>): Refusal? {
+    val s = EntitlementPolicy.canActivateShieldTarget(plan, active.shield, shield.map(::canonicalKey).toSet())
+    if (!s.allowed) return Refusal(ActivationProblem.OverItems, s)
+    val i = EntitlementPolicy.canActivateIntentApp(plan, active.intent, intent.toSet())
+    if (!i.allowed) return Refusal(ActivationProblem.OverIntentApps, i)
+    return null
+}
 
 /**
- * Checks [timing] for configuration [c]. Always scheduling isn't offered for a strict Shield (Always
- * Block, Cooldown, Friction): a permanent commitment must never be created by accident. Free limits count what is actually enforced:
- * running runs and entitled activations, plus this one.
+ * Checks [timing] for configuration [c]; [this] already holds [c]. Always scheduling isn't offered for a
+ * strict Shield (Always Block, Cooldown, Friction): a permanent commitment must never be created by accident.
+ *
+ * Starting now must fit today's committed allowance. A schedule's executions are checked when each one
+ * runs; here it is refused only when one window alone could never fit.
  */
-fun Rules.problem(c: UsageConfig, timing: Timing, plan: Plan, running: List<ConfigRun>, now: Long): ActivationProblem? {
+fun Rules.problem(c: UsageConfig, timing: Timing, plan: Plan, runtime: Runtime, t: DeviceTime, zone: ZoneId, focusKeys: Set<String> = emptySet()): Refusal? {
     val shield = shieldOf(c)
     val intent = intentOf(c)
-    if ((shield == null || shield.keys.isEmpty()) && (intent == null || intent.keys.isEmpty()) && c.focus == null) return ActivationProblem.Empty
-    if (timing is Timing.Always && shield?.mode?.strict == true) return ActivationProblem.AlwaysWithAlwaysBlock
+    if ((shield == null || shield.keys.isEmpty()) && (intent == null || intent.keys.isEmpty()) && c.focus == null) return Refusal(ActivationProblem.Empty)
+    if (timing is Timing.Always && shield?.mode?.strict == true) return Refusal(ActivationProblem.AlwaysWithAlwaysBlock)
     when (timing) {
-        is Timing.Now -> if (timing.minutes <= 0) return ActivationProblem.TooShort
+        is Timing.Now -> if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
         is Timing.Later -> {
-            if (timing.minutes <= 0) return ActivationProblem.TooShort
-            if (timing.start <= now) return ActivationProblem.InThePast
+            if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
+            if (timing.start <= t.wall) return Refusal(ActivationProblem.InThePast)
         }
         is Timing.Recurring -> {
-            if (timing.days.isEmpty()) return ActivationProblem.NoDays
-            if (timing.minutes <= 0) return ActivationProblem.TooShort
+            if (timing.days.isEmpty()) return Refusal(ActivationProblem.NoDays)
+            if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
         }
         Timing.Always -> Unit
     }
-    if (plan == Plan.Plus) return null
-    val entitled = entitledActivations(plan)
-    val enforced = activations.filter { it.id in entitled }.mapNotNull { a -> configs.find { it.id == a.configId } }
-    val items = (enforced.flatMap { shieldOf(it)?.keys.orEmpty() } + running.flatMap { it.shield?.keys.orEmpty() }).toSet()
-    val apps = (enforced.flatMap { intentOf(it)?.keys.orEmpty() } + running.flatMap { it.intent?.keys.orEmpty() }).toSet()
-    if ((items + shield?.keys.orEmpty()).size > limit(plan, Allowance.ProtectedItems)!!) return ActivationProblem.OverItems
-    if ((apps + intent?.keys.orEmpty()).size > limit(plan, Allowance.IntentApps)!!) return ActivationProblem.OverIntentApps
-    if (timing is Timing.Recurring && activations.count { it.id in entitled && it.timing is Timing.Recurring } >= limit(plan, Allowance.Schedules)!!) {
-        return ActivationProblem.OverSchedules
+    targetsRefusal(plan, activeTargets(this, runtime, t, zone, plan, focusKeys), shield?.keys.orEmpty(), intent?.keys.orEmpty())?.let { return it }
+    if (shield?.mode?.usesQuota != true) return null
+    val minutes = when (timing) {
+        is Timing.Now -> timing.minutes
+        is Timing.Later -> timing.minutes
+        is Timing.Recurring -> timing.minutes
+        Timing.Always -> return null
     }
-    return null
+    val decision = if (timing is Timing.Now) {
+        val entry = runtime.ledgerEntry(t.wall, t.wall + minutes * 60_000L, t, zone)
+        EntitlementPolicy.canStartCommittedProtection(plan, runtime.ledger, entry.start, entry.end, ZoneId.of(entry.zone))
+    } else {
+        val start = (timing as? Timing.Later)?.start ?: t.wall
+        EntitlementPolicy.canStartCommittedProtection(plan, emptyList(), start, start + minutes * 60_000L, zone)
+    }
+    return if (decision.allowed) null else Refusal(ActivationProblem.OverCommittedAllowance, decision)
 }
 
 /**

@@ -18,9 +18,13 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // The Play subscription that is aurora plus. Override with -Paurora.plusProductId=... once Play Console has it.
-        val plusProduct = providers.gradleProperty("aurora.plusProductId").getOrElse("aurora_plus")
-        buildConfigField("String", "PLUS_PRODUCT_ID", "\"$plusProduct\"")
+        // The Play subscriptions that are aurora plus, comma-separated. One product with monthly and annual
+        // base plans works too (docs/BILLING.md).
+        val plusProducts = providers.gradleProperty("aurora.plusProductIds").getOrElse("aurora_plus_monthly,aurora_plus_annual")
+        buildConfigField("String", "PLUS_PRODUCT_IDS", "\"$plusProducts\"")
+        // The verification server (server/). Empty: this build can't verify a purchase, so it doesn't sell Plus.
+        buildConfigField("String", "ENTITLEMENT_URL", "\"${providers.gradleProperty("aurora.entitlementUrl").getOrElse("")}\"")
+        buildConfigField("String", "ENTITLEMENT_PUBLIC_KEY", "\"${providers.gradleProperty("aurora.entitlementPublicKey").getOrElse("")}\"")
     }
 
     // The Play upload key. keystore.properties (never committed; see docs/RELEASE.md) names storeFile,

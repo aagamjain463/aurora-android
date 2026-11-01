@@ -21,6 +21,8 @@ class ConfigurationsTest {
     private val rules = Rules(version = 1, shields = listOf(social, strict), intentPresets = listOf(yt), configs = listOf(config))
     private val list = ProtectedList()
 
+    private fun Rules.p(c: UsageConfig, timing: Timing, plan: Plan, now: Long) = problem(c, timing, plan, Runtime(), t(now), zone)?.problem
+
     private fun policy(r: Rules, rt: Runtime, wall: Long, plan: Plan = Plan.Plus) = policyState(list, r, rt, plan, emptySet(), emptyMap(), t(wall), zone)!!
 
     /** Saving presets and configurations enforces nothing. */
@@ -91,10 +93,10 @@ class ConfigurationsTest {
         val now = at(2027, 1, 1, 0)
         assertTrue(decide("com.instagram.android", now, policy(rules.copy(activations = listOf(a)), Runtime(), now)) is Decision.Shield)
         val strictConfig = UsageConfig("x", "Strict", shieldId = "ab")
-        assertEquals(ActivationProblem.AlwaysWithAlwaysBlock, rules.problem(strictConfig, Timing.Always, Plan.Plus, emptyList(), now))
-        assertNull(rules.problem(strictConfig, Timing.Now(60), Plan.Plus, emptyList(), now))
-        assertEquals(ActivationProblem.InThePast, rules.problem(config, Timing.Later(now - 1, 30), Plan.Plus, emptyList(), now))
-        assertEquals(ActivationProblem.Empty, rules.problem(UsageConfig("e", "Empty"), Timing.Now(30), Plan.Plus, emptyList(), now))
+        assertEquals(ActivationProblem.AlwaysWithAlwaysBlock, rules.p(strictConfig, Timing.Always, Plan.Plus, now))
+        assertNull(rules.p(strictConfig, Timing.Now(60), Plan.Plus, now))
+        assertEquals(ActivationProblem.InThePast, rules.p(config, Timing.Later(now - 1, 30), Plan.Plus, now))
+        assertEquals(ActivationProblem.Empty, rules.p(UsageConfig("e", "Empty"), Timing.Now(30), Plan.Plus, now))
     }
 
     @Test
@@ -125,12 +127,12 @@ class ConfigurationsTest {
         assertTrue(committed.restrictions(t(now + min)).single().locks)
         assertTrue(weak.copy(shield = social.copy(mode = Mode.Flexible)).restrictions(t(now + min)).none { it.locks })
         val cooling = rules.copy(shields = rules.shields + social.copy(id = "cd", mode = Mode.Cooldown))
-        assertEquals(ActivationProblem.AlwaysWithAlwaysBlock, cooling.problem(UsageConfig("w", "W", shieldId = "cd"), Timing.Always, Plan.Plus, emptyList(), now))
+        assertEquals(ActivationProblem.AlwaysWithAlwaysBlock, cooling.p(UsageConfig("w", "W", shieldId = "cd"), Timing.Always, Plan.Plus, now))
     }
 
-    /** Free: committed only for the allowance, then the same window is Flexible and can be turned off. */
+    /** A run stored by an older version keeps the terms it started with. */
     @Test
-    fun freeAlwaysBlockCommitsOnlyItsAllowance() {
+    fun aStoredPartlyCommittedRunKeepsItsTerms() {
         val now = at(2026, 10, 27, 9)
         val run = ConfigRun("rec:a:1", "x", "Strict", shield = strict, start = now, end = now + 180 * min, committedUntil = now + 120 * min)
         assertEquals(listOf(ShieldReason.AlwaysBlock, ShieldReason.Flexible), run.restrictions(t(now)).map { it.reason })
@@ -138,7 +140,7 @@ class ConfigurationsTest {
         assertTrue(run.cancellable(t(now + 120 * min)))
     }
 
-    /** Free counts actively enforced items once, across configurations, and one recurring schedule. */
+    /** Free counts actively enforced items once, across configurations. Schedules have no limit of their own. */
     @Test
     fun freeEntitlementsCountWhatIsEnforced() {
         val five = ShieldPreset("five", "Five", (1..5).map { "a.p$it" })
@@ -148,13 +150,16 @@ class ConfigurationsTest {
             configs = listOf(UsageConfig("c5", "Five", shieldId = "five"), UsageConfig("co", "Other", shieldId = "other")),
             activations = listOf(Activation("1", "c5", Timing.Always, createdAt = 1), Activation("2", "co", Timing.Always, createdAt = 2)),
         )
-        assertEquals(setOf("1"), r.entitledActivations(Plan.Free))
-        assertEquals(setOf("1", "2"), r.entitledActivations(Plan.Plus))
+        val wall = at(2027, 1, 1, 0)
+        assertEquals(setOf("1", "2"), r.entitledActivations(Plan.Plus, wall, zone))
+        assertEquals((1..5).map { "a.p$it" }.toSet(), r.retainedShield(Plan.Free, wall, zone))
+        // The second keeps the target it shares, and the one past the limit is paused.
+        assertEquals(listOf("a.p1"), r.runFor(r.activations[1], wall to wall + min, Plan.Free, wall, zone)?.shield?.keys)
         val sameApps = UsageConfig("again", "Again", shieldId = "five")
-        assertNull(r.problem(sameApps, Timing.Now(30), Plan.Free, emptyList(), 0))
-        assertEquals(ActivationProblem.OverItems, r.problem(UsageConfig("co", "Other", shieldId = "other"), Timing.Now(30), Plan.Free, emptyList(), 0))
+        assertNull(r.p(sameApps, Timing.Now(30), Plan.Free, 0))
+        assertEquals(ActivationProblem.OverItems, r.p(UsageConfig("co", "Other", shieldId = "other"), Timing.Now(30), Plan.Free, 0))
         val rec = r.copy(activations = listOf(Activation("r", "c5", Timing.Recurring(setOf(1), 0, 60), createdAt = 1)))
-        assertEquals(ActivationProblem.OverSchedules, rec.problem(sameApps, Timing.Recurring(setOf(2), 0, 60), Plan.Free, emptyList(), 0))
+        assertNull(rec.p(sameApps, Timing.Recurring(setOf(2), 0, 60), Plan.Free, 0))
     }
 
     /** A run freezes its presets: editing the saved preset changes only later runs. */

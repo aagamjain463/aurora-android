@@ -1,0 +1,14 @@
+name = "aurora-entitlements"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+PACKAGE_NAME = "app.aurora"
+PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
+
+# wrangler kv namespace create PURCHASES, then paste its id here.
+[[kv_namespaces]]
+binding = "PURCHASES"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN.

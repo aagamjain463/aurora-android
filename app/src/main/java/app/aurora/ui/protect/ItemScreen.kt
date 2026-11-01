@@ -22,7 +22,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.turnOff
-import app.aurora.plan.Allowance
 import app.aurora.protect.AppRule
 import app.aurora.protect.DailyLimit
 import app.aurora.protect.Difficulty
@@ -140,7 +139,7 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
                     RowGroup {
                         ToggleRow(stringResource(R.string.item_limit_toggle), stringResource(R.string.item_limit_hint), on, { enable ->
                             if (!enable) vm.edit { r -> r.copy(limits = r.limits.map { if (it.key == key) it.copy(enabled = false) else it }) }
-                            else vm.enableWithin(Allowance.DailyLimitRules, d.rules.activeLimits(d.plan).size) { r ->
+                            else vm.edit { r ->
                                 r.copy(limits = r.limits.filterNot { it.key == key } + (limit?.copy(enabled = true) ?: DailyLimit(key, 30)))
                             }
                         })

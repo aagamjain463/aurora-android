@@ -37,28 +37,32 @@ the entitlement system enforces them. [`ROADMAP.md`](ROADMAP.md) says when each 
 
 | Allowance | Free limit |
 | --- | --- |
-| Protected items (apps and websites combined) | 5 |
-| Lockdown | 120 cumulative minutes per local calendar day |
-| Basic Focus sessions | Unlimited |
-| Protection modes | Flexible, Friction and Cooldown |
-| Intentional opening (Intent) | 3 apps |
-| Daily app-limit rules | 3 |
-| Recurring schedules | 1 |
-| Focus profiles | 1 |
-| Insights | Basic insights, goals and streaks |
+| Active Shield targets (apps and websites combined, unique) | 5 |
+| Active Intent apps (unique) | 3 |
+| Cooldown and Always Block Shields | 120 minutes per local calendar day, shared |
+| Active Goals | 1 |
+| Flexible and Friction Shields | Unlimited |
+| Saved Shield and Intent presets | Unlimited, within the active-target limits |
+| Recurring schedules | Unlimited |
+| Focus sessions and profiles | Unlimited |
+| Daily Limit rules | Unlimited |
+| Completed, paused and archived Goals | Unlimited |
+| Insights | Basic |
 
 ### 2.2 Aurora Plus
 
 | Allowance | plus |
 | --- | --- |
-| Protected items (apps and websites) | Unlimited |
-| Lockdown | Unlimited |
-| Intentional opening (Intent) | Unlimited apps |
-| Daily app-limit rules | Unlimited |
-| Recurring schedules | Unlimited |
-| Focus profiles | Unlimited |
-| Insights | Advanced insights and challenges |
+| Active Shield targets | No commercial limit |
+| Active Intent apps | No commercial limit |
+| Cooldown and Always Block Shields | No daily quota |
+| Active Goals | Unlimited |
+| Everything unlimited on Free | Unlimited |
+| Insights | Advanced, with 30-day history |
 | Cloud sync | Planned for the future. Not sold until it exists (section 6). |
+
+Unlimited means no subscription quota, not unlimited device resources or guaranteed OS-level enforcement. Monthly
+and annual unlock the same things. There is no lifetime plan.
 
 Everything in Free is also in Plus.
 
@@ -117,145 +121,85 @@ Intent apps are protected items, so they count toward the 5-item limit as well.
   covers, and whether it uses Lockdown. Free has 1 profile (the default one, covering all
   protected items). plus allows unlimited profiles.
 
-### 3.4 Lockdown
+### 3.4 Committed protection
 
-**Lockdown** is the strongest state Aurora offers, and the only one with no in-app way through.
-While it is active, the items in its scope have no "Continue", no "Open anyway", and no way to end
-it early inside aurora. Every other state, on both plans, leaves a way through behind a breath or
-a wait. It replaces the term "strict mode" used in earlier drafts of the roadmap.
+**Cooldown** and **Always Block** (the strongest state, once called Lockdown) share 120 minutes per local
+calendar day on Free (`plan/CommittedQuota.kt`). They are not separate allowances.
 
-- It can start with a Focus session (when the profile uses Lockdown), with a schedule, or by itself
-  ("Lock now").
-- **Metering on Free:** 120 cumulative minutes per local calendar day.
-  - The planned length is reserved from the budget of the day the Lockdown starts. A Lockdown that
-    crosses midnight finishes as promised, and its minutes all count toward the starting day.
-  - The person can't start a Lockdown longer than the remaining budget. The length picker shows
-    the minutes left: "75 minutes of Lockdown left today".
-  - If a Lockdown ends early for a reason outside Aurora's control (the accessibility service is
-    turned off, for example), the unused minutes are returned to the day's budget.
-  - A scheduled Lockdown that is longer than the remaining budget runs Lockdown for the minutes
-    left and then continues as a basic Focus session. Aurora says so when the schedule starts:
-    "Lockdown for 40 minutes, then Friction until 17:00."
-  - The budget resets at local midnight, in the device's current time zone.
-- **What Lockdown can't stop**, on both plans: uninstalling Aurora, turning off its accessibility
-  service in Android Settings, safe mode and `adb`. Aurora says this plainly wherever Lockdown is
-  offered (section 7).
+- **What counts** is the union of committed time, on an interval ledger. Cooldown 10:00 to 11:00 and Always
+  Block 10:30 to 11:30 cost 90 minutes. A session wholly inside time already covered costs nothing.
+- **Before anything starts:** work out the interval and what it adds, refuse it if that passes the allowance,
+  otherwise reserve the time and store the commitment in one transaction, and then enforce. A person with 25
+  minutes left can't start a separate 40-minute session; Aurora offers the 25.
+- **Across midnight:** each date is charged its own part, and each part must fit its own date.
+- **Schedules** are unlimited but aren't a promise of committed time. Each run checks the allowance when it
+  comes due. If it doesn't fit, it doesn't start, Aurora says so once, and nothing softer replaces it. One window
+  that could never fit a day is refused when the schedule is made.
+- **A start can't be undone by the plan.** Expiry, a billing failure or a refresh never weakens a commitment
+  already running. Plus time is recorded too, so a downgrade counts the day honestly.
+- **Intent's cooldown after use** is separate. It neither uses this allowance nor ends when it runs out.
+- **Time zones and clocks:** see section 7.
+- **What it can't stop**, on both plans: uninstalling Aurora, turning off its accessibility service in Android
+  Settings, safe mode and `adb`. Aurora says this plainly where it is offered (section 7).
 
-### 3.5 Daily app-limit rules
+### 3.5 Daily Limit rules
 
-A **daily app-limit rule** is a daily minute budget for one app, or for a group of apps that share
-one budget. When the budget runs out, the apps are shielded in Friction until local midnight.
-Free allows 3 rules. Apps in a limit rule don't need to be protected items and don't use the
-5-item pool (open question Q2).
+A **Daily Limit rule** is a daily minute budget for one app. When it runs out the app is shielded until local
+midnight. Rules are unlimited on Free. Each rule's app counts once toward the 5 active Shield targets. A rule
+has no strict mode of its own: it never locks Settings and never reserves committed minutes.
 
 ### 3.6 Recurring schedules
 
-A **recurring schedule** starts a Focus profile automatically on chosen days and times. Free allows
-1 schedule. A schedule that uses Lockdown draws from the day's Lockdown budget.
-
-### 3.7 Insights, goals, streaks and challenges
-
-| Feature | Definition | Plan |
-| --- | --- | --- |
-| **Basic insights** | Today and the last 7 days: screen time, most-used apps, Focus minutes, how often the person chose not to open an item. | Free |
-| **Goals** | A personal target, for example "Focus 3 times a week" or "Under 2 hours on social apps a day". | Free |
-| **Streaks** | Consecutive days with a goal met, in the gentle form described below. | Free |
-| **Advanced insights** | Longer history (30 and 90 days, then more), trends for each app, time-of-day patterns, and comparisons with the person's own past weeks. | plus |
-| **Challenges** | Guided programs that run for several days, such as "A week of calm mornings", built from schedules, goals and Lockdown. | plus |
-
-**Gentle streaks.** `BRAND.md` rules out streak anxiety, so streaks follow these rules:
-
-- A missed day ends the current run but never erases it. The best run and the total number of days
-  are kept and shown.
-- One rest day each week doesn't break a run.
-- Copy never says "lost", "broken" or "failed". The streak simply starts counting again.
-- There are no notifications about streaks, and nothing nudges the person to protect a streak.
-
-Advanced insights beyond 7 days need Aurora to store daily totals per app on the phone, because
-Android doesn't keep detailed usage history that long (gate G7). This changes the current promise
-that "screen time is computed, never stored" (decision D14 in the roadmap). The data would still
-never leave the phone.
+Recurring schedules are unlimited on Free. Their targets count while the schedule is enabled, and each committed
+run answers to the shared allowance when it comes due.
 
 ## 4. How limits are counted
 
 | Allowance | What counts | What frees a slot |
 | --- | --- | --- |
-| Protected items | Every app or website whose mode isn't Off | Removing an item, or uninstalling the app (Aurora prunes uninstalled apps) |
-| Intent apps | Protected apps in Intent mode | Switching the app to another mode |
-| Daily app-limit rules | Each rule, whatever number of apps it covers | Deleting the rule |
-| Recurring schedules | Each schedule, enabled or not | Deleting the schedule |
-| Focus profiles | Each saved profile, including the default | Deleting a profile (the default profile can't be deleted) |
-| Lockdown minutes | Planned minutes of each Lockdown, on the day it starts | Midnight. Early ends outside Aurora's control are refunded. |
+| Shield targets | The union of what is running and everything enabled: activations, Daily Limits, a running Focus. A target is a package name, or a website's normalised host (lowercase, ASCII, no trailing dot, no `www.`; other subdomains are their own target). Saved drafts don't count. | Pausing or deleting what enables it, or its run ending |
+| Intent apps | The union of Intent apps in running and enabled configurations | Same |
+| Active Goals | Goals in the Active state | Pausing, completing or archiving one |
+| Committed minutes | The union of Cooldown and Always Block intervals, per date | The next local day. Time reserved isn't refunded except when a run is turned off |
 
-At a limit, Aurora explains it calmly and offers a way forward that doesn't involve paying:
-
-> You're protecting 5 items, the most Aurora Free allows. Remove one to add another.
-
-From Phase 11, the same message adds a Quiet link to Aurora Plus. Before Phase 11, Aurora never
-mentions plus, because it can't be bought yet.
+Every refusal explains itself and offers what can be done: free a slot, choose a shorter time, or see Plus.
+Refused means nothing changed, so closing the message can't continue the action.
 
 ## 5. Entitlement system
 
 ### 5.1 Shape
 
-One small, pure module that every feature asks. It has no Android dependencies, so it is fully
-unit tested.
+`plan/EntitlementPolicy.kt` is the one authority. Pure Kotlin, every rule unit tested. It returns a
+`LimitDecision`: allowed or not, reason code, usage, limit, what remains, the remedy, whether upgrading would help.
 
-```kotlin
-// app/aurora/plan/Plan.kt (Roadmap Phase 2)
-enum class Plan { Free, Plus }
+Domain operations in `Actions.kt` and `ConfigActions.kt` ask it under one lock (`AuroraApplication.entitlements`),
+because a check and its write span two stores. `changeRules` is the one way rules that can switch on a target
+change. Screens only show the answers.
 
-enum class Allowance { ProtectedItems, IntentApps, DailyLimitRules, Schedules, FocusProfiles, LockdownMinutesPerDay }
-
-enum class Feature { AdvancedInsights, Challenges }
-
-/** null means unlimited. */
-val FreeLimits: Map<Allowance, Int?> = mapOf(
-    Allowance.ProtectedItems to 5,
-    Allowance.IntentApps to 3,
-    Allowance.DailyLimitRules to 3,
-    Allowance.Schedules to 1,
-    Allowance.FocusProfiles to 1,
-    Allowance.LockdownMinutesPerDay to 120,
-)
-
-fun limit(plan: Plan, allowance: Allowance): Int? = if (plan == Plan.Plus) null else FreeLimits.getValue(allowance)
-fun canAdd(plan: Plan, allowance: Allowance, current: Int): Boolean = limit(plan, allowance)?.let { current < it } ?: true
-fun has(plan: Plan, feature: Feature): Boolean = plan == Plan.Plus
-```
-
-This sketch shows the intent. Phase 2 writes the real file, and it may differ in detail.
+What is enforced is also computed at read time (`Rules.retainedShield`, `retainedIntent`, `entitledActivations`,
+`liveRuns`), so data that arrived some other way, such as a phone-to-phone restore, still can't enforce past the plan.
 
 ### 5.2 Where the plan comes from
 
-| Period | Source of `Plan` |
-| --- | --- |
-| Phases 2–10, release builds | Always `Free`. |
-| Phases 2–10, debug builds | `Free` by default. A debug-only Settings row switches to `Plus`, so plus behaviour can be tested before billing exists. |
-| Phase 11 onward | The Play Billing entitlement, cached on the phone (Roadmap Phase 11). The debug switch stays in debug builds only. |
+From a snapshot the verification server signed after asking Google, and nothing else: `docs/BILLING.md`.
 
 ### 5.3 Rules for features
 
-- Each feature phase checks its own allowance in the ViewModel action that adds or enables
-  something. For example, `ProtectViewModel` asks `canAdd(plan, ProtectedItems, count)` before
-  protecting a 6th item.
-- Lockdown checks the day's remaining minutes when it starts. A small ledger in DataStore holds
-  the current day and the minutes used.
-- `decide()` and the accessibility service never read the plan. A test enforces this: a policy test
-  runs the same cases under `Free` and `Plus` and expects identical decisions.
+- `decide()` and the accessibility service never read the plan, so both plans get the same protection strength.
 - All limit numbers live in `FreeLimits` and nowhere else.
+- No paywall for anything unlimited. No countdowns, fake discounts or urgency.
 
 ### 5.4 Downgrade
 
-When a plus subscription ends (from Phase 11):
+Computed, not processed: what is active is a function of the plan and the saved configuration, so there is no
+migration to run, nothing to recover after process death, and nothing to undo.
 
-1. Running Focus sessions and Lockdowns finish as promised.
-2. Items, Intent apps, rules, schedules and profiles beyond the Free limits **pause**. The person
-   chooses which ones stay active. Until they choose, the oldest stay active.
-3. Lockdown goes back to 120 minutes a day from the next Lockdown started.
-4. Advanced insights and challenges are hidden. Their data is kept, and a challenge in progress
-   pauses.
-5. Renewing restores everything as it was.
+1. Everything stays saved, with its history.
+2. Past the limits, the person chooses the 5 Shield targets, 3 Intent apps and 1 Goal that stay active. Until they
+   do, the oldest stay active, and Home says so.
+3. Everything else is paused and can't be switched on again past the limit.
+4. A commitment already running finishes as promised, and its targets hold their slots until then.
+5. Renewing restores everything at once.
 
 ## 6. Cloud sync (future)
 
@@ -273,6 +217,13 @@ feature that doesn't exist breaks principle 6 and risks Play policy on misleadin
 sync is not part of the 13-phase roadmap.
 
 ## 7. Android limitations
+
+**Time zones and clocks, for the committed allowance.** A regular app can't make device time tamper-proof.
+Within one boot, the allowance reads the monotonic clock anchored on its newest ledger entry, so changing the date
+or time does nothing. After a restart only the wall clock is left: setting it back up to two days can't reopen an
+earlier day, further back is treated as correcting a wrong clock, and setting it forward across a restart isn't
+seen. A zone change takes effect when the local day of the newest entry ends. Clearing Aurora's data or
+reinstalling it starts a fresh ledger, which is the limit of local accounting. Settings › Delete all data keeps it.
 
 These limits apply equally to both plans. Aurora states them in the product wherever they matter.
 

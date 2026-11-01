@@ -21,7 +21,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.SessionNotification
 import app.aurora.activate
-import app.aurora.alwaysBlockLeft
+import app.aurora.committedMinutesLeft
+import app.aurora.protect.usesQuota
 import app.aurora.auroraViewModel
 import app.aurora.data.Access
 import app.aurora.data.AccessState
@@ -76,8 +77,8 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
     var query by rememberSaveable { mutableStateOf("") }
     var problem by rememberSaveable { mutableStateOf<ActivationProblem?>(null) }
 
-    // Free's Always Block minutes left today; a time that no longer fits has to be chosen again.
-    val max = (if (mode == Mode.AlwaysBlock) vm.app.alwaysBlockLeft() else null) ?: (24 * 60)
+    // Free's committed minutes left today; a time that no longer fits has to be chosen again.
+    val max = (if (mode.usesQuota) vm.app.committedMinutesLeft() else null) ?: (24 * 60)
     LaunchedEffect(max) { if ((minutes ?: 0) > max) minutes = null }
     val shieldOn = rememberAccess(Access.Accessibility) == AccessState.Granted
     val hasSites = keys.any { it.startsWith(WebPrefix) }
@@ -103,7 +104,7 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
                     createdAt = now,
                 )
                 vm.run {
-                    problem = vm.app.activate(UsageConfig(newId(), name, custom = false, shield = shield, createdAt = now), Timing.Now(m))
+                    problem = vm.app.activate(UsageConfig(newId(), name, custom = false, shield = shield, createdAt = now), Timing.Now(m))?.problem
                     if (problem == null) {
                         if (android.os.Build.VERSION.SDK_INT >= 33 && !SessionNotification.allowed(context)) {
                             runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
@@ -114,12 +115,8 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
             }
         },
         footer = {
-            problem?.let { p ->
-                Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
-                if (p == ActivationProblem.OverItems || p == ActivationProblem.OverAlwaysBlockAllowance) {
-                    AuroraButton(stringResource(R.string.plus_see), onPlus, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
-                }
-            }
+            // Plan limits are explained at the app's root.
+            problem?.takeUnless { it.overLimit }?.let { p -> Text(problemText(p), color = colors.danger, style = AuroraType.Secondary) }
             if (keys.isEmpty()) Text(stringResource(R.string.quick_choose_apps), color = colors.textSecondary, style = AuroraType.Secondary)
             AuroraButton(stringResource(R.string.quick_more), onMore, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
         },
@@ -136,6 +133,7 @@ fun QuickSessionScreen(onBack: () -> Unit, onDone: () -> Unit, onMore: () -> Uni
                     Mode.entries.forEach { m -> Chip(modeName(m), mode == m) { mode = m } }
                 }
                 Text(modeDescription(mode), color = colors.textSecondary, style = AuroraType.Secondary)
+                if (mode.usesQuota) CommittedAllowance(d)
             }
         }
         if (mode.strict) item(key = "commit") { CommitBlock(committed, { committed = it }, onStrict) }

@@ -26,6 +26,7 @@ import java.util.Date
 object SessionNotification {
     private const val Channel = "protection"
     private const val Id = 1
+    private const val QuotaIdBit = 0x4000
     /** Bumped when Aurora comes back to the front, e.g. after the notification permission is answered. */
     private val resumed = kotlinx.coroutines.flow.MutableStateFlow(0)
 
@@ -128,5 +129,19 @@ object SessionNotification {
     }
 
     /** Whether Android would show it: on Android 13+ this is the person's choice. */
+    /** A scheduled committed session didn't start: the day's allowance can't cover it. Nothing replaces it. */
+    fun quotaRefused(app: AuroraApplication, name: String) {
+        val manager = app.getSystemService(NotificationManager::class.java) ?: return
+        val open = PendingIntent.getActivity(app, 2, app.packageManager.getLaunchIntentForPackage(app.packageName) ?: Intent(), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val builder = Notification.Builder(app, Channel)
+            .setSmallIcon(R.drawable.ic_stat_aurora)
+            .setContentTitle(app.getString(R.string.notif_quota_title, name))
+            .setContentText(app.getString(R.string.notif_quota_body))
+            .setStyle(Notification.BigTextStyle().bigText(app.getString(R.string.notif_quota_body)))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+        runCatching { manager.notify(name.hashCode() or QuotaIdBit, builder.build()) }
+    }
+
     fun allowed(context: Context): Boolean = context.getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == true
 }

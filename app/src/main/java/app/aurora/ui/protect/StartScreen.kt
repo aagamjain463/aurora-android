@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.StartResult
-import app.aurora.alwaysBlockLeft
 import app.aurora.auroraViewModel
 import app.aurora.protect.Difficulty
 import app.aurora.protect.FrictionSettings

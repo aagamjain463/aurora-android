@@ -41,6 +41,9 @@ enum class ShieldReason {
  */
 val Mode.strict: Boolean get() = this != Mode.Flexible
 
+/** Cooldown and Always Block draw on Free's shared daily minutes (plan/CommittedQuota.kt). Friction doesn't. */
+val Mode.usesQuota: Boolean get() = this == Mode.Cooldown || this == Mode.AlwaysBlock
+
 val Mode.reason: ShieldReason
     get() = when (this) {
         Mode.Flexible -> ShieldReason.Flexible

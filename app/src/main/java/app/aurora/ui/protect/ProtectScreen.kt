@@ -93,6 +93,7 @@ object ProtectRoutes {
     const val Schedules = "protect/schedules"
     const val ScheduleEdit = "protect/schedule"
     const val Limits = "protect/limits"
+    const val Keep = "plus/keep"
     const val Groups = "protect/groups"
     const val Intent = "protect/intent"
     const val IntentApp = "protect/intent/app"
@@ -106,7 +107,7 @@ data class RunningWindow(val id: String, val name: String, val mode: Mode, val k
 fun runningWindows(d: ProtectData): List<RunningWindow> {
     val zone = ZoneId.systemDefault()
     val now = d.time.wall
-    return d.rules.activeSchedules(d.plan).mapNotNull { s ->
+    return d.rules.activeSchedules().mapNotNull { s ->
         val (start, end) = s.windowAt(now, zone) ?: return@mapNotNull null
         if (d.runtime.skipped[s.id] == start && s.mode != Mode.AlwaysBlock) return@mapNotNull null
         // A committed Always Block window shows as its session instead.

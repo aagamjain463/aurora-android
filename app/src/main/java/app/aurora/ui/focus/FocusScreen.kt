@@ -61,9 +61,7 @@ import app.aurora.data.formatClock
 import app.aurora.data.formatDuration
 import app.aurora.data.spokenDuration
 import app.aurora.dismissFocus
-import app.aurora.plan.Allowance
 import app.aurora.plan.Plan
-import app.aurora.plan.canAdd
 import app.aurora.protect.DeviceTime
 import app.aurora.protect.FocusProfile
 import app.aurora.protect.ProtectedList
@@ -179,14 +177,13 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
         session.isOver(s.time) -> Phase.Complete
         else -> Phase.Running
     }
-    val profiles = s.rules.activeProfiles(s.plan)
+    val profiles = s.rules.profiles
     var profileId by rememberSaveable { mutableStateOf(profiles.first().id) }
     val profile = profiles.find { it.id == profileId } ?: profiles.first()
     var minutes by rememberSaveable(profile.id) { mutableIntStateOf(profile.minutes) }
     var intention by rememberSaveable { mutableStateOf("") }
     var confirmEnd by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<FocusProfile?>(null) }
-    var showPlus by remember { mutableStateOf(false) }
     val protection = rememberProtectionStatus(s.list)
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(phase) {
@@ -235,10 +232,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                             Phase.Setup -> Setup(
                                 s, profiles, profile, { profileId = it.id }, minutes, { minutes = it }, intention, { intention = it },
                                 protection, onEdit = { editing = it },
-                                onNew = {
-                                    if (canAdd(s.plan, Allowance.FocusProfiles, profiles.size)) editing = FocusProfile(UUID.randomUUID().toString(), "", 25)
-                                    else showPlus = true
-                                },
+                                onNew = { editing = FocusProfile(UUID.randomUUID().toString(), "", 25) },
                             )
                             Phase.Running -> session?.let { Running(it, s, protection) }
                             Phase.Complete -> session?.let { Complete(it, s) }
@@ -278,13 +272,6 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
             onDelete = { vm.deleteProfile(it); profileId = s.rules.profiles.first { x -> x.id != it.id }.id; editing = null },
             onDismiss = { editing = null })
     }
-    if (showPlus) AuroraDialog(
-        title = stringResource(R.string.focus_one_focus_profile_on_free),
-        body = stringResource(R.string.focus_aurora_plus_adds_a_profile_for_each_kind_of_focus_like_study_rea),
-        confirmLabel = stringResource(R.string.settings_got_it),
-        onConfirm = { showPlus = false },
-        onDismiss = { showPlus = false },
-    ) { AuroraButton(stringResource(R.string.insights_about_aurora_plus), { showPlus = false; onPlus() }, kind = ButtonKind.Quiet) }
 }
 
 /** Clears the sky: the words and the number sit on the lake, under the ring. */

@@ -18,7 +18,6 @@
     <string name="tab_today">Today</string>
     <string name="tab_insights">Insights</string>
     <string name="focus_name">Focus</string>
-    <string name="schedules_name">Schedules</string>
     <string name="limits_name">Daily limits</string>
     <string name="groups_name">Groups</string>
     <string name="intent_name">Intentional App Opening</string>
@@ -228,7 +227,7 @@
     <string name="start_review_cooldown">Wait: %1$s before each access</string>
     <string name="start_commit_body">Once it starts, nothing in Aurora can end it early. Editing apps, schedules or groups won\'t end it either.</string>
     <string name="start_commit_limits">Settings and uninstalling stay locked until it ends. Calls and emergency services always work.</string>
-    <string name="start_always_block_allowance">%1$s of Always Block left today on Aurora Free.</string>
+    <string name="start_always_block_allowance">%1$s of Cooldown and Always Block left today on Aurora Free.</string>
 
     <!-- Schedules -->
     <string name="schedule_every_day">Every day</string>
@@ -343,7 +342,7 @@
     <string name="settings_aurora_doesn_t_send_notifications_yet">A quiet notice while protection runs</string>
     <string name="settings_privacy_data">Privacy &amp; data</string>
     <string name="settings_your_data_stays_yours">Your data stays yours</string>
-    <string name="settings_local_first_no_account_no_tracking_no_internet_permission">Local-first. No account, no tracking, no internet permission.</string>
+    <string name="settings_local_first_no_account_no_tracking_no_internet_permission">Local-first. No account, no tracking. Only a Plus purchase is ever checked online.</string>
     <string name="settings_what_aurora_stores">What Aurora stores</string>
     <string name="settings_see_everything_kept_on_this_phone">See everything kept on this phone.</string>
     <string name="settings_clear_history">Clear history</string>
@@ -360,7 +359,7 @@
     <string name="settings_the_mode_suggested_when_you_start_protection_for_an_app_you_add">The mode a new Shield or Normal Session starts on. You can change it each time.</string>
     <string name="settings_done">Done</string>
     <string name="settings_everything_aurora_keeps_is_stored_only_on_this_phone_your_protec">Everything Aurora keeps is stored only on this phone: your protected apps and sites, rules, sessions, daily counts and preferences. </string>
-    <string name="settings_there_s_no_account_no_analytics_and_no_ads_and_aurora_doesn_t_ha">There\'s no account, no analytics and no ads, and Aurora doesn\'t have internet access.\n\n</string>
+    <string name="settings_there_s_no_account_no_analytics_and_no_ads_and_aurora_doesn_t_ha">There\'s no account, no analytics and no ads. Aurora uses the internet for one thing: confirming an Aurora Plus purchase with Google Play. Your usage never leaves your phone.\n\n</string>
     <string name="settings_screen_time_is_read_from_android_when_you_open_insights_or_today">Screen time is read from Android when you open Home or Track, and when a daily limit needs it. It isn\'t copied or shared.\n\n</string>
     <string name="settings_shield_reads_only_the_name_of_the_app_in_front_the_optional_web">Shield reads only the name of the app in front. The optional Web &amp; content Shield reads the address in supported browsers. Neither stores nor sends what it sees.\n\n</string>
     <string name="settings_purchases_go_through_google_play_which_aurora_asks_whether_you_h">Purchases go through Google Play, which Aurora asks whether you have Aurora Plus.</string>
@@ -398,8 +397,6 @@
     <string name="focus_end_session">End session</string>
     <string name="focus_end_this_session">End this session?</string>
     <string name="focus_keep_going">Keep going</string>
-    <string name="focus_one_focus_profile_on_free">One Focus profile on Free</string>
-    <string name="focus_aurora_plus_adds_a_profile_for_each_kind_of_focus_like_study_rea">Aurora Plus adds a profile for each kind of focus, like study, reading or deep work, each with its own apps and length. Sessions themselves are unlimited on Free.</string>
     <string name="focus_new_profile">New profile</string>
     <string name="focus_what_s_this_time_for_optional">What\'s this time for? (optional)</string>
     <string name="focus_shield_is_holding">Shield is holding</string>
@@ -447,11 +444,11 @@
     <string name="settings_stored_motivations">• What you want more time for: %1$s\n</string>
     <string name="insights_average_days">Daily average · measured days: %1$d of %2$d</string>
     <string name="insights_xp_today">XP today: %1$d</string>
-    <string name="plus_compare_items">Protected apps and sites</string>
-    <string name="plus_compare_always">Always Block time each day</string>
-    <string name="plus_compare_intent">Apps with Intentional App Opening</string>
-    <string name="plus_compare_profiles">Focus profiles</string>
-    <string name="plus_compare_included">Focus sessions, goals, progress</string>
+    <string name="plus_compare_items">Active Shield apps and sites</string>
+    <string name="plus_compare_always">Cooldown and Always Block, shared, per day</string>
+    <string name="plus_compare_intent">Active Intent apps</string>
+    <string name="plus_compare_profiles">Focus sessions and profiles</string>
+    <string name="plus_compare_included">Goal history, progress tracking and rewards</string>
     <string name="plus_unlimited">Unlimited</string>
     <string name="plus_included">Included</string>
     <string name="insights_period_week">7 days</string>
@@ -528,7 +525,7 @@
     <string name="home_open_focus">Open Focus</string>
     <string name="home_focus_prompt">How did “%1$s” go?</string>
     <string name="home_legacy_focus">Focus session</string>
-    <string name="home_paused_plan">Paused: over Aurora Free\'s limits</string>
+    <string name="home_paused_plan">Paused: past Aurora Free\'s limits</string>
 
     <!-- Outcomes and Focus reports -->
     <string name="outcome_succeeded">Succeeded</string>
@@ -609,8 +606,7 @@
     <string name="cfg_problem_empty">Choose a Shield or an Intent with at least one app.</string>
     <string name="cfg_problem_items">Aurora Free protects up to 5 apps and sites at a time across everything that\'s on. Turn something off, or protect more with Aurora Plus.</string>
     <string name="cfg_problem_intents">Aurora Free asks first on up to 3 apps at a time. Turn an Intent off, or use more with Aurora Plus.</string>
-    <string name="cfg_problem_schedules">Aurora Free includes one recurring schedule. Pause the other, or add more with Aurora Plus.</string>
-    <string name="cfg_problem_allowance">Not enough Always Block time left today on Aurora Free. Choose a shorter time, another type, or Aurora Plus.</string>
+    <string name="cfg_problem_allowance">Not enough Cooldown and Always Block time left today on Aurora Free. Choose a shorter time, or see Aurora Plus.</string>
     <string name="cfg_problem_days">Choose at least one day.</string>
 
     <!-- Shield library and builder -->
@@ -831,21 +827,9 @@
     <plurals name="limit_intent_body">
         <item quantity="other">Aurora Free asks first on up to %1$d apps. Turn it off for one, or use it on every app with Aurora Plus.</item>
     </plurals>
-    <plurals name="limit_daily_title">
-        <item quantity="other">%1$d daily limits are on</item>
-    </plurals>
-    <plurals name="limit_daily_body">
-        <item quantity="other">Aurora Free includes %1$d daily limits. Turn one off, or set as many as you like with Aurora Plus.</item>
-    </plurals>
-    <string name="limit_schedule_title">Your schedule is on</string>
-    <plurals name="limit_schedule_body">
-        <item quantity="other">Aurora Free includes %1$d schedule. Turn it off to use another, or add more with Aurora Plus.</item>
-    </plurals>
-    <string name="limit_focus_title">One Focus profile on Free</string>
-    <string name="limit_focus_body">Aurora Plus adds profiles for each kind of focus.</string>
-    <string name="limit_always_title">Not enough Always Block time left</string>
+    <string name="limit_always_title">Not enough committed time left today</string>
     <plurals name="limit_always_body">
-        <item quantity="other">Aurora Free includes %1$d minutes of Always Block a day. Choose a shorter time, use Flexible, or get unlimited Always Block with Aurora Plus.</item>
+        <item quantity="other">Aurora Free shares %1$d minutes a day between Cooldown and Always Block. Choose a shorter time, use Flexible or Friction, or see Aurora Plus.</item>
     </plurals>
     <string name="billing_not_for_sale">Aurora Plus isn\'t available to buy in this version of Aurora yet.</string>
     <string name="billing_unavailable">Google Play billing isn\'t available on this phone or account.</string>
@@ -853,4 +837,53 @@
     <string name="billing_disconnected">Aurora couldn\'t connect to Google Play on this phone. Make sure the Play Store is installed and signed in, then try again.</string>
     <string name="billing_cant_sell">This version of Aurora can\'t sell Aurora Plus.</string>
     <string name="billing_other">Google Play couldn\'t complete that (code %1$d).</string>
+
+    <!-- Plan limits -->
+    <string name="plus_compare_goals">Active goals</string>
+    <string name="plus_compare_modes">Flexible and Friction Shields</string>
+    <string name="plus_compare_rules">Schedules, Daily Limits and presets</string>
+    <string name="plus_renews_on">Your plan renews on %1$s.</string>
+    <string name="plus_ends_on">Your plan is cancelled. Plus continues until %1$s.</string>
+    <string name="plus_grace_title">Payment problem</string>
+    <string name="plus_grace_body">Google Play couldn\'t take your payment and is trying again. Plus continues for now. Update your payment method in Google Play.</string>
+    <string name="plus_hold_title">Subscription on hold</string>
+    <string name="plus_hold_body">Google Play couldn\'t take your payment, so Plus has paused. Fix your payment method in Google Play to get it back.</string>
+    <string name="plus_devices_title">Too many phones</string>
+    <string name="plus_devices_body">This subscription is already on the most phones it can be. Plus isn\'t active on this one.</string>
+    <string name="plus_verifying_title">Confirming your purchase</string>
+    <string name="plus_verifying_body">Google Play has your purchase. Aurora is confirming it and Plus starts as soon as it does. You don\'t need to pay again or restart.</string>
+    <string name="committed_today_title">Committed time today</string>
+    <string name="committed_today_body">%1$s used or reserved, %2$s left of %3$s. Starts again at %4$s.</string>
+    <string name="committed_today_note">Cooldown and Always Block share this time. Time they overlap counts once. Intent\'s cooldown after use doesn\'t count.</string>
+    <string name="committed_schedule_note">Schedules are unlimited, but this one needs today\'s committed time each time it runs. If there isn\'t enough, that run doesn\'t start and Aurora tells you. It never swaps in a softer Shield.</string>
+    <string name="limit_committed_shorter">Cooldown and Always Block share %1$s a day on Aurora Free. %2$s left today, and it starts again at %3$s.</string>
+    <string name="limit_committed_used">Cooldown and Always Block share %1$s a day on Aurora Free. Today\'s is used, and it starts again at %2$s.</string>
+    <string name="limit_start_shorter">Start for %1$s</string>
+    <string name="notif_quota_title">%1$s didn\'t start</string>
+    <string name="notif_quota_body">Today\'s Cooldown and Always Block time on Aurora Free can\'t cover it. Nothing else started in its place.</string>
+    <string name="goal_plan_title">One active goal on Aurora Free</string>
+    <string name="goal_plan_body">Pause, complete or archive your active goal to start this one, or see Aurora Plus. Nothing is deleted.</string>
+    <string name="goal_plan_current">%1$s is your active goal. Pause, complete or archive it to start this one, or see Aurora Plus. Its history stays.</string>
+    <string name="goal_pause_current">Pause it</string>
+    <string name="goal_complete_current">Mark it complete</string>
+    <string name="goal_archive_current">Archive it</string>
+    <string name="goal_status_plan">Paused on Aurora Free</string>
+    <string name="goal_status_paused">Paused</string>
+    <string name="goal_status_completed">Completed</string>
+    <string name="goal_status_archived">Archived</string>
+    <string name="goal_resume">Resume</string>
+    <string name="goal_pause">Pause</string>
+    <string name="goal_complete">Complete</string>
+    <string name="goal_archive">Archive</string>
+    <string name="home_skipped_quota">Didn\'t start: not enough committed time today</string>
+    <string name="keep_title">Choose what stays active</string>
+    <string name="keep_subtitle">You have more switched on than Aurora Free covers.</string>
+    <string name="keep_shield">Shield apps and sites: %1$d of %2$d</string>
+    <string name="keep_intent">Intent apps: %1$d of %2$d</string>
+    <string name="keep_goal">Your one active goal</string>
+    <string name="keep_save">Keep these active</string>
+    <string name="keep_note">The rest stay saved and paused, with their history. Anything committed and already running continues. Renewing Plus brings it all back at once.</string>
+    <string name="keep_banner_title">Some of your setup is paused</string>
+    <string name="keep_banner_body">It\'s past Aurora Free\'s limits, so the oldest stays active for now. Nothing was deleted.</string>
+    <string name="keep_banner_action">Choose what stays active</string>
 </resources>

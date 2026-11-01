@@ -46,6 +46,7 @@ class SessionFlowTest {
         app.protectedList.filterNotNull().first()
         // The store outlives one test's application.
         app.deleteAllData()
+        app.runtime.reset()
     }
 
     private fun config(custom: Boolean) = UsageConfig("c1", "Session", custom, shieldId = if (custom) "s1" else null, shield = if (custom) null else preset, createdAt = 1)

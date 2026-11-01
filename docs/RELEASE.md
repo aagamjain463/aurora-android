@@ -37,8 +37,7 @@ Before every upload, raise `versionCode` (and `versionName` when users should no
    override with `-Paurora.plusProductId=…`). Add a monthly and a yearly base plan. India prices from
    `docs/BUSINESS_MODEL.md`: ₹149 a month and ₹1,199 a year.
 4. **License testers:** Settings › License testing, add your Google accounts. Buy, cancel, restore and let a
-   test subscription lapse on a real phone (Aurora has no `INTERNET` permission; billing goes through the
-   Play Store app).
+   test subscription lapse on a real phone (Plus needs the verification server deployed: `docs/BILLING.md`).
 5. **Privacy policy:** host `docs/privacy-policy.html` (for example on GitHub Pages) and paste its URL into
    App content › Privacy policy and the store listing.
 
@@ -58,8 +57,8 @@ Suggested answers:
 - **Aurora Web & content Shield** is optional and off by default. It runs only in the listed browsers,
   YouTube and Instagram. It reads the browser's address field to pause websites the person protects, and
   view IDs to notice Shorts or Reels when the person turned that on.
-- **Data:** nothing is stored beyond the person's own settings, and nothing leaves the phone. The app has
-  no `INTERNET` permission.
+- **Data:** nothing is stored beyond the person's own settings, and no usage data leaves the phone. `INTERNET` is used only to verify an
+  Aurora Plus purchase (`docs/BILLING.md`).
 - **Video:** record the disclosure dialog, Android's accessibility screen, and Shield pausing a chosen app.
   `adb shell screenrecord /sdcard/shield.mp4` on a phone.
 
@@ -74,9 +73,10 @@ Aurora being uninstalled while a strict commitment they started is running.
 
 ### Data safety
 
-Answer **No** to "Does your app collect or share any of the required user data types?". Aurora collects
-nothing: there is no account, analytics, ads SDK or network access. Purchases are handled by Google Play.
-Declare that data isn't encrypted in transit only if asked (nothing is transmitted).
+Purchase verification now sends data to Aurora's server, so answer **Yes** to "collects": Purchase history
+(purchase token) and App identifiers (a random install id), collected, not shared, required for the
+subscription, encrypted in transit. There is still no account, analytics or ads SDK. Have the founder check
+this answer before submitting.
 
 ### Other forms
 
@@ -98,8 +98,8 @@ Declare that data isn't encrypted in transit only if asked (nothing is transmitt
    is to stop locking Settings and the installer while keeping the rest of strict mode.
 2. **Device admin used for uninstall protection** is reviewed under the same rule. It's optional and off
    by default.
-3. **Billing without `INTERNET`.** The manifest removes the permissions that the billing library's
-   diagnostics add. Purchases go through the Play Store app over IPC; confirm with license testers.
+3. **Billing diagnostics.** The manifest removes `ACCESS_NETWORK_STATE` and the datatransport backend the
+   billing library brings, so `INTERNET` serves purchase verification only. Confirm with license testers.
 
 ## 5. Store listing assets
 

@@ -19,8 +19,9 @@ foundation; use the configuration model for current activation and progress beha
 | DI | Manual (`AuroraApplication`) | Four singletons. A framework would cost more than it saves. |
 | Min / target / compile SDK | 26 / 36 / 37 | API 26 adds adaptive icons and variable fonts and covers almost every active device. Current AndroidX releases require compile SDK 37. Target stays at 36 until aurora is tested on Android 17. |
 
-There are no analytics, crash-reporting SDKs, network clients or accounts. The app does not
-declare the `INTERNET` permission.
+There are no analytics, crash-reporting SDKs or accounts. `INTERNET` exists for one network client:
+`plan/Billing.kt` posting a purchase token to the verification server (`docs/BILLING.md`). No usage data
+is ever sent.
 
 ## Layout
 
@@ -158,8 +159,8 @@ VPN DNS filter. Both raise policy and privacy questions to settle before impleme
   - The ledger is wall-clock based. Setting the clock forward to a new date gives a fresh budget;
     this is accepted (`BUSINESS_MODEL.md` section 7). Setting it back never refunds minutes.
   - The functions only read a ledger. Phase 6 stores it in DataStore, so a restart changes nothing.
-- The plan source is `AuroraApplication.plan`, which comes only from Google Play Billing with a 7-day
-  offline cache (`plan/Billing.kt`, `plan/Entitlement.kt`, docs/PRODUCT.md section 7). Superseded text follows.
+- The plan source is `AuroraApplication.plan`, which comes only from a snapshot the verification server
+  signed, trusted for 7 days offline (`plan/Billing.kt`, `plan/Entitlement.kt`, `docs/BILLING.md`). Superseded text follows.
   Previously: always `Free` until Phase 11. Phase 3 wires the
   first limit (5 protected items, `SHIELD.md` section 4). There's still no debug switch to Plus: Plus
   behaviour is covered by unit tests, so no build carries a way to unlock it. There is no purchase UI.

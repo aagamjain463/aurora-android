@@ -22,10 +22,16 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.auroraViewModel
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.remember
 import app.aurora.newId
 import app.aurora.progress.Goal
 import app.aurora.progress.GoalKind
 import app.aurora.progress.GoalPeriod
+import app.aurora.progress.GoalStatus
+import app.aurora.protect.activeGoalIds
+import app.aurora.setGoalStatus
+import app.aurora.ui.components.AuroraDialog
 import app.aurora.protect.Rules
 import app.aurora.protect.UsageConfig
 import app.aurora.protect.intentOf
@@ -62,7 +68,7 @@ private const val MaxWeekMinutes = 7 * 24 * 60
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> Unit, onCreateConfig: () -> Unit, startStep: String? = null, startKind: GoalKind? = null) {
+fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> Unit, onCreateConfig: () -> Unit, onPlus: () -> Unit = {}, startStep: String? = null, startKind: GoalKind? = null) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val apps by vm.apps.collectAsStateWithLifecycle()
@@ -83,6 +89,16 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
     var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
     var step by rememberSaveable { mutableStateOf(startStep?.let { GoalStep.valueOf(it) } ?: GoalStep.Name) }
     LaunchedEffect(createdConfig) { if (createdConfig != null) configId = createdConfig }
+    var blocked by remember { mutableStateOf<Goal?>(null) }
+    blocked?.let { goal ->
+        GoalLimitDialog(d.rules.activeGoalIds(d.plan).firstOrNull()?.let { id -> d.rules.trackGoals.find { it.id == id } }, onPlus, { blocked = null }) { current, status ->
+            vm.run {
+                vm.app.setGoalStatus(current.id, status)
+                blocked = null
+                if (vm.app.saveGoal(goal).allowed) onSaved()
+            }
+        }
+    }
 
     val steps = buildList {
         add(GoalStep.Name)
@@ -126,8 +142,7 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
                     )
                 }
                 vm.run {
-                    vm.app.saveGoal(goal)
-                    onSaved()
+                    if (vm.app.saveGoal(goal).allowed) onSaved() else blocked = goal
                 }
             }
         },
@@ -188,6 +203,25 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * A second active Goal on Free: names the one already active and offers each honest way forward. Cancelling
+ * changes nothing. [onFree] pauses, completes or archives the current Goal; its history stays.
+ */
+@Composable
+fun GoalLimitDialog(current: Goal?, onPlus: () -> Unit, onDismiss: () -> Unit, onFree: (Goal, GoalStatus) -> Unit) {
+    AuroraDialog(
+        stringResource(R.string.goal_plan_title), onDismiss, stringResource(R.string.plus_see), { onDismiss(); onPlus() },
+        if (current != null) stringResource(R.string.goal_plan_current, current.name) else stringResource(R.string.goal_plan_body),
+        stringResource(R.string.action_cancel),
+    ) {
+        if (current != null) Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+            AuroraButton(stringResource(R.string.goal_pause_current), { onFree(current, GoalStatus.Paused) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
+            AuroraButton(stringResource(R.string.goal_complete_current), { onFree(current, GoalStatus.Completed) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
+            AuroraButton(stringResource(R.string.goal_archive_current), { onFree(current, GoalStatus.Archived) }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet, compact = true)
         }
     }
 }

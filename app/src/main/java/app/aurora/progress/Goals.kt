@@ -15,7 +15,7 @@ import java.time.temporal.TemporalAdjusters
  *
  * A session goal counts verified time in its session (only while the Shield service was bound), or sessions
  * that succeeded. It succeeds once the target is reached. A period that ends short has failed, except the
- * one the goal was created in, which may not have had enough time left.
+ * one the goal was created in, which may not have had enough time left. A period a pause touches doesn't count.
  *
  * A limit goal counts foreground time in its apps, or all screen time. It fails the moment the limit is
  * passed and succeeds when the period ends within it. A day Android has no records for is never a success.
@@ -27,6 +27,17 @@ enum class GoalKind { Session, Limit }
 /** [Weekly] runs Monday to Sunday. */
 @Serializable
 enum class GoalPeriod { Daily, Weekly }
+
+/**
+ * Where a Goal is in its life. The person decides this: a timer running out never completes a Goal.
+ * Only [Active] Goals count against the plan. The others keep their history and can be resumed.
+ */
+@Serializable
+enum class GoalStatus { Active, Paused, Completed, Archived }
+
+/** A stretch of time a Goal wasn't being measured. [to] null: it still isn't. */
+@Serializable
+data class GoalPause(val from: Long, val to: Long? = null)
 
 @Serializable
 data class Goal(
@@ -42,7 +53,19 @@ data class Goal(
     /** Limit: the apps it covers. Empty: the whole screen time. */
     val apps: Set<String> = emptySet(),
     val createdAt: Long = 0,
+    val status: GoalStatus = GoalStatus.Active,
+    val pauses: List<GoalPause> = emptyList(),
 ) {
+    /** This Goal with a pause opened or closed so that it is measured exactly when [measuring]. */
+    fun withMeasuring(measuring: Boolean, now: Long): Goal {
+        val open = pauses.lastOrNull()?.takeIf { it.to == null }
+        return when {
+            measuring && open != null -> copy(pauses = pauses.dropLast(1) + open.copy(to = now))
+            !measuring && open == null -> copy(pauses = pauses + GoalPause(now))
+            else -> this
+        }
+    }
+
     /** Milliseconds, or a number of sessions. */
     val target: Long get() = sessions?.toLong() ?: (minutes * 60_000L)
 
@@ -103,7 +126,15 @@ fun goalProgress(
         })
     }
 
+    fun paused(start: LocalDate): Boolean {
+        val from = start.atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = start.plusDays(step).atStartOfDay(zone).toInstant().toEpochMilli()
+        return goal.pauses.any { it.from < to && (it.to ?: Long.MAX_VALUE) > from }
+    }
+
     fun mark(start: LocalDate, value: Long?): DayMark = when {
+        // A period touched by a pause neither earns nor breaks a streak, unless it was already met.
+        paused(start) && !(goal.kind == GoalKind.Session && value != null && value >= goal.target) -> DayMark.Rest
         goal.kind == GoalKind.Limit -> when {
             value == null -> DayMark.Rest
             value > goal.target -> DayMark.Missed

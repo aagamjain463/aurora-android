@@ -1,22 +1,16 @@
 package app.aurora.plan
 
-import app.aurora.plan.Allowance.DailyLimitRules
-import app.aurora.plan.Allowance.FocusProfiles
+import app.aurora.plan.Allowance.ActiveGoals
+import app.aurora.plan.Allowance.CommittedMinutesPerDay
 import app.aurora.plan.Allowance.IntentApps
-import app.aurora.plan.Allowance.AlwaysBlockMinutesPerDay
 import app.aurora.plan.Allowance.ProtectedItems
-import app.aurora.plan.Allowance.Schedules
 import app.aurora.plan.Plan.Free
 import app.aurora.plan.Plan.Plus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
 
 class PlanTest {
 
@@ -28,7 +22,7 @@ class PlanTest {
     @Test
     fun freeLimitsMatchTheBusinessModel() {
         assertEquals(
-            mapOf(ProtectedItems to 5, IntentApps to 3, DailyLimitRules to 3, Schedules to 1, FocusProfiles to 1, AlwaysBlockMinutesPerDay to 120),
+            mapOf(ProtectedItems to 5, IntentApps to 3, ActiveGoals to 1, CommittedMinutesPerDay to 120),
             Allowance.entries.associateWith { limit(Free, it) },
         )
     }
@@ -47,27 +41,6 @@ class PlanTest {
             assertTrue(allowance.name, canAdd(Free, allowance, max - 1))
             assertFalse(allowance.name, canAdd(Free, allowance, max))
             assertFalse(allowance.name, canAdd(Free, allowance, max + 1))
-        }
-    }
-
-    @Test
-    fun ruleLimits() {
-        assertTrue(canAdd(Free, IntentApps, 2))
-        assertFalse(canAdd(Free, IntentApps, 3))
-        assertTrue(canAdd(Free, DailyLimitRules, 2))
-        assertFalse(canAdd(Free, DailyLimitRules, 3))
-        assertTrue(canAdd(Free, Schedules, 0))
-        assertFalse(canAdd(Free, Schedules, 1))
-        // The default Focus profile is the one Free allows.
-        assertFalse(canAdd(Free, FocusProfiles, 1))
-        assertTrue(canAdd(Plus, FocusProfiles, 1))
-    }
-
-    @Test
-    fun featuresArePlusOnly() {
-        for (feature in Feature.entries) {
-            assertFalse(has(Free, feature))
-            assertTrue(has(Plus, feature))
         }
     }
 
@@ -143,7 +116,7 @@ class PlanTest {
     fun downgradeKeepsTheOldestActiveUntilThePersonChooses() {
         val items = listOf("a", "b", "c", "d", "e", "f", "g") // oldest first
         assertEquals(listOf("a", "b", "c", "d", "e"), keepActive(Free, ProtectedItems, items))
-        assertEquals(listOf("a"), keepActive(Free, Schedules, items))
+        assertEquals(listOf("a"), keepActive(Free, ActiveGoals, items))
         assertEquals(items, keepActive(Plus, ProtectedItems, items))
     }
 
@@ -153,120 +126,8 @@ class PlanTest {
         assertEquals(listOf("a", "b", "c", "f", "g"), keepActive(Free, ProtectedItems, items, chosen = setOf("g", "f")))
         assertEquals(listOf("b", "d", "e"), keepActive(Free, IntentApps, items, chosen = listOf("b", "d", "e", "f")))
         // Choices that no longer exist are ignored.
-        assertEquals(listOf("c"), keepActive(Free, Schedules, listOf("c", "d"), chosen = setOf("zzz")))
+        assertEquals(listOf("c"), keepActive(Free, ActiveGoals, listOf("c", "d"), chosen = setOf("zzz")))
         // Repeats count once.
         assertEquals(listOf("a", "b", "c"), keepActive(Free, IntentApps, listOf("a", "a", "b", "c", "d")))
-    }
-
-    // Lockdown
-
-    private val india: ZoneId = ZoneId.of("Asia/Kolkata")
-    private val day: LocalDate = LocalDate.of(2026, 10, 28)
-    private fun at(hhmm: String, date: LocalDate = day, zone: ZoneId = india): Instant =
-        java.time.LocalTime.parse(hhmm).atDate(date).atZone(zone).toInstant()
-
-    private fun reserveAll(plan: Plan, vararg starts: Pair<String, Int>): List<AlwaysBlockReservation> =
-        starts.fold(emptyList()) { ledger, (time, minutes) ->
-            ledger + checkNotNull(reserveAlwaysBlock(plan, ledger, at(time), minutes, india)) { "$time for $minutes" }
-        }
-
-    @Test
-    fun freeLockdownsMayTotalExactly120Minutes() {
-        val ledger = reserveAll(Free, "09:00" to 60, "13:00" to 45, "18:00" to 15)
-        assertEquals(120, alwaysBlockMinutesUsed(ledger, day))
-        assertEquals(0, alwaysBlockMinutesLeft(Free, ledger, day))
-    }
-
-    @Test
-    fun freeLockdownCannotExceedTheBudget() {
-        assertNull(reserveAlwaysBlock(Free, emptyList(), at("09:00"), 121, india))
-        val ledger = reserveAll(Free, "09:00" to 90)
-        assertEquals(30, alwaysBlockMinutesLeft(Free, ledger, day))
-        assertNull(reserveAlwaysBlock(Free, ledger, at("12:00"), 31, india))
-        assertNotNull(reserveAlwaysBlock(Free, ledger, at("12:00"), 30, india))
-        assertNull(reserveAlwaysBlock(Free, ledger, at("12:00"), 0, india))
-        assertNull(reserveAlwaysBlock(Free, ledger, at("12:00"), -5, india))
-    }
-
-    @Test
-    fun sequentialLockdownsShareOneBudget() {
-        val ledger = reserveAll(Free, "08:00" to 30, "10:00" to 30, "12:00" to 30)
-        assertEquals(30, alwaysBlockMinutesLeft(Free, ledger, day))
-        assertNull(reserveAlwaysBlock(Free, ledger, at("15:00"), 45, india))
-    }
-
-    @Test
-    fun overlappingLockdownsAreChargedOnce() {
-        // A second Lockdown inside a running one costs only the time it adds.
-        val ledger = reserveAll(Free, "09:00" to 60, "09:30" to 60)
-        assertEquals(90, alwaysBlockMinutesUsed(ledger, day))
-        // Restarting the same Lockdown costs nothing and doesn't reset the budget.
-        val again = ledger + reserveAlwaysBlock(Free, ledger, at("09:00"), 60, india)!!
-        assertEquals(90, alwaysBlockMinutesUsed(again, day))
-        assertEquals(30, alwaysBlockMinutesLeft(Free, again, day))
-    }
-
-    @Test
-    fun aLockdownAcrossMidnightCountsTowardItsStartingDay() {
-        val ledger = reserveAll(Free, "23:30" to 90)
-        val next = day.plusDays(1)
-        assertEquals(90, alwaysBlockMinutesUsed(ledger, day))
-        assertEquals(0, alwaysBlockMinutesUsed(ledger, next))
-        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, next))
-        // Just after midnight a new Lockdown starts on the new day. Its first half hour is
-        // already covered by last night's Lockdown, so the new day pays only for the rest.
-        val after = ledger + reserveAlwaysBlock(Free, ledger, at("00:30", next), 120, india)!!
-        assertEquals(90, alwaysBlockMinutesUsed(after, day))
-        assertEquals(90, alwaysBlockMinutesUsed(after, next))
-    }
-
-    @Test
-    fun theBudgetFollowsTheDevicesCurrentTimeZone() {
-        // 23:00 in India on the 28th is 17:30 in London on the 28th and 08:00 in Tokyo on the 29th.
-        val ledger = reserveAll(Free, "23:00" to 100)
-        val now = at("23:30")
-        val london = now.atZone(ZoneId.of("Europe/London")).toLocalDate()
-        val tokyo = now.atZone(ZoneId.of("Asia/Tokyo")).toLocalDate()
-        assertEquals(20, alwaysBlockMinutesLeft(Free, ledger, london))
-        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, tokyo))
-        // A Lockdown started after the move is charged to the local day where it starts.
-        val inTokyo = reserveAlwaysBlock(Free, ledger, at("23:45"), 120, ZoneId.of("Asia/Tokyo"))!!
-        assertEquals(day.plusDays(1), inTokyo.day)
-    }
-
-    @Test
-    fun aClockSetBackDoesNotRefundOrDoubleCharge() {
-        val ledger = reserveAll(Free, "10:00" to 60)
-        // The clock moves back to 09:30 and a Lockdown starts: 09:30 to 11:00 is charged once, as 90 minutes.
-        val back = reserveAlwaysBlock(Free, ledger, at("09:30"), 60, india)
-        assertNotNull(back)
-        assertEquals(90, alwaysBlockMinutesUsed(ledger + back!!, day))
-        // Moving the clock to tomorrow gives tomorrow's budget, an accepted limitation (BUSINESS_MODEL.md 7).
-        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, day.plusDays(1)))
-    }
-
-    @Test
-    fun earlyEndsOutsideAurorasControlAreRefunded() {
-        val ledger = reserveAll(Free, "09:00" to 120)
-        assertEquals(0, alwaysBlockMinutesLeft(Free, ledger, day))
-        // The accessibility service is turned off 40 minutes and 10 seconds in.
-        val ended = listOf(ledger.single().endedEarlyAt(at("09:40").plusSeconds(10)))
-        assertEquals(41, alwaysBlockMinutesUsed(ended, day))
-        assertEquals(79, alwaysBlockMinutesLeft(Free, ended, day))
-        // An end time outside the reservation can't refund more than it reserved, or extend it.
-        assertEquals(0, alwaysBlockMinutesUsed(listOf(ledger.single().endedEarlyAt(at("08:00"))), day))
-        assertEquals(120, alwaysBlockMinutesUsed(listOf(ledger.single().endedEarlyAt(at("23:00"))), day))
-    }
-
-    @Test
-    fun plusLockdownIsUnlimitedAndADowngradeNeverEndsOne() {
-        val ledger = reserveAll(Plus, "08:00" to 300)
-        assertNull(alwaysBlockMinutesLeft(Plus, ledger, day))
-        // The subscription ends during the Lockdown. The reservation stands as promised; Free's
-        // limit applies from the next Lockdown, and the minutes left never go negative.
-        assertEquals(at("13:00"), ledger.single().end)
-        assertEquals(0, alwaysBlockMinutesLeft(Free, ledger, day))
-        assertNull(reserveAlwaysBlock(Free, ledger, at("14:00"), 10, india))
-        assertEquals(120, alwaysBlockMinutesLeft(Free, ledger, day.plusDays(1)))
     }
 }

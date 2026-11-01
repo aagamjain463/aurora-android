@@ -241,7 +241,7 @@ fun LazyListScope.homeNow(d: ProtectData, app: AuroraApplication, onOpenFocus: (
 fun LazyListScope.homeLater(d: ProtectData, app: AuroraApplication, onOpenFocus: (String) -> Unit) {
     val runs = app.runsNow(d.time)
     val zone = ZoneId.systemDefault()
-    val entitled = d.rules.entitledActivations(d.plan)
+    val entitled = d.rules.entitledActivations(d.plan, d.time.wall, zone)
     val scheduled = d.rules.activations.filter { it.timing is Timing.Later || it.timing is Timing.Recurring }
     if (scheduled.isNotEmpty()) item(key = "scheduled-label") { Column(Modifier.animateItem()) { HomeLabel(stringResource(R.string.home_scheduled)) } }
     items(scheduled, key = { "act-" + it.id }) { a -> Column(Modifier.animateItem()) { ActivationCard(a, d, app, a.id in entitled, zone) } }
@@ -365,6 +365,7 @@ private fun ActivationCard(a: Activation, d: ProtectData, app: AuroraApplication
             when {
                 !a.enabled -> stringResource(R.string.home_paused)
                 !entitled -> stringResource(R.string.home_paused_plan)
+                d.runtime.quotaDenied.keys.any { it == "later:${a.id}" || it.startsWith("rec:${a.id}:") } -> stringResource(R.string.home_skipped_quota)
                 next != null -> stringResource(R.string.home_next_start, java.time.Instant.ofEpochMilli(next).atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, ")) + clockTime(next))
                 else -> ""
             },
@@ -510,7 +511,7 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
                 app.saveFailed.value = true
                 return@launch
             }
-            problem = p?.let { c.id to it }
+            problem = p?.let { c.id to it.problem }
         }
     }
     HomeLabel(stringResource(R.string.home_ready_title))
@@ -549,7 +550,8 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
                     )
                 }
             }
-            problem?.takeIf { it.first == c.id }?.let { (_, p) ->
+            // Plan limits are explained at the app's root.
+            problem?.takeIf { it.first == c.id && !it.second.overLimit }?.let { (_, p) ->
                 Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
             }
         }

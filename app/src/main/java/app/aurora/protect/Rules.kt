@@ -2,8 +2,8 @@
 
 package app.aurora.protect
 
-import app.aurora.plan.AlwaysBlockReservation
 import app.aurora.plan.Allowance
+import app.aurora.plan.LedgerEntry
 import app.aurora.plan.Plan
 import app.aurora.plan.ProtectedItem
 import app.aurora.plan.keepActive
@@ -159,15 +159,16 @@ data class Rules(
     val configs: List<UsageConfig> = emptyList(),
     val activations: List<Activation> = emptyList(),
     val trackGoals: List<app.aurora.progress.Goal> = emptyList(),
+    /** What the person chose to keep active on Free after a downgrade. See [retainedShield]. */
+    val keep: FreeKeep = FreeKeep(),
 ) {
     fun rule(key: String): AppRule = apps[key] ?: defaultRule
 
     /** The person's choices that the plan currently enforces; the rest stay saved and paused. */
-    fun activeSchedules(plan: Plan) = keepActive(plan, Allowance.Schedules, schedules.filter { it.enabled })
-    fun activeLimits(plan: Plan) = keepActive(plan, Allowance.DailyLimitRules, limits.filter { it.enabled })
+    fun activeSchedules() = schedules.filter { it.enabled }
+    fun activeLimits() = limits.filter { it.enabled }
     fun activeIntents(plan: Plan): Set<String> =
         keepActive(plan, Allowance.IntentApps, apps.filterValues { it.intent?.enabled == true }.keys.toList()).toSet()
-    fun activeProfiles(plan: Plan) = keepActive(plan, Allowance.FocusProfiles, profiles)
 
     fun intentFor(key: String, plan: Plan): IntentConfig? = apps[key]?.intent?.takeIf { key in activeIntents(plan) }
 }
@@ -243,13 +244,6 @@ data class ProtectionSession(
     val cancellable: Boolean get() = !mode.strict
 }
 
-@Serializable
-data class LedgerEntry(val day: String, val start: Long, val end: Long) {
-    fun toReservation() = AlwaysBlockReservation(LocalDate.parse(day), Instant.ofEpochMilli(start), Instant.ofEpochMilli(end))
-}
-
-fun AlwaysBlockReservation.toEntry() = LedgerEntry(day.toString(), start.toEpochMilli(), end.toEpochMilli())
-
 /** Timed access from a completed Friction task or a finished Cooldown wait. It lifts [level] and weaker. */
 @Serializable
 data class Grant(val until: Long, val level: Mode)
@@ -303,7 +297,10 @@ data class Runtime(
     val focus: Session? = null,
     /** A Phase 3 Lockdown, read once and migrated into an Always Block session ([migrated]). */
     val lockdown: Session? = null,
+    /** Committed Cooldown and Always Block time (plan/CommittedQuota.kt), kept on Plus too so a downgrade counts today honestly. */
     val ledger: List<LedgerEntry> = emptyList(),
+    /** Scheduled occurrences the day's allowance couldn't cover: run id to window end. They don't start late. */
+    val quotaDenied: Map<String, Long> = emptyMap(),
 ) {
     /** The reflection pause for [key], continuing one that began within [ReflectionReuseMs]. */
     fun reflectionFor(key: String, now: Long): Pair<Runtime, Long> {
@@ -311,7 +308,7 @@ data class Runtime(
         return if (existing != null) this to existing else copy(reflections = reflections + (key to now)) to now
     }
 
-    /** Drops what has ended, and Always Block reservations older than a week. */
+    /** Drops what has ended, and ledger entries older than a week. */
     fun pruned(t: DeviceTime): Runtime {
         val now = t.wall
         return copy(
@@ -322,6 +319,7 @@ data class Runtime(
             intentCooldownLengths = intentCooldownLengths.filterKeys { (intentCooldowns[it] ?: 0) > now },
             closed = closed.filterValues { it > now },
             ledger = ledger.filter { now - it.end < 7 * 86_400_000L },
+            quotaDenied = quotaDenied.filterValues { it > now },
         )
     }
 
@@ -398,9 +396,8 @@ fun windowId(scheduleId: String, start: Long) = "schedule:$scheduleId:$start"
  * [plan] allows is enforced; the rest stays saved and paused. Running sessions are the exception: their
  * items were fixed when they started, and a downgrade never cancels a commitment.
  *
- * On Free, a scheduled Always Block window is enforced as a full block that can be turned off; its
- * committed part comes from the daily Always Block allowance, reserved when the window starts
- * (Actions.kt commitScheduleWindows). On aurora plus the whole window is committed.
+ * The legacy [Rules.schedules] exist only until the migration at start-up empties them. Until then a Free
+ * Always Block window is enforced as a block that can be turned off, as it always was.
  */
 fun policyState(
     list: ProtectedList,
@@ -434,7 +431,7 @@ fun policyState(
         runtime.focus?.takeUnless { it.isOver(time) }?.let {
             add(Restriction(ShieldReason.Focus, rules.cover(it.groupId, active), it.startedWall(time), it.endWall(time), "focus-${it.startWall}"))
         }
-        for (schedule in rules.activeSchedules(plan)) {
+        for (schedule in rules.activeSchedules()) {
             val keys = rules.covers(schedule, active)
             val windows = listOfNotNull(schedule.windowAt(now, zone), schedule.nextStart(now, zone)?.let { schedule.windowAt(it, zone) })
             for ((start, end) in windows) {
@@ -456,7 +453,8 @@ fun policyState(
     val intents = (legacyIntents.keys + configured.keys).associateWith { k ->
         listOfNotNull(legacyIntents[k], configured[k]).reduce(::stricter)
     }
-    val limits = rules.activeLimits(plan).filter { it.key in active }.associate { it.key to it.minutes * 60_000L }
+    val retained = rules.retainedShield(plan, now, zone)
+    val limits = rules.activeLimits().filter { it.key in active && (retained == null || it.key in retained) }.associate { it.key to it.minutes * 60_000L }
     return PolicyState(
         protectedPackages = active + restrictions.flatMap { it.keys } + intents.keys,
         exempt = exempt,

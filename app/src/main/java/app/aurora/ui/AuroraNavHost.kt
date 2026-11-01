@@ -32,6 +32,8 @@ import app.aurora.ui.components.rememberGlassSource
 import app.aurora.ui.components.glassSource
 import app.aurora.AuroraApplication
 import app.aurora.adoptOnboarding
+import app.aurora.ui.plus.KeepScreen
+import app.aurora.ui.plus.LimitPromptDialog
 import app.aurora.R
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraNavBar
@@ -180,8 +182,10 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onOpenFocus = { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") },
                     onOpenLegacyFocus = { nav.navigate(Routes.Focus) },
                     onOpenSettings = settings,
+                    onKeep = { nav.navigate(ProtectRoutes.Keep) },
                 )
             }
+            composable(ProtectRoutes.Keep) { KeepScreen(back, plus) }
             composable(Routes.Quick) {
                 QuickSessionScreen(
                     onBack = back,
@@ -235,7 +239,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             }
             composable(Routes.GoalEdit) { e ->
                 val createdConfig by e.savedStateHandle.getStateFlow<String?>("createdConfig", null).collectAsStateWithLifecycle()
-                GoalEditorScreen(createdConfig, back, onSaved = back, onCreateConfig = { nav.navigate("${Routes.Configure}?custom=true&goal=true") })
+                GoalEditorScreen(createdConfig, back, onSaved = back, onCreateConfig = { nav.navigate("${Routes.Configure}?custom=true&goal=true") }, onPlus = plus)
             }
             composable(Routes.Strict) { StrictModeScreen(back) }
             composable("${Routes.FocusRun}/{id}") { e -> FocusRunScreen(Uri.decode(e.arguments?.getString("id").orEmpty()), back) }
@@ -267,6 +271,9 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 FocusScreen(onClose = { if (nav.currentDestination?.route == Routes.Focus) nav.popBackStack() }, onPlus = plus)
             }
         }
+
+        val prompt by app.limitPrompt.collectAsStateWithLifecycle()
+        prompt?.let { LimitPromptDialog(it, { app.limitPrompt.value = null }) { nav.navigate(ProtectRoutes.Plus) } }
 
         val failed by app.saveFailed.collectAsStateWithLifecycle()
         if (failed) AuroraDialog(

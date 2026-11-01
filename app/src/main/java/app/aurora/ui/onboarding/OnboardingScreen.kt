@@ -182,7 +182,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     app.scope.launch { runCatching { app.preferences.setOnboardingStep(0) } }
                     onFinish()
                 }
-                problem?.let { Text(problemText(it), color = colors.danger, style = AuroraType.Secondary) }
+                problem?.takeUnless { it.overLimit }?.let { Text(problemText(it), color = colors.danger, style = AuroraType.Secondary) }
                 if (p == PageCount - 1 && canStart) {
                     val name = stringResource(R.string.home_normal_title)
                     AuroraButton(stringResource(R.string.onb_start_now), {
@@ -192,7 +192,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                         val now = System.currentTimeMillis()
                         val shield = ShieldPreset(newId(), name, chosen, mode, cooldownWaitMinutes = 5, createdAt = now)
                         vm.run {
-                            problem = app.activate(UsageConfig(newId(), name, custom = false, shield = shield, createdAt = now), Timing.Now(firstMinutes))
+                            problem = app.activate(UsageConfig(newId(), name, custom = false, shield = shield, createdAt = now), Timing.Now(firstMinutes))?.problem
                             if (problem == null) finish()
                         }
                     }, Modifier.fillMaxWidth(), enabled = !mode.strict || committed)

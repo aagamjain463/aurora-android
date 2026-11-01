@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.auroraViewModel
-import app.aurora.plan.Allowance
+import app.aurora.protect.retainedShield
 import app.aurora.plan.Plan
 import app.aurora.protect.Difficulty
 import app.aurora.protect.FrictionSettings
@@ -115,8 +115,6 @@ fun daysText(days: Set<Int>): String = when (days) {
     else -> days.sorted().joinToString(", ") { dayShort(it) }
 }
 
-private fun app.aurora.AuroraApplication.canEnableSchedule(d: ProtectData) = app.aurora.plan.canAdd(plan, Allowance.Schedules, d.rules.activeSchedules(d.plan).size)
-
 private enum class ScheduleStep { Name, Days, Times, Apps, Mode, Settings, Summary }
 
 /** A time of day typed as hour and minute, with an AM/PM switch in 12-hour locales. */
@@ -169,7 +167,8 @@ fun LimitsScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onOpenApps: (
             item { SkeletonRows(3) }
             return@AuroraScreen
         }
-        val active = d.rules.activeLimits(d.plan)
+        val retained = d.rules.retainedShield(d.plan, d.time.wall, java.time.ZoneId.systemDefault())
+        val active = d.rules.activeLimits()
         val apps = d.list.apps.filter { it in d.activeKeys }
         if (apps.isEmpty()) {
             item(key = "none") {
@@ -183,7 +182,7 @@ fun LimitsScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onOpenApps: (
             return@AuroraScreen
         }
         item(key = "list") {
-            SectionLabel(stringResource(R.string.limits_count, allowanceText(active.size, d.max(Allowance.DailyLimitRules))))
+            SectionLabel(stringResource(R.string.limits_count, allowanceText(active.size, null)))
             RowGroup {
                 apps.forEachIndexed { i, pkg ->
                     if (i > 0) RowDivider(72.dp)
@@ -192,7 +191,7 @@ fun LimitsScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onOpenApps: (
                         title = d.label(pkg),
                         subtitle = when {
                             limit == null -> stringResource(R.string.limits_none)
-                            limit !in active -> stringResource(R.string.limits_paused, minutesText(limit.minutes))
+                            retained != null && pkg !in retained -> stringResource(R.string.limits_paused, minutesText(limit.minutes))
                             else -> stringResource(R.string.limits_per_day, minutesText(limit.minutes))
                         },
                         leading = { ItemIcon(pkg, d) },
