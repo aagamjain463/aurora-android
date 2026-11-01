@@ -26,22 +26,21 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
+import java.security.MessageDigest
 import java.util.UUID
 import kotlin.coroutines.resume
 
@@ -55,43 +54,21 @@ data class BillingState(
     val pending: Boolean = false,
     /** Play reports a purchase and the server hasn't confirmed it yet. Plus starts when it does. */
     val verifying: Boolean = false,
+    /** This phone's purchase belongs to another Aurora account. Nothing moves until the person chooses to. */
+    val conflict: PurchaseConflict? = null,
     val message: String? = null,
 ) {
     enum class Connection { Connecting, Ready, Unavailable }
 }
 
+/** [hint] is the other account's address, masked. [token] goes nowhere except back to the server, if the person moves it. */
+data class PurchaseConflict(val hint: String?, internal val token: String)
+
 /** This install's random id, in storage no backup or transfer copies: a snapshot restored from elsewhere doesn't match it. */
-private fun installId(context: Context): String {
+fun installId(context: Context): String {
     val file = File(context.noBackupFilesDir, "install_id")
     if (!file.exists()) file.writeText(UUID.randomUUID().toString())
     return file.readText()
-}
-
-/** Asks the verification server about a purchase. Null when it can't be reached: what is stored stays. */
-private fun httpVerifier(url: String): suspend (String, String, String, String) -> SignedEntitlement? = { token, product, install, pkg ->
-    withContext(Dispatchers.IO) {
-        runCatching {
-            val body = buildJsonObject {
-                put("purchaseToken", token)
-                put("productId", product)
-                put("installId", install)
-                put("packageName", pkg)
-            }.toString()
-            val c = URL(url).openConnection() as HttpURLConnection
-            try {
-                c.requestMethod = "POST"
-                c.doOutput = true
-                c.connectTimeout = 15_000
-                c.readTimeout = 20_000
-                c.setRequestProperty("Content-Type", "application/json")
-                c.outputStream.use { it.write(body.toByteArray()) }
-                if (c.responseCode != 200) null
-                else AuroraJson.decodeFromString(SignedEntitlement.serializer(), c.inputStream.bufferedReader().use { it.readText() })
-            } finally {
-                c.disconnect()
-            }
-        }.getOrNull()
-    }
 }
 
 /**
@@ -106,8 +83,13 @@ class BillingRepository(
     private val cache: JsonValue<SignedEntitlement>,
     private val wallClock: () -> Long = System::currentTimeMillis,
     private val publicKey: String = BuildConfig.ENTITLEMENT_PUBLIC_KEY,
-    private val verify: suspend (String, String, String, String) -> SignedEntitlement? = httpVerifier(BuildConfig.ENTITLEMENT_URL),
-    private val configured: Boolean = BuildConfig.ENTITLEMENT_URL.isNotBlank() && BuildConfig.ENTITLEMENT_PUBLIC_KEY.isNotBlank(),
+    private val verify: suspend (String, String, String, String) -> SignedEntitlement?,
+    private val configured: Boolean = BuildConfig.SERVER_URL.isNotBlank() && BuildConfig.ENTITLEMENT_PUBLIC_KEY.isNotBlank(),
+    /** Who is signed in. A purchase is only ever verified for, and a snapshot only ever counts for, a signed-in account. */
+    private val currentUid: () -> String?,
+    /** False until the authentication provider has answered, so a Plus person doesn't look Free for a moment. */
+    private val identityResolved: () -> Boolean = { true },
+    private val identityChanges: Flow<*> = flowOf(Unit),
 ) {
     private val plusProducts = BuildConfig.PLUS_PRODUCT_IDS.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     private val install by lazy { installId(context) }
@@ -123,20 +105,30 @@ class BillingRepository(
         return verifiedSnapshot(signed, publicKey).also { checked = signed to it }
     }
 
-    val loaded: Boolean get() = cache.state.value != null
+    val loaded: Boolean get() = cache.state.value != null && identityResolved()
 
     suspend fun awaitLoaded() {
         cache.state.first { it != null }
     }
 
+    /** The account's data replaced what was active: [cache] holds the new account's snapshot now. */
+    suspend fun reloadCache() = cache.reload()
+
+    /** A snapshot from the account service, if it really is for this install and this account. */
+    suspend fun store(signed: SignedEntitlement) {
+        val answer = verifiedSnapshot(signed, publicKey) ?: return
+        if (answer.installId != install || answer.packageName != context.packageName || answer.uid != currentUid()) return
+        runCatching { cache.update { signed } }
+    }
+
     /** The plan at this moment, read fresh: expiry is a matter of the clock, not of anything changing. */
-    fun planNow(): Plan = planFrom(snapshot(cache.value), install, context.packageName, wallClock())
+    fun planNow(): Plan = planFrom(snapshot(cache.value), currentUid(), install, context.packageName, wallClock())
 
     val subscription: StateFlow<EntitlementSnapshot?> = cache.state
         .map { snapshot(it?.value) }
         .stateIn(scope, SharingStarted.Eagerly, null)
 
-    val plan: StateFlow<Plan> = combine(cache.state, flow { while (true) { emit(Unit); delay(60_000L) } }) { _, _ -> planNow() }
+    val plan: StateFlow<Plan> = combine(cache.state, identityChanges, flow { while (true) { emit(Unit); delay(60_000L) } }) { _, _, _ -> planNow() }
         .stateIn(scope, SharingStarted.Eagerly, Plan.Free)
 
     private val listener = PurchasesUpdatedListener { result, purchases ->
@@ -239,27 +231,27 @@ class BillingRepository(
         val verdict = evaluate(purchases, plusProducts)
         _state.value = _state.value.copy(pending = verdict.pending)
         if (verdict.purchased.isEmpty()) {
-            if (complete) runCatching { cache.reset() }
-            _state.value = _state.value.copy(verifying = false)
+            // Play's list is only this phone's Play account. The subscription belongs to the Aurora account, which
+            // may have bought it elsewhere, so an empty list here takes nothing away: the account service decides.
+            _state.value = _state.value.copy(verifying = false, conflict = null)
             return
         }
-        if (!configured) return
+        if (!configured || currentUid() == null) return
         _state.value = _state.value.copy(verifying = true)
         for (p in verdict.purchased) {
             val product = p.products.first { it in plusProducts }
             val signed = verify(p.token, product, install, context.packageName)
             val answer = signed?.let { verifiedSnapshot(it, publicKey) }?.takeIf { it.installId == install && it.packageName == context.packageName }
-            if (signed == null || answer == null) {
+            if (signed == null || answer == null || answer.uid != currentUid()) {
                 // Unreachable or nonsense: keep what is stored, and try again soon. Nothing is decided here.
                 retryLater()
                 return
             }
             runCatching { cache.update { signed } }
-            if (answer.tier == "plus") {
-                // Play refunds a purchase that isn't acknowledged within three days, so only a verified one is.
-                if (!p.acknowledged) acknowledge(p.token)
-                break
-            }
+            _state.value = _state.value.copy(conflict = if (signed.conflict) PurchaseConflict(signed.conflictHint, p.token) else null)
+            // Play refunds a purchase that isn't acknowledged within three days, so only one Google confirmed is.
+            if ((answer.tier == "plus" || answer.purchaseValid) && !signed.conflict && !p.acknowledged) acknowledge(p.token)
+            if (answer.tier == "plus") break
         }
         retries?.cancel()
         _state.value = _state.value.copy(verifying = false)
@@ -276,6 +268,11 @@ class BillingRepository(
         }
     }
 
+    /** The person chose to move this phone's purchase to this account, and the server agreed. */
+    fun clearConflict() {
+        _state.value = _state.value.copy(conflict = null)
+    }
+
     /** Settings › Delete all data: the stored answer goes, and Play is asked again. */
     suspend fun forget() {
         cache.reset()
@@ -284,9 +281,10 @@ class BillingRepository(
 
     /** Opens Play's purchase sheet. Returns false (with a message) if it couldn't be shown. */
     fun buy(activity: Activity, offer: Offer): Boolean {
+        val uid = currentUid() ?: return false
         val params = BillingFlowParams.newBuilder().setProductDetailsParamsList(
             listOf(BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(offer.details).setOfferToken(offer.token).build()),
-        ).build()
+        ).setObfuscatedAccountId(obfuscatedAccountId(uid)).build()
         val result = client.launchBillingFlow(activity, params)
         if (result.responseCode != BillingResponseCode.OK) _state.value = _state.value.copy(message = describe(result))
         return result.responseCode == BillingResponseCode.OK
@@ -305,6 +303,9 @@ class BillingRepository(
         else -> context.getString(R.string.billing_other, result.responseCode)
     }
 }
+
+/** Ties a purchase to the Aurora account it was bought under, in the form Play accepts, without giving Play the uid. */
+fun obfuscatedAccountId(uid: String): String = MessageDigest.getInstance("SHA-256").digest(uid.toByteArray()).joinToString("") { "%02x".format(it) }
 
 /** Play's own subscription screen, where the person cancels or changes plan. aurora never cancels for them. */
 fun openSubscriptionSettings(context: Context, productId: String?) {

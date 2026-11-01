@@ -186,11 +186,13 @@ fun AuroraDialog(
                 Spacer(Modifier.height(Space.L))
                 content()
             }
-            Spacer(Modifier.height(Space.L))
-            DialogButtons(
-                confirm = { AuroraButton(confirmLabel, onConfirm) },
-                dismiss = dismissLabel?.let { { AuroraButton(it, onDismiss, kind = ButtonKind.Quiet, compact = true) } },
-            )
+            if (confirmLabel.isNotEmpty() || dismissLabel != null) {
+                Spacer(Modifier.height(Space.L))
+                DialogButtons(
+                    confirm = { if (confirmLabel.isNotEmpty()) AuroraButton(confirmLabel, onConfirm) },
+                    dismiss = dismissLabel?.let { { AuroraButton(it, onDismiss, kind = ButtonKind.Quiet, compact = true) } },
+                )
+            }
         }
     }
 }
@@ -208,15 +210,15 @@ private fun DialogButtons(confirm: @Composable () -> Unit, dismiss: (@Composable
         val gap = Space.XS.roundToPx()
         val loose = constraints.copy(minWidth = 0)
         val wide = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
-        if (wide.sum() + gap * (wide.size - 1) <= constraints.maxWidth) {
+        if (wide.sum() + gap * maxOf(0, wide.size - 1) <= constraints.maxWidth) {
             val placed = measurables.map { it.measure(loose) }
-            layout(constraints.maxWidth, placed.maxOf { it.height }) {
+            layout(constraints.maxWidth, placed.maxOfOrNull { it.height } ?: 0) {
                 var x = constraints.maxWidth
                 placed.forEach { p -> x -= p.width; p.placeRelative(x, 0); x -= gap }
             }
         } else {
             val placed = measurables.map { it.measure(loose.copy(minWidth = constraints.maxWidth)) }
-            layout(constraints.maxWidth, placed.sumOf { it.height } + gap * (placed.size - 1)) {
+            layout(constraints.maxWidth, if (placed.isEmpty()) 0 else placed.sumOf { it.height } + gap * (placed.size - 1)) {
                 var y = 0
                 placed.forEach { p -> p.placeRelative(0, y); y += p.height + gap }
             }

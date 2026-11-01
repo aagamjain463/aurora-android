@@ -17,62 +17,52 @@
 <body>
 <main>
 <h1>Aurora privacy policy</h1>
-<p class="meta">Effective 30 October 2026</p>
+<p class="meta">Effective 1 November 2026</p>
 
 <p>Aurora is a digital wellbeing app for Android. It helps you choose when to open the apps that pull you
-away. Aurora is built to work on your phone: it has no account, no analytics and no advertising. It uses the
-internet for one thing, which is confirming an Aurora Plus purchase. Your usage never leaves your phone.</p>
+away and protects the time you want back. Aurora enforces all protection strictly on your phone, with zero analytics,
+zero crash-reporting trackers, and no advertising. Verified accounts and cloud synchronization exist solely to
+bind your purchases, share your Free quota across your devices, and prevent lock circumvention.</p>
 
-<h2>What Aurora keeps, and where</h2>
-<p>Aurora stores your settings and your progress in its private storage on your phone: the apps and
-websites you protect, your Shields, Intents, sessions, schedules and Goals, your Focus sessions,
-daily counts and the reasons you write. None of it is sent to us or to anyone else. It is excluded from
-Google's cloud backup. You can see what is stored, clear your history or delete everything in
+<h2>1. What Aurora keeps on your phone</h2>
+<p>Aurora stores your personal settings and habit records in private storage on your device: the specific apps
+and websites you protect, your Shields, Intents, reflection notes, motivations, session history, and Focus timers.
+<strong>None of this personal usage data is ever sent to our servers or to third parties.</strong> It is excluded
+from Google's cloud backup. You can inspect your stored data, clear your history, or reset everything at any time in
 Settings › Privacy & data.</p>
 
-<h2>Accessibility services</h2>
-<p><strong>Aurora Shield</strong> uses Android's accessibility service only to notice which app comes to
-the front, so it can pause the apps you chose. It reads the name of that app and nothing else. It does not
-read the screen, your messages or what you type.</p>
-<p><strong>Aurora Web &amp; content Shield</strong> is optional and off unless you turn it on. In supported
-browsers it reads the address in the address bar, to pause websites you protect. In YouTube and Instagram
-it checks the names of on-screen elements, only to notice Shorts or Reels if you asked for that. It does
-not read messages, passwords or what you type, and it does not store or send what it sees.</p>
-<p>Aurora explains each service and asks before opening Android's settings. Only you can turn them on, and
-you can turn them off at any time in Settings › Accessibility.</p>
+<h2>2. Accounts and cloud synchronization</h2>
+<p>Aurora requires a verified account to synchronize your plan and protect your commitments:</p>
+<ul>
+  <li><strong>Authentication:</strong> You sign in using Google Sign-In or a passwordless Email Link handled via Firebase Authentication. We store your account identifier (UID), verified email address, and display name.</li>
+  <li><strong>Devices &amp; Installations:</strong> A random installation identifier is generated per device to bind authorizations and manage multi-device seat limits (up to 5 concurrent active devices for Aurora Plus).</li>
+  <li><strong>Free Quota Synchronization:</strong> On Aurora Free, strict commitments (Always Block and Cooldown) share a 120-minute daily allowance across your devices. To verify this allowance, Aurora sends the commitment duration, start timestamp, and your local time zone to our Cloudflare-hosted backend. <strong>No app package names, website domains, or personal reflections are ever included in quota requests.</strong></li>
+  <li><strong>Aurora Plus Purchases:</strong> When you subscribe to Aurora Plus via Google Play, your purchase token is verified with the Google Play Developer API and bound to your verified Aurora account.</li>
+</ul>
 
-<h2>Usage access</h2>
-<p>If you allow it, Aurora reads Android's usage records on your phone to show your screen time, your time
-away from protected apps and your daily limits. These records stay on your phone.</p>
+<h2>3. Accessibility services</h2>
+<p><strong>Aurora Shield</strong> uses Android's accessibility service solely to observe which application moves to the foreground, allowing it to pause the apps you chose to limit. It inspects only the package identifier of the frontmost app. It does not read your screen, inspect messages, or capture keystrokes.</p>
+<p><strong>Aurora Web &amp; content Shield</strong> is optional and disabled by default. In supported web browsers, it reads the address in the URL bar to pause protected domains. In YouTube and Instagram, it inspects UI element IDs strictly to detect Shorts or Reels if you opted into that protection. It never reads personal messages, credentials, or typed input, and it never transmits what it inspects.</p>
 
-<h2>Uninstall protection</h2>
-<p>If you turn it on, Aurora becomes a device administrator with no policies, only so it cannot be
-uninstalled while a strict commitment you started is running. You can turn it off whenever no commitment
-is running.</p>
+<h2>4. Usage access</h2>
+<p>If you grant Usage Access, Aurora reads Android's on-device system records (`UsageStatsManager`) to display your screen time, daily usage limits, and time spent away from distracting apps. These records remain entirely on your device.</p>
 
-<h2>Notifications</h2>
-<p>With your permission, Aurora shows a quiet ongoing notification while protection or Focus runs. It is
-created on your phone and contains only the name of what is running and its time left.</p>
+<h2>5. Uninstall protection</h2>
+<p>If enabled, Aurora requests device administrator privileges with no security policies (`<uses-policies />`), solely to prevent uninstallation while an active strict commitment timer is counting down. It can be deactivated whenever no strict session is running.</p>
 
-<h2>Purchases</h2>
-<p>Aurora Plus is sold through Google Play. Google processes the payment under
-<a href="https://policies.google.com/privacy">Google's privacy policy</a>. We never see your payment details.</p>
-<p>When you buy or restore Aurora Plus, Aurora sends three things to Aurora's verification service: the
-purchase token Google Play gave your phone, the subscription product, and a random id made for this
-install. The service asks Google whether the purchase is valid and sends back a signed answer. It stores a
-hash of the token, the random ids that used it (at most five) and the subscription's state. That id isn't
-linked to you or your Google account by us, and nothing about the apps you use or block is ever sent. If you
-never buy Plus, none of this happens.</p>
+<h2>6. Data retention and account deletion</h2>
+<p>You have the absolute right to delete your account and associated cloud data at any time:</p>
+<ul>
+  <li><strong>In-App Deletion:</strong> Go to Settings › Account › Delete account. After confirming via reauthentication, your account enters a 30-day grace period during which you can cancel if desired. Local data is immediately wiped from your phone.</li>
+  <li><strong>Web-Based Deletion Request:</strong> If you no longer have access to the app, you can submit a deletion request via our web deletion portal at <a href="account-deletion.html">useaurora.app/account-deletion.html</a>.</li>
+  <li><strong>Data Purge:</strong> Once the grace period expires, all account records, device bindings, purchase links, and quota ledger entries are permanently erased from our databases.</li>
+</ul>
 
-<h2>Children</h2>
-<p>Aurora is not directed at children under 13 and collects no personal information from anyone beyond the purchase details above.</p>
+<h2>7. Children</h2>
+<p>Aurora is not directed at children under the age of 13 and does not knowingly collect personal information from children.</p>
 
-<h2>Changes</h2>
-<p>If this policy changes, the new version will be published at this address with a new effective date.
-Because Aurora collects nothing, a change can never apply to data collected earlier.</p>
-
-<h2>Contact</h2>
-<p>Questions: <a href="mailto:SUPPORT_EMAIL">SUPPORT_EMAIL</a></p>
+<h2>8. Contact</h2>
+<p>If you have any questions about this privacy policy or your personal data, contact us at <a href="mailto:support@useaurora.app">support@useaurora.app</a>.</p>
 </main>
 </body>
 </html>

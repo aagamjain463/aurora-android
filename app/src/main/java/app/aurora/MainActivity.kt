@@ -1,5 +1,6 @@
 package app.aurora
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -30,7 +31,9 @@ import app.aurora.ui.components.opensWithFirstLight
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraTheme
 import app.aurora.ui.theme.systemAnimationsOff
+import app.aurora.account.AuthState
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /** When the person last left, in this process. A new activity in a process Shield kept alive is still a return. */
 private var lastSeenAt = 0L
@@ -41,6 +44,25 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         SessionNotification.nudge()
+        val aurora = application as AuroraApplication
+        aurora.scope.launch { runCatching { aurora.account.syncIfStale() } }
+    }
+
+    // The link in a sign-in email. singleTask: this instance receives it, whatever the person was doing.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLink(intent)
+    }
+
+    private fun handleLink(intent: Intent?) {
+        val link = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
+        val aurora = application as AuroraApplication
+        aurora.scope.launch {
+            // On a cold start the provider is still reading its session; only then can it read a link.
+            aurora.account.state.first { it != AuthState.Loading }
+            runCatching { aurora.account.handleLink(link) }
+        }
     }
 
     override fun onStop() {
@@ -65,6 +87,8 @@ class MainActivity : ComponentActivity() {
         if (opensWithFirstLight(savedInstanceState != null, away, exploring)) Opening.play() else Opening.finish()
         val aurora = application as AuroraApplication
         val preferences = aurora.preferences
+        // After a rotation the same link would be used twice, and links work once.
+        if (savedInstanceState == null) handleLink(intent)
 
         setContent {
             val prefs by preferences.preferences.collectAsStateWithLifecycle(initialValue = null)
@@ -95,7 +119,7 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize().graphicsLayer {
                         alpha = if (Opening.pageHidden) 0f else 1f
                         translationY = Opening.lift * PageRiseDp.dp.toPx()
-                    }) { AuroraNavHost(startOnboarded) }
+                    }) { app.aurora.ui.account.AccountGate(startOnboarded) { onboarded -> AuroraNavHost(onboarded) } }
                     if (Opening.playing) AuroraUnveil()
                 }
             }

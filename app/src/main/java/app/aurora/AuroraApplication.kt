@@ -1,6 +1,7 @@
 package app.aurora
 
 import android.app.Application
+import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.runtime.Composable
@@ -23,6 +24,17 @@ import app.aurora.data.PreferencesRepository
 import app.aurora.data.ScreenTimeRepository
 import app.aurora.data.accessState
 import app.aurora.data.dataStore
+import app.aurora.account.AccountApi
+import app.aurora.account.AccountRepository
+import app.aurora.account.AuthState
+import app.aurora.account.FirebaseIdentity
+import app.aurora.account.Identity
+import app.aurora.account.ProfileState
+import app.aurora.account.ProfileVault
+import app.aurora.account.Transport
+import app.aurora.account.bindProfile
+import app.aurora.account.httpTransport
+import app.aurora.plan.installId
 import app.aurora.plan.BillingRepository
 import app.aurora.plan.LimitDecision
 import app.aurora.plan.SignedEntitlement
@@ -37,8 +49,12 @@ import app.aurora.protect.Runtime
 import app.aurora.protect.TrustedClock
 import app.aurora.protect.policyState
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +64,7 @@ import java.io.IOException
 import java.time.ZoneId
 
 /** Long-lived dependencies. A handful of objects don't need a DI framework. */
-class AuroraApplication : Application() {
+open class AuroraApplication : Application() {
     /** Lives as long as the process. Holds the in-memory copies the Shield reads on every event. */
     val scope = MainScope()
 
@@ -67,8 +83,30 @@ class AuroraApplication : Application() {
     /** Daily counts, Focus history. Local only. */
     val history by lazy { JsonValue(dataStore, "history", History.serializer(), History(), scope, strict = false) }
 
-    val billing by lazy {
-        BillingRepository(this, scope, JsonValue(dataStore, "entitlement", SignedEntitlement.serializer(), SignedEntitlement(), scope, strict = false))
+    val billing: BillingRepository by lazy {
+        BillingRepository(
+            this, scope, JsonValue(dataStore, "entitlement", SignedEntitlement.serializer(), SignedEntitlement(), scope, strict = false),
+            publicKey = entitlementPublicKey,
+            verify = { token, product, _, pkg -> account.verifyPurchase(token, product, pkg) },
+            configured = accountServer != null && entitlementPublicKey.isNotBlank(),
+            currentUid = { account.uid },
+            identityResolved = { account.resolved },
+            identityChanges = account.state,
+        )
+    }
+
+    /** The authentication provider and the account service. Tests replace these three, and nothing else. */
+    protected open fun createIdentity(): Identity = FirebaseIdentity(this, scope)
+    protected open val accountServer: Transport? get() = BuildConfig.SERVER_URL.takeIf { it.isNotBlank() }?.let(::httpTransport)
+    protected open val entitlementPublicKey: String get() = BuildConfig.ENTITLEMENT_PUBLIC_KEY
+
+    val vault by lazy { ProfileVault(dataStore, java.io.File(noBackupFilesDir, "profiles")) }
+
+    val account: AccountRepository by lazy {
+        AccountRepository(
+            createIdentity(), accountServer?.let(::AccountApi), installId(this), Build.MODEL.orEmpty().take(80), entitlementPublicKey, packageName,
+            java.io.File(noBackupFilesDir, "pending_email"), storeEntitlement = { billing.store(it) },
+        )
     }
 
     /** The one source of the current plan: what the verification server last signed (plan/Entitlement.kt). */
@@ -112,8 +150,20 @@ class AuroraApplication : Application() {
         protectedList
         rules
         runtime
+        account
         billing.connect()
         SessionNotification.start(this)
+        // Every sign-in binds this phone's data to that account before anything behind the gate can draw.
+        scope.launch {
+            protectedList.first { it != null }
+            rules.state.first { it != null }
+            runtime.state.first { it != null }
+            history.state.first { it != null }
+            billing.awaitLoaded()
+            account.state.map { (it as? AuthState.SignedIn)?.user?.uid }.distinctUntilChanged().collectLatest { uid ->
+                if (uid != null) runCatching { bindProfile(uid) }.onFailure { account.setProfile(ProfileState.Failed) }
+            }
+        }
         scope.launch {
             // Once everything is loaded: a Phase 3 Lockdown becomes Always Block, and a scheduled
             // Always Block window already running is committed.
@@ -121,6 +171,7 @@ class AuroraApplication : Application() {
             rules.state.first { it != null }
             runtime.state.first { it != null }
             billing.awaitLoaded()
+            account.state.first { it != AuthState.Loading }
             runCatching { migrateRuntime() }
             runCatching { commitScheduleWindows() }
             history.state.first { it != null }
@@ -128,6 +179,11 @@ class AuroraApplication : Application() {
             runCatching { migrateConfigurations() }
             runCatching { syncRuns() }
         }
+    }
+
+    override fun onTerminate() {
+        super.onTerminate()
+        scope.cancel()
     }
 
     /** The decision snapshot, from memory only. Null while anything is still loading or unreadable. */

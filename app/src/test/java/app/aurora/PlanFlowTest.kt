@@ -286,7 +286,7 @@ class PlanFlowTest {
     fun simultaneousStartsCannotOversubscribe() = flow {
         loaded()
         // Started together, in whatever order they run: only what fits is reserved, and what is reserved is stored.
-        val lengths = listOf(100, 110, 120, 121, 130, 140)
+        val lengths = listOf(100, 110, 119, 121, 130, 140)
         val results = lengths.mapIndexed { i, minutes ->
             app.scope.async { app.activate(session(apps(i), Mode.AlwaysBlock, "$i"), Timing.Now(minutes)) }
         }.awaitAll()

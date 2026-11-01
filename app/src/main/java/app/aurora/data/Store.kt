@@ -82,6 +82,15 @@ class JsonValue<T>(
         _state.value = Loaded(default)
     } }
 
+    /** Reads again after the stored data was replaced as a whole (a different account signed in). */
+    suspend fun reload() = withContext(Dispatchers.IO) { mutex.withLock {
+        _state.value = try {
+            decode(store.data.first()[key])
+        } catch (_: IOException) {
+            Loaded(default, readable = !strict)
+        }
+    } }
+
     private fun decode(raw: String?): Loaded<T> = when (raw) {
         null -> Loaded(default)
         else -> try {

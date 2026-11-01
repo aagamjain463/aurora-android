@@ -17,6 +17,14 @@ import app.aurora.protect.activeGoalIds
 import app.aurora.protect.activeTargets
 import app.aurora.protect.cover
 import app.aurora.protect.goalsReconciled
+import app.aurora.account.Authorization
+import app.aurora.plan.Plan
+import app.aurora.account.serverName
+import app.aurora.plan.LimitReason
+import app.aurora.plan.Remedy
+import app.aurora.protect.CommitmentAuthorization
+import app.aurora.protect.authorizationsToRelease
+import app.aurora.protect.occurrencesToAuthorize
 import app.aurora.protect.ledgerEntry
 import app.aurora.protect.requestedIntent
 import app.aurora.protect.requestedShield
@@ -246,8 +254,14 @@ suspend fun AuroraApplication.activate(c: UsageConfig, timing: Timing): Refusal?
         return@withLock null
     }
     val shield = withConfig.shieldOf(c)
+    val runId = "now:${newId()}"
+    if (shield?.mode?.usesQuota == true) serverRefusal(runId, shield.mode, timing.minutes, null)?.let { refusal ->
+        val left = (refusal.decision?.remaining ?: 0) / 60_000
+        explain(refusal, if (left >= 1) { minutes -> scope.launch { saving { activate(c, Timing.Now(minutes)) } } } else null)
+        return@withLock refusal
+    }
     val run = ConfigRun(
-        "now:${newId()}", c.id, c.name, null, c.custom, shield, withConfig.intentOf(c), c.focus,
+        runId, c.id, c.name, null, c.custom, shield, withConfig.intentOf(c), c.focus,
         start = t.wall, end = t.wall + timing.minutes * 60_000L, time = Session.start(t, timing.minutes),
     )
     runtime.update { rt ->
@@ -259,6 +273,98 @@ suspend fun AuroraApplication.activate(c: UsageConfig, timing: Timing): Refusal?
     history.update { it.withProtection(ProtectionRecord(run.id, t.wall, run.end!!, shield?.keys.orEmpty().toSet())) }
     if (shield?.mode == Mode.AlwaysBlock) history.update { it.withAlwaysBlock(dayOf(t.wall), t.wall, timing.minutes) }
     null
+}
+
+/**
+ * Whether the server allows a new commitment on Free. Null means go. The lock is held across this network call on
+ * purpose: nothing else can spend the allowance meanwhile, and the root shows that Aurora is confirming.
+ */
+private val refusalThrottle = java.util.concurrent.ConcurrentHashMap<String, Long>()
+private val lastAsked = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+internal fun resetQuotaAuthorizations() {
+    refusalThrottle.clear()
+    lastAsked.clear()
+}
+
+internal suspend fun AuroraApplication.serverRefusal(
+    commitmentId: String,
+    mode: Mode,
+    minutes: Int,
+    startAt: Long?,
+    silent: Boolean = false,
+): Refusal? {
+    if (plan == Plan.Plus) return null
+    val t = now()
+    val last = refusalThrottle[commitmentId]
+    if (last != null && t.elapsed - last < 60_000L) {
+        return Refusal(ActivationProblem.NeedsConnection)
+    }
+    if (!silent) account.authorizing.value = true
+    val answer = try {
+        account.authorize(commitmentId, mode.serverName, minutes, startAt ?: t.wall, zone)
+    } finally {
+        if (!silent) account.authorizing.value = false
+    }
+    return when (answer) {
+        is Authorization.Granted -> {
+            refusalThrottle.remove(commitmentId)
+            null
+        }
+        Authorization.Unreachable -> {
+            refusalThrottle[commitmentId] = t.elapsed
+            Refusal(ActivationProblem.NeedsConnection)
+        }
+        is Authorization.Denied -> {
+            refusalThrottle.remove(commitmentId)
+            val q = answer.quota
+            Refusal(
+                ActivationProblem.OverCommittedAllowance,
+                LimitDecision(
+                    false, LimitReason.CommittedProtection, q.usedMs, q.limitMs, q.remainingMs,
+                    if (q.remainingMs >= 60_000L) Remedy.ChooseShorter else Remedy.WaitForReset, upgradeResolves = true, resetAt = q.resetAt,
+                ),
+            )
+        }
+    }
+}
+
+private class OccurrenceAnswers(val granted: Map<String, CommitmentAuthorization>, val denied: List<ConfigRun>, val waiting: List<ConfigRun>, val released: Set<String>)
+
+/** When each occurrence last asked and got no answer, so a dead network isn't asked on every Shield event. */
+private const val AskAgainMs = 60_000L
+private const val LookAheadMs = 6 * 60 * 60_000L
+
+/** Asks the server about committed occurrences on Free. Those it can't confirm wait, unenforced, and ask again. */
+private suspend fun AuroraApplication.authorizeOccurrences(r: Rules, t: DeviceTime): OccurrenceAnswers {
+    val rt = runtime.value ?: return OccurrenceAnswers(emptyMap(), emptyList(), emptyList(), emptySet())
+    val granted = mutableMapOf<String, CommitmentAuthorization>()
+    val denied = mutableListOf<ConfigRun>()
+    val waiting = mutableListOf<ConfigRun>()
+    for (p in occurrencesToAuthorize(r, rt, plan, t, zone, LookAheadMs)) {
+        val now = p.run.covers(t)
+        val asked = lastAsked[p.run.id]
+        if (asked != null && t.elapsed - asked < AskAgainMs) {
+            if (now) waiting += p.run
+            continue
+        }
+        when (val answer = account.authorize(p.run.id, p.mode.serverName, p.minutes, p.run.start, zone)) {
+            is Authorization.Granted -> {
+                granted[p.run.id] = CommitmentAuthorization(answer.reservationId, p.run.activationId, answer.start, answer.end)
+                lastAsked.remove(p.run.id)
+            }
+            is Authorization.Denied -> {
+                lastAsked.remove(p.run.id)
+                denied += p.run
+            }
+            Authorization.Unreachable -> {
+                lastAsked[p.run.id] = t.elapsed
+                if (now) waiting += p.run
+            }
+        }
+    }
+    val released = authorizationsToRelease(r, rt, t.wall).filter { (_, auth) -> auth.reservationId == null || account.release(auth.reservationId) }.keys
+    return OccurrenceAnswers(granted, denied, waiting, released)
 }
 
 /**
@@ -277,9 +383,12 @@ private suspend fun AuroraApplication.syncLocked() {
     val started = mutableListOf<ConfigRun>()
     val ended = mutableListOf<ConfigRun>()
     val refused = mutableListOf<ConfigRun>()
+    val answers = authorizeOccurrences(r, t)
     runtime.update { rt ->
         // A run stored with no start (an early build of this migration) starts from now instead of 1970.
         var next = if (rt.runs.none { it.start <= 0 }) rt else rt.copy(runs = rt.runs.map { if (it.start <= 0) it.copy(start = t.wall) else it })
+        next = next.copy(authorizations = (next.authorizations + answers.granted - answers.released).filterValues { it.end > t.wall })
+        refused += answers.denied.filter { it.id !in next.quotaDenied }
         refused += runsRefusedByQuota(r, next, plan, t, zone).filter { it.id !in next.quotaDenied }
         if (refused.isNotEmpty()) next = next.copy(quotaDenied = next.quotaDenied + refused.map { it.id to (it.end ?: (t.wall + 86_400_000L)) })
         for (run in runsToMaterialize(r, next, plan, t, zone)) {
@@ -289,14 +398,16 @@ private suspend fun AuroraApplication.syncLocked() {
             next = next.copy(runs = next.runs + run)
         }
         ended += next.runs.filter { it.isOver(t) }
-        if (ended.isEmpty() && started.isEmpty() && next.runs == rt.runs && next.quotaDenied == rt.quotaDenied) rt
+        if (ended.isEmpty() && started.isEmpty() && next.runs == rt.runs && next.quotaDenied == rt.quotaDenied && next.authorizations == rt.authorizations) rt
         else next.copy(runs = next.runs - ended.toSet(), closed = next.closed + ended.map { it.id to (it.endAt(t) ?: t.wall) })
     }
     refused.forEach { SessionNotification.quotaRefused(this, it.name) }
+    answers.waiting.forEach { SessionNotification.authorizationWaiting(this, it.id, it.name) }
     if (started.isNotEmpty()) history.update { h -> started.fold(h) { acc, run -> acc.withStarted(run) } }
     if (ended.isNotEmpty()) {
         val spans = history.value?.service.orEmpty()
-        history.update { h -> ended.fold(h) { acc, run -> acc.withRun(recordOf(run, run.endAt(t) ?: t.wall, turnedOff = false, spans)) } }
+        // A carried commitment was another account's: it ends here, and isn't this one's history.
+        history.update { h -> ended.filterNot { it.carried }.fold(h) { acc, run -> acc.withRun(recordOf(run, run.endAt(t) ?: t.wall, turnedOff = false, spans)) } }
     }
     // Occurrences that came and went without being stored (the phone untouched all window long) still
     // get a record, judged on the same evidence. Only since this version began recording evidence.

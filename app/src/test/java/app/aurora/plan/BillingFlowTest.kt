@@ -38,11 +38,13 @@ class BillingFlowTest {
     private val cache = JsonValue(store, "entitlement", SignedEntitlement.serializer(), SignedEntitlement(), scope, strict = false)
     private val acknowledged = mutableListOf<String>()
     private var answer: (String) -> SignedEntitlement? = { null }
+    private var uid: String? = "u1"
     private val billing = BillingRepository(
         context, scope, cache,
         publicKey = Base64.getEncoder().encodeToString(keys.public.encoded),
         verify = { _, _, install, _ -> answer(install) },
         configured = true,
+        currentUid = { uid },
     )
 
     private fun flow(block: suspend () -> Unit) {
@@ -57,7 +59,7 @@ class BillingFlowTest {
     }
 
     private fun signed(tier: String, install: String, state: String = "active", paidThrough: Long = System.currentTimeMillis() + 30 * day, renews: Boolean = true): SignedEntitlement {
-        val payload = """{"tier":"$tier","state":"$state","productId":"aurora_plus_monthly","paidThrough":$paidThrough,"autoRenewing":$renews,"issuedAt":${System.currentTimeMillis()},"installId":"$install","packageName":"${context.packageName}"}"""
+        val payload = """{"tier":"$tier","state":"$state","productId":"aurora_plus_monthly","paidThrough":$paidThrough,"autoRenewing":$renews,"uid":"u1","purchaseValid":${tier == "plus"},"issuedAt":${System.currentTimeMillis()},"installId":"$install","packageName":"${context.packageName}"}"""
         val s = Signature.getInstance("SHA256withRSA").apply { initSign(keys.private); update(payload.toByteArray()) }
         return SignedEntitlement(payload, Base64.getEncoder().encodeToString(s.sign()))
     }
@@ -140,11 +142,11 @@ class BillingFlowTest {
     }
 
     @Test
-    fun playReportingNoPurchaseClearsIt() = flow {
+    fun playReportingNoPurchaseKeepsAccountEntitlement() = flow {
         answer = { signed("plus", it) }
         apply(purchase())
         apply(complete = true)
-        assertEquals(Plan.Free, billing.planNow())
+        assertEquals(Plan.Plus, billing.planNow())
     }
 
     @Test

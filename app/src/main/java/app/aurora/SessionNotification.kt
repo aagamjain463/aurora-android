@@ -130,6 +130,23 @@ object SessionNotification {
 
     /** Whether Android would show it: on Android 13+ this is the person's choice. */
     /** A scheduled committed session didn't start: the day's allowance can't cover it. Nothing replaces it. */
+    /** Tells the person once per occurrence that a committed session is waiting for the network. */
+    private val toldWaiting = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun authorizationWaiting(app: AuroraApplication, id: String, name: String) {
+        if (!toldWaiting.add(id)) return
+        val manager = app.getSystemService(NotificationManager::class.java) ?: return
+        val open = PendingIntent.getActivity(app, 3, app.packageManager.getLaunchIntentForPackage(app.packageName), PendingIntent.FLAG_IMMUTABLE)
+        val builder = Notification.Builder(app, Channel)
+            .setSmallIcon(R.drawable.ic_stat_aurora)
+            .setContentTitle(app.getString(R.string.notif_waiting_title, name))
+            .setContentText(app.getString(R.string.notif_waiting_body))
+            .setStyle(Notification.BigTextStyle().bigText(app.getString(R.string.notif_waiting_body)))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+        runCatching { manager.notify(id.hashCode(), builder.build()) }
+    }
+
     fun quotaRefused(app: AuroraApplication, name: String) {
         val manager = app.getSystemService(NotificationManager::class.java) ?: return
         val open = PendingIntent.getActivity(app, 2, app.packageManager.getLaunchIntentForPackage(app.packageName) ?: Intent(), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)

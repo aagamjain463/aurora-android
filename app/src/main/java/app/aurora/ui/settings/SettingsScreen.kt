@@ -100,7 +100,7 @@ class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
 private enum class Sheet { DefaultMode, Privacy, Stored, ClearHistory, DeleteAll, Help, Licenses, Disclosure, Diagnostics }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> Unit = {}, onOpenWeb: () -> Unit = {}, onOpenStrict: () -> Unit = {}) {
+fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () -> Unit = {}, onPlus: () -> Unit = {}, onOpenWeb: () -> Unit = {}, onOpenStrict: () -> Unit = {}) {
     val vm = auroraViewModel { SettingsViewModel(it) }
     val prefs = vm.prefs.collectAsStateWithLifecycle().value ?: UserPreferences()
     val list by vm.list.collectAsStateWithLifecycle()
@@ -128,6 +128,20 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onPlus: () -> 
     }
 
     AuroraScreen(title = stringResource(R.string.settings_title), onBack = onBack) {
+        item(key = "account") {
+            SectionLabel(stringResource(R.string.account_title))
+            val authState by (LocalContext.current.applicationContext as app.aurora.AuroraApplication).account.state.collectAsStateWithLifecycle()
+            val user = (authState as? app.aurora.account.AuthState.SignedIn)?.user
+            RowGroup {
+                AuroraRow(
+                    title = user?.displayName?.takeIf { it.isNotBlank() } ?: user?.email.orEmpty(),
+                    subtitle = stringResource(R.string.account_row_subtitle),
+                    icon = AuroraIcons.Lock,
+                    onClick = onAccount,
+                    trailing = { Chevron() },
+                )
+            }
+        }
         item(key = "plan") {
             SectionLabel(stringResource(R.string.settings_plan))
             // The plan is a warm card carrying the mark, not one more settings row.

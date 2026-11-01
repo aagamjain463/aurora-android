@@ -32,6 +32,8 @@ import app.aurora.ui.components.rememberGlassSource
 import app.aurora.ui.components.glassSource
 import app.aurora.AuroraApplication
 import app.aurora.adoptOnboarding
+import app.aurora.ui.account.AccountScreen
+import app.aurora.ui.account.ConfirmingDialog
 import app.aurora.ui.plus.KeepScreen
 import app.aurora.ui.plus.LimitPromptDialog
 import app.aurora.R
@@ -82,6 +84,7 @@ object Routes {
     const val GoalEdit = "goal-edit"
     const val Strict = "strict"
     const val FocusRun = "focus-run"
+    const val Account = "account"
 }
 
 /** Four pillars: activate (Home), create (Shield), configure (Intent), improve (Track). */
@@ -250,9 +253,11 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             composable(ProtectRoutes.Limits) { LimitsScreen(back, openItem) { nav.navigate(ProtectRoutes.Apps) } }
             composable(ProtectRoutes.Web) { WebScreen(back, openItem, plus) }
             composable(ProtectRoutes.Plus) { PlusScreen(back) }
+            composable(Routes.Account) { AccountScreen(back, plus) }
             composable(Routes.Settings) {
                 SettingsScreen(
                     onBack = back,
+                    onAccount = { nav.navigate(Routes.Account) },
                     onReplayIntro = {
                         scope.launch { app.preferences.setOnboarded(false) }
                         nav.navigate(Routes.Onboarding) { popUpTo(Routes.Home) { inclusive = true } }
@@ -274,6 +279,9 @@ fun AuroraNavHost(startOnboarded: Boolean) {
 
         val prompt by app.limitPrompt.collectAsStateWithLifecycle()
         prompt?.let { LimitPromptDialog(it, { app.limitPrompt.value = null }) { nav.navigate(ProtectRoutes.Plus) } }
+
+        val confirming by app.account.authorizing.collectAsStateWithLifecycle()
+        if (confirming) ConfirmingDialog()
 
         val failed by app.saveFailed.collectAsStateWithLifecycle()
         if (failed) AuroraDialog(

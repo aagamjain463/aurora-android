@@ -245,7 +245,7 @@ private fun Title(eyebrow: String, title: String, body: String?) {
  * fills the screen so the type rests near the action, and scrolls when text is large.
  */
 @Composable
-private fun Welcome() {
+internal fun Welcome() {
     val colors = Aurora.colors
     val reduced = Aurora.reducedMotion
     val pillars = listOf(

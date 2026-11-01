@@ -275,6 +275,10 @@ data class IntentUse(
 }
 
 /** What is happening now. Kept apart from [Rules] because it changes often. */
+/** A reservation from the account service. [reservationId] gives it back if the schedule is removed before it starts. */
+@Serializable
+data class CommitmentAuthorization(val reservationId: String? = null, val activationId: String? = null, val start: Long = 0, val end: Long = 0)
+
 @Serializable
 data class Runtime(
     val sessions: List<ProtectionSession> = emptyList(),
@@ -299,6 +303,8 @@ data class Runtime(
     val lockdown: Session? = null,
     /** Committed Cooldown and Always Block time (plan/CommittedQuota.kt), kept on Plus too so a downgrade counts today honestly. */
     val ledger: List<LedgerEntry> = emptyList(),
+    /** Committed occurrences the server has signed off, by occurrence id. Nothing committed starts on Free without one. */
+    val authorizations: Map<String, CommitmentAuthorization> = emptyMap(),
     /** Scheduled occurrences the day's allowance couldn't cover: run id to window end. They don't start late. */
     val quotaDenied: Map<String, Long> = emptyMap(),
 ) {

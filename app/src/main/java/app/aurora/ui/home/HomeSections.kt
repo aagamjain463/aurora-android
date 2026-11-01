@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.AuroraApplication
 import app.aurora.R
+import app.aurora.account.isWaitingForServer
 import app.aurora.ui.components.Sky
 import app.aurora.data.Access
 import app.aurora.data.AccessState
@@ -336,7 +337,8 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
     var confirm by remember { mutableStateOf(false) }
     val tint = run.shield?.let { modeColor(it.mode) } ?: colors.rose
     val end = run.endAt(d.time)
-    val keys = (run.shield?.keys.orEmpty() + run.intent?.keys.orEmpty()).distinct()
+    // A commitment carried over from another account doesn't show what it covers.
+    val keys = if (run.carried) emptyList() else (run.shield?.keys.orEmpty() + run.intent?.keys.orEmpty()).distinct()
     Column(
         Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors, edge = tint).padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.S),
@@ -417,6 +419,7 @@ private fun ActivationControls(a: Activation, d: ProtectData, app: AuroraApplica
             !a.enabled -> stringResource(R.string.home_paused)
             !entitled -> stringResource(R.string.home_paused_plan)
             d.runtime.quotaDenied.keys.any { it == "later:${a.id}" || it.startsWith("rec:${a.id}:") } -> stringResource(R.string.home_skipped_quota)
+            app.isWaitingForServer(a, d) -> stringResource(R.string.home_waiting_server)
             next != null -> stringResource(R.string.home_next_start, java.time.Instant.ofEpochMilli(next).atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, ")) + clockTime(next))
             else -> ""
         },

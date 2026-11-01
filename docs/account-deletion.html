@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request Aurora account deletion</title>
+<style>
+  body { margin: 0; background: #061210; color: #E9F1EC; font: 17px/1.6 Manrope, system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 56px 24px 80px; }
+  h1 { font: 500 40px/1.15 Newsreader, Georgia, serif; margin: 0 0 8px; }
+  h2 { font: 600 19px/1.4 Manrope, system-ui, sans-serif; margin: 36px 0 8px; color: #8BE8BF; }
+  p, li { color: #C3D2CA; }
+  .meta { color: #8A9A92; font-size: 15px; margin-bottom: 24px; }
+  a { color: #8BE8BF; }
+  .card { background: #0A1C18; border: 1px solid #16362E; border-radius: 12px; padding: 24px; margin-top: 32px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #8BE8BF; }
+  input[type="email"], textarea { width: 100%; box-sizing: border-box; background: #050E0C; border: 1px solid #1C443A; color: #E9F1EC; border-radius: 8px; padding: 12px 14px; font-size: 16px; margin-bottom: 20px; font-family: inherit; }
+  button { background: #1C443A; color: #8BE8BF; border: 1px solid #285E51; border-radius: 8px; padding: 12px 24px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+  button:hover { background: #24584B; }
+  .notice { font-size: 14px; color: #8A9A92; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Request Account Deletion</h1>
+<p class="meta">Google Play Data Safety Deletion Portal for Aurora</p>
+
+<p>You can request the permanent deletion of your Aurora account and all associated cloud data.
+If you have the Aurora app installed, the quickest method is directly within the app under
+<strong>Settings › Account › Delete account</strong>.</p>
+
+<p>If you have uninstalled the app or no longer have access to your Android device, you may submit a manual deletion request below.</p>
+
+<div class="card">
+  <h2>Submit a deletion request</h2>
+  <form action="mailto:deletion@useaurora.app?subject=Account%20Deletion%20Request" method="POST" enctype="text/plain">
+    <label for="email">Verified Account Email Address</label>
+    <input type="email" id="email" name="email" placeholder="you@example.com" required>
+
+    <label for="reason">Optional Details / Notes</label>
+    <textarea id="reason" name="reason" rows="3" placeholder="Additional details to help verify your account..."></textarea>
+
+    <button type="submit">Submit Deletion Request</button>
+  </form>
+  <p class="notice">
+    <strong>What happens next:</strong> We will verify ownership by sending a confirmation link to the email address above.
+    Once verified, your account and all associated device records, quota ledgers, and purchase links will be permanently erased
+    following our standard 30-day grace period. Active Google Play subscriptions must be cancelled through Google Play Subscriptions.
+  </p>
+</div>
+
+<h2>Data Types Deleted vs. Retained</h2>
+<ul>
+  <li><strong>Permanently Deleted:</strong> Firebase authentication records, account UID, verified email address, registered device installation IDs, and strict quota ledgers.</li>
+  <li><strong>On-Device Local Data:</strong> App blocking lists, website lists, personal reflections, and motivations remain solely on your physical device and are never possessed by Aurora's servers; clearing local app storage removes them completely.</li>
+  <li><strong>Financial Records:</strong> Transaction receipts are processed and retained by Google Play in accordance with applicable tax and commercial law.</li>
+</ul>
+
+<h2>Questions</h2>
+<p>For inquiries, contact our privacy officer at <a href="mailto:privacy@useaurora.app">privacy@useaurora.app</a>.</p>
+</main>
+</body>
+</html>

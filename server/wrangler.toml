@@ -5,10 +5,19 @@ compatibility_date = "2026-10-01"
 [vars]
 PACKAGE_NAME = "app.aurora"
 PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
+# The Firebase project whose ID tokens this server accepts.
+FIREBASE_PROJECT_ID = "REPLACE_WITH_FIREBASE_PROJECT_ID"
+ENVIRONMENT = "production"
 
-# wrangler kv namespace create PURCHASES, then paste its id here.
-[[kv_namespaces]]
-binding = "PURCHASES"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# wrangler d1 create aurora, then paste its id here. Then: wrangler d1 migrations apply aurora --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "aurora"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
 
-# Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN.
+# Daily: finishes account deletions past their grace period and drops expired records.
+[triggers]
+crons = ["17 3 * * *"]
+
+# Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN.

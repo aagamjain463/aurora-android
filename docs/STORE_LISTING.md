@@ -15,8 +15,8 @@ Block distracting apps, open apps on purpose, and see real time back. On-device.
 
 Your phone. Your rules.
 
-Aurora helps you choose when to open the apps that pull you away, and protects the time you want back. It
-works on your phone: no account, no ads, no analytics. Your usage never leaves it.
+Aurora helps you choose when to open the apps that pull you away, and protects the time you want back.
+Local-first protection with verified accounts: no ads, no trackers, no analytics. Your usage never leaves your phone.
 
 SHIELD: HOLD BACK THE APPS THAT PULL YOU AWAY
 Choose apps and websites, then pick how firmly Aurora holds them back:
@@ -41,7 +41,7 @@ AURORA OUTSIDE THE APP
 A quiet ongoing notification with the time left, a home-screen widget and a Quick Settings tile.
 
 PRIVATE BY DESIGN
-Your usage stays on your phone and is never backed up to the cloud. Aurora only goes online to confirm an Aurora Plus purchase.
+Your usage stays on your phone and is never backed up to the cloud. Aurora connects only to manage your verified account, synchronize your shared Free allowance, and confirm Aurora Plus purchases.
 
 AURORA FREE AND AURORA PLUS
 Aurora Free protects just as strongly as Plus, with a few limits: 5 active Shield apps and sites, 3 active

@@ -19,9 +19,10 @@ foundation; use the configuration model for current activation and progress beha
 | DI | Manual (`AuroraApplication`) | Four singletons. A framework would cost more than it saves. |
 | Min / target / compile SDK | 26 / 36 / 37 | API 26 adds adaptive icons and variable fonts and covers almost every active device. Current AndroidX releases require compile SDK 37. Target stays at 36 until aurora is tested on Android 17. |
 
-There are no analytics, crash-reporting SDKs or accounts. `INTERNET` exists for one network client:
-`plan/Billing.kt` posting a purchase token to the verification server (`docs/BILLING.md`). No usage data
-is ever sent.
+There are no analytics or third-party advertising SDKs. `INTERNET` exists for two purposes:
+1. `account/AccountRepository.kt` communicating with Firebase Authentication and the Cloudflare Worker backend for verified identity, daily strict quota checks, multi-device sync, and account deletion.
+2. `plan/Billing.kt` sending purchase tokens to the verification backend (`docs/BILLING.md`).
+No personal usage data, package names, or websites are ever sent (`docs/ACCOUNT_SYSTEM.md`).
 
 ## Layout
 
@@ -29,6 +30,7 @@ is ever sent.
 app/src/main/java/app/aurora/
 ├── AuroraApplication.kt   Dependency holder, auroraViewModel {}, rememberAccess()
 ├── MainActivity.kt        Edge-to-edge, theme selection, start destination
+├── account/               Identity, FirebaseIdentity, AccountRepository, AccountApi, ProfileVault, AccountActions
 ├── data/
 │   ├── Preferences.kt     UserPreferences, FocusSession, PreferencesRepository, clockTicks()
 │   ├── AppCatalog.kt      Real launchable apps (label + icon) via PackageManager
@@ -37,12 +39,15 @@ app/src/main/java/app/aurora/
 │   └── Format.kt          Duration and clock formatting
 ├── plan/
 │   ├── Plan.kt            Plan, Allowance, Feature, FreeLimits, ProtectedItem, canProtect(), keepActive()
-│   └── Lockdown.kt        LockdownReservation and the Free daily Lockdown budget
+│   ├── Billing.kt         Google Play Billing, purchase verification, seat management
+│   └── Entitlement.kt     Signed snapshot parsing and cryptographic verification
+├── protect/               Rules, ShieldService, ContentService, Configurations, TrustedClock
 └── ui/
     ├── AuroraNavHost.kt   Routes, tabs, transitions, floating tab bar
     ├── theme/             Palette, semantic colours, type scale, Space/Radius/Motion tokens
     ├── components/        The design system (see docs/BRAND.md)
-    ├── onboarding/  home/  protect/  focus/  insights/  settings/
+    ├── account/           AccountGate, Sign-in, Email link dialogs, Profile decision
+    └── onboarding/  home/  protect/  focus/  insights/  settings/
 ```
 
 Each screen file holds its `ViewModel`, its UI state class and its composables. Split a file only

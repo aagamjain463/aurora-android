@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.activate
+import app.aurora.account.serverAdjustedRemainingMs
 import app.aurora.committedMinutesLeft
 import app.aurora.protect.strict
 import app.aurora.ui.strict.UninstallProtection
@@ -462,8 +463,9 @@ fun ConfigureScreen(
 /** The commitment every strict session asks for, wherever it is started. */
 @Composable
 fun CommittedAllowance(d: app.aurora.ui.protect.ProtectData) {
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as app.aurora.AuroraApplication
     val status = d.runtime.quotaToday(d.plan, d.time, java.time.ZoneId.systemDefault())
-    val left = status.remainingMs ?: return
+    val left = app.serverAdjustedRemainingMs(status.remainingMs) ?: return
     val colors = Aurora.colors
     Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
         Text(stringResource(R.string.committed_today_title), color = colors.textPrimary, style = AuroraType.BodyStrong)
@@ -564,6 +566,7 @@ fun problemText(p: ActivationProblem): String = stringResource(
         ActivationProblem.OverItems -> R.string.cfg_problem_items
         ActivationProblem.OverIntentApps -> R.string.cfg_problem_intents
         ActivationProblem.OverCommittedAllowance -> R.string.cfg_problem_allowance
+        ActivationProblem.NeedsConnection -> R.string.cfg_problem_connection
     },
 )
 

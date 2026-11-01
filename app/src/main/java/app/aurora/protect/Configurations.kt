@@ -128,6 +128,8 @@ data class ConfigRun(
     val focusOutcome: FocusOutcome? = null,
     /** Times the person continued past their chosen time at an Intent reminder. */
     val intentOverruns: Int = 0,
+    /** A commitment made under another account, kept running here with nothing that says what it was. */
+    val carried: Boolean = false,
 ) {
     fun startAt(t: DeviceTime): Long = time?.startedWall(t) ?: start
     fun endAt(t: DeviceTime): Long? = time?.endWall(t) ?: end
@@ -335,10 +337,20 @@ private fun occurrences(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTim
             continue
         }
         val entry = Runtime(ledger = ledger).ledgerEntry(run.start, end, t, zone)
-        if (committedFits(plan, ledger, entry.start, entry.end, ZoneId.of(entry.zone))) {
-            ledger = ledger + entry
-            allowed += run
-        } else if (run.covers(t)) refused += run
+        if (!committedFits(plan, ledger, entry.start, entry.end, ZoneId.of(entry.zone))) {
+            if (run.covers(t)) refused += run
+            continue
+        }
+        // Due now: only the server's signed go-ahead starts it. Nothing is enforced while that is pending.
+        if (run.covers(t)) {
+            if (run.id in runtime.authorizations) {
+                ledger = ledger + entry
+                allowed += run
+            }
+            continue
+        }
+        ledger = ledger + entry
+        allowed += run
     }
     return allowed to refused
 }
@@ -362,6 +374,29 @@ fun runsToMaterialize(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime,
     return liveRuns(rules, runtime, plan, t, zone).filter { it.id !in stored && it.covers(t) }
 }
 
+/** A committed occurrence on Free that needs the server's word: now, or soon enough to survive losing the network first. */
+data class PendingOccurrence(val run: ConfigRun, val minutes: Int, val mode: Mode)
+
+fun occurrencesToAuthorize(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId, lookAheadMs: Long): List<PendingOccurrence> {
+    if (plan == Plan.Plus) return emptyList()
+    val known = runtime.runs.map { it.id }.toSet() + runtime.closed.keys + runtime.quotaDenied.keys + runtime.authorizations.keys
+    val entitled = rules.entitledActivations(plan, t.wall, zone)
+    return rules.activations.filter { it.id in entitled }.flatMap { a ->
+        a.windows(t.wall, zone).filter { it.first <= t.wall + lookAheadMs && it.second != Long.MAX_VALUE }.mapNotNull { w ->
+            val run = rules.runFor(a, w, plan, t.wall, zone) ?: return@mapNotNull null
+            val mode = run.shield?.mode?.takeIf { it.usesQuota } ?: return@mapNotNull null
+            if (run.id in known || runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }) return@mapNotNull null
+            PendingOccurrence(run, ((w.second - w.first) / 60_000).toInt(), mode)
+        }
+    }.sortedBy { it.run.start }
+}
+
+/** Occurrences reserved ahead whose schedule is gone or paused, before they began: their reservation can go back. */
+fun authorizationsToRelease(rules: Rules, runtime: Runtime, now: Long): Map<String, CommitmentAuthorization> =
+    runtime.authorizations.filter { (id, auth) ->
+        auth.start > now && id !in runtime.runs.map { it.id } && rules.activations.none { it.id == auth.activationId && it.enabled }
+    }
+
 /** For two active Intent presets on one app, the stricter decides: a cooldown, then the longer pause. */
 fun stricter(a: IntentConfig, b: IntentConfig): IntentConfig = listOf(a, b).maxWith(
     compareBy<IntentConfig> { it.expiry == IntentExpiry.Cooldown }.thenBy { it.reflectionSeconds }.thenBy { it.cooldownMinutes },
@@ -378,9 +413,11 @@ fun intentsNow(runs: List<ConfigRun>, t: DeviceTime): Map<String, IntentConfig> 
     return out
 }
 
-/** Why a configuration can't be activated as asked. The last three are plan limits, explained by a [LimitDecision]. */
+/** Why a configuration can't be activated as asked. OverItems, OverIntentApps and OverCommittedAllowance are plan limits, explained by a [LimitDecision]. */
 enum class ActivationProblem {
-    Empty, AlwaysWithAlwaysBlock, InThePast, NoDays, TooShort, OverItems, OverIntentApps, OverCommittedAllowance;
+    Empty, AlwaysWithAlwaysBlock, InThePast, NoDays, TooShort, OverItems, OverIntentApps, OverCommittedAllowance,
+    /** Free's allowance is the server's to give, and it can't be reached. Nothing started; existing commitments are untouched. */
+    NeedsConnection;
 
     val overLimit: Boolean get() = this == OverItems || this == OverIntentApps || this == OverCommittedAllowance
 }

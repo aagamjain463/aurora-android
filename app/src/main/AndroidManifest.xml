@@ -15,14 +15,10 @@
     <!-- A strict commitment continues after a restart: aurora starts again as soon as the phone does. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- The only network use: sending a purchase token to Aurora's verification server (plan/Billing.kt,
-         docs/BILLING.md). Usage data never goes anywhere. Google Play Billing brings Google's datatransport
-         library, which would upload billing-library diagnostics: its backend is removed below, and it
-         doesn't get ACCESS_NETWORK_STATE. -->
+    <!-- Signing in, the account service and Plus verification (docs/ACCOUNT_SYSTEM.md lists every field sent).
+         Google Play Billing brings Google's datatransport library, which would upload billing-library
+         diagnostics: its backend is removed below. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission
-        android:name="android.permission.ACCESS_NETWORK_STATE"
-        tools:node="remove" />
 
     <!-- Lets aurora list the apps a person can open from their launcher, without QUERY_ALL_PACKAGES,
          and recognise the home screen so it isn't counted as screen time. -->
@@ -74,10 +70,18 @@
             android:name=".MainActivity"
             android:configChanges="uiMode"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The link in a sign-in email (docs/ACCOUNT_SYSTEM.md). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${emailLinkHost}" android:pathPrefix="/__/auth/links" />
             </intent-filter>
         </activity>
 

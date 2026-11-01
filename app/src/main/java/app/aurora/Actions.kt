@@ -28,6 +28,7 @@ import app.aurora.protect.settledIntents
 import app.aurora.protect.ActivationProblem
 import app.aurora.protect.Refusal
 import app.aurora.protect.activeTargets
+import app.aurora.account.serverAdjustedRemainingMs
 import app.aurora.protect.ledgerEntry
 import app.aurora.protect.quotaToday
 import app.aurora.protect.targetsRefusal
@@ -74,7 +75,7 @@ suspend fun AuroraApplication.unprotect(items: Collection<ProtectedItem>) {
     }
 }
 
-enum class StartResult { Started, OverAllowance, OverTargets, NothingSelected }
+enum class StartResult { Started, OverAllowance, NeedsConnection, OverTargets, NothingSelected }
 
 /**
  * Starts a [mode] session over [keys] for [minutes]. It must fit the plan's targets and, for Cooldown and
@@ -106,6 +107,10 @@ suspend fun AuroraApplication.startProtection(
         }
     }
     val session = ProtectionSession(UUID.randomUUID().toString(), keys, mode, Session.start(t, minutes), friction, cooldownWaitMinutes)
+    if (mode.usesQuota) serverRefusal(session.id, mode, minutes, null)?.let { refusal ->
+        explain(refusal)
+        return@withLock if (refusal.problem == ActivationProblem.NeedsConnection) StartResult.NeedsConnection else StartResult.OverAllowance
+    }
     runtime.update { x ->
         val base = x.pruned(t)
         base.copy(sessions = base.sessions + session, ledger = if (mode.usesQuota) base.ledger + entry else base.ledger)
@@ -117,7 +122,7 @@ suspend fun AuroraApplication.startProtection(
 
 /** Committed minutes left today, or null when unlimited. */
 fun AuroraApplication.committedMinutesLeft(): Int? =
-    runtime.value?.quotaToday(plan, now(), ZoneId.systemDefault())?.remainingMs?.let { (it / 60_000).toInt() }
+    serverAdjustedRemainingMs(runtime.value?.quotaToday(plan, now(), ZoneId.systemDefault())?.remainingMs)?.let { (it / 60_000).toInt() }
 
 /**
  * Turns off a cancellable session. An Always Block session has no in-app early end: this refuses it,
@@ -164,10 +169,16 @@ suspend fun AuroraApplication.commitScheduleWindows() = entitlements.withLock {
     val active = list.active(plan).map { it.key }.toSet()
     val due = r.activeSchedules().filter { it.mode == Mode.AlwaysBlock }.mapNotNull { s -> s.windowAt(t.wall, zone)?.let { s to it } }
     if (due.isEmpty()) return@withLock
+    // A window the server hasn't signed off isn't committed; the next snapshot asks again.
+    val confirmed = due.filter { (schedule, window) ->
+        runtime.value?.sessions.orEmpty().none { it.scheduleId == schedule.id && it.time.startWall >= window.first } &&
+            serverRefusal("schedule-${schedule.id}-${window.first}", Mode.AlwaysBlock, ((window.second - t.wall) / 60_000).toInt().coerceAtLeast(1), window.first, silent = true) == null
+    }
+    if (confirmed.isEmpty()) return@withLock
     val started = mutableListOf<ProtectionSession>()
     runtime.update { rt ->
         var next = rt
-        for ((schedule, window) in due) {
+        for ((schedule, window) in confirmed) {
             val (start, end) = window
             if (next.sessions.any { it.scheduleId == schedule.id && it.time.startWall >= start }) continue
             val entry = next.ledgerEntry(t.wall, end, t, zone)
@@ -398,11 +409,14 @@ suspend fun AuroraApplication.dismissFocus() {
  */
 suspend fun AuroraApplication.deleteAllData() {
     val t = now()
+    val owner = vault.owner()
     val committed = runtime.value?.sessions.orEmpty().filter { !it.cancellable && !it.time.isOver(t) }
     val committedRuns = runtime.value?.runs.orEmpty().filter { !it.cancellable(t) && !it.isOver(t) }
     // Deleting data isn't a way to get today's committed minutes back, either.
     val ledger = runtime.value?.ledger.orEmpty()
     dataStore.edit { it.clear() }
+    // Whose this phone's (now empty) data is doesn't change, or the next start would ask again.
+    if (owner != null) vault.claim(owner)
     rules.reset()
     runtime.reset()
     history.reset()

@@ -22,9 +22,9 @@ class EntitlementTest {
     }
 
     private fun snapshot(tier: String = "plus", paidThrough: Long = now + 30 * day, renews: Boolean = true, issued: Long = now, install: String = "i1", pkg: String = "app.aurora") =
-        EntitlementSnapshot(tier, "active", "aurora_plus_monthly", paidThrough, renews, issued, install, pkg)
+        EntitlementSnapshot(tier, "active", "aurora_plus_monthly", paidThrough, renews, issued, install, pkg, uid = "u1")
 
-    private fun plan(s: EntitlementSnapshot?, at: Long = now) = planFrom(s, "i1", "app.aurora", at)
+    private fun plan(s: EntitlementSnapshot?, at: Long = now) = planFrom(s, "u1", "i1", "app.aurora", at)
 
     private fun facts(purchased: Boolean = false, pending: Boolean = false, product: String = "aurora_plus_monthly") =
         PurchaseFacts(listOf(product), purchased, pending, acknowledged = false, autoRenewing = true, token = "t")
@@ -45,7 +45,7 @@ class EntitlementTest {
 
     @Test
     fun aVerifiedPurchaseUnlocksPlus() {
-        val s = signed("""{"tier":"plus","state":"active","paidThrough":${now + day},"autoRenewing":true,"issuedAt":$now,"installId":"i1","packageName":"app.aurora"}""")
+        val s = signed("""{"tier":"plus","state":"active","paidThrough":${now + day},"autoRenewing":true,"issuedAt":$now,"installId":"i1","packageName":"app.aurora","uid":"u1"}""")
         assertEquals(Plan.Plus, plan(verifiedSnapshot(s, publicKey)))
     }
 
@@ -109,5 +109,13 @@ class EntitlementTest {
         const val FixtureKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmewB1xEh0wczr/wQJAFKn3RgjHhnfpsTZWNzFYJNSASjQfxrPDF4aLbz0yPMb8hr/mSHM1lgppZ99fWV7MOwuaIhNekEG8hpZqQ76C+lUoB5ilSwibzkx3uBr73/kmIcqilynYcheLEUeRSMZ0oPX/aYYKW3n38UMM+YM1Tqcc4nhQybyWA8VruexSaAGMsQU5w7XxEgy2OHLGXqV9w3KrkXP+oiWE6v6yXVnoJbm0yOVv8y4jXNaYQYzHeCusCzs2ySavWM6oQx2x6SgOpqAH+KadaUXVYsWAhPA33idmZHuDlutaGFVfsuHO1eOMq+g/lAm9+ByJeMcs3vu+ilPQIDAQAB"
         const val FixturePayload = "{\"tier\":\"plus\",\"state\":\"active\",\"productId\":\"aurora_plus_monthly\",\"paidThrough\":2082758400000,\"autoRenewing\":true,\"issuedAt\":1793516783943,\"installId\":\"install-1\",\"packageName\":\"app.aurora\"}"
         const val FixtureSignature = "AhUUfk2R+Z7w1EzhxUQmJVn0b1lOdwNCM62yuHTRRuZArpVhFUX7tCqcnc0D7LGVLaqDq6s8jm2fEICaByyXHzGIW9IQjxoCoReXmBtrs7JZZcAE3C1vBCi8cnug9u9BegDLeafj9n74YbMLqsYgzRPKrQeMFfvGpF5IzHVauftBgD6prjwfhP6eD1mxX4bPv+FQiqVZXu4DJjAbaY5NMd8VQ1fbIu6gQYkwv/GmCFDL5yKHT5mwYCMybtUymso1l9DG0sAfdQ0aFkzusu8UxlHnn3uvrjxc3vlJmDYSGu6fWrMvuA/eFp8lf2Nm7mYp6kfxmivRBeXNJBmKrff5Cg=="
+    }
+
+    @Test
+    fun plusBelongsToTheAccountItWasIssuedTo() {
+        val s = EntitlementSnapshot("plus", "active", "aurora_plus_monthly", now + 86_400_000, true, now, "i1", "app.aurora", uid = "u1")
+        assertEquals(Plan.Plus, planFrom(s, "u1", "i1", "app.aurora", now))
+        assertEquals(Plan.Free, planFrom(s, "u2", "i1", "app.aurora", now))
+        assertEquals(Plan.Free, planFrom(s, null, "i1", "app.aurora", now))
     }
 }

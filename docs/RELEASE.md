@@ -73,10 +73,14 @@ Aurora being uninstalled while a strict commitment they started is running.
 
 ### Data safety
 
-Purchase verification now sends data to Aurora's server, so answer **Yes** to "collects": Purchase history
-(purchase token) and App identifiers (a random install id), collected, not shared, required for the
-subscription, encrypted in transit. There is still no account, analytics or ads SDK. Have the founder check
-this answer before submitting.
+Aurora collects user account info (email address, user ID via Firebase Authentication) and device/app identifiers (a random install id), as well as purchase tokens for Plus subscriptions and strict commitment windows (start timestamp, end timestamp, timezone for Free quota verification).
+- **Personal info:** Email address and User IDs collected for account management and authentication.
+- **Financial info:** Purchase history (purchase token via Google Play).
+- **Device or other IDs:** Device/installation ID for session binding and seat limits (max 5 devices).
+- **App activity / Usage data:** **None collected or transmitted.** All package names, websites, reflections, and usage times stay 100% on-device.
+- **Data sharing:** No data is shared with third parties.
+- **Security:** All data encrypted in transit (HTTPS/TLS).
+- **Account deletion:** Supports in-app deletion and web-based deletion request portal (`docs/account-deletion.html`). See `docs/ACCOUNT_SYSTEM.md`.
 
 ### Other forms
 

@@ -45,6 +45,11 @@ import app.aurora.ui.components.RowDivider
 import app.aurora.ui.components.RowGroup
 import app.aurora.ui.components.SectionLabel
 import app.aurora.ui.components.minutesText
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import app.aurora.account.ApiResult
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
@@ -63,6 +68,11 @@ fun PlusScreen(onBack: () -> Unit) {
     val subscription by app.billing.subscription.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val colors = Aurora.colors
+    var transferMessage by remember { mutableStateOf<String?>(null) }
+    val reauthText = stringResource(R.string.account_reauth_body)
+    val limitText = stringResource(R.string.plus_conflict_limit)
+    val failedText = stringResource(R.string.plus_conflict_failed)
+    val offlineText = stringResource(R.string.account_offline)
     val compare = listOf(
     Triple(stringResource(R.string.plus_compare_items), "${FreeLimits.getValue(Allowance.ProtectedItems)}", stringResource(R.string.plus_unlimited)),
     Triple(stringResource(R.string.plus_compare_intent), "${FreeLimits.getValue(Allowance.IntentApps)}", stringResource(R.string.plus_unlimited)),
@@ -140,12 +150,41 @@ fun PlusScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+                billing.conflict?.let { conflict ->
+                    Notice(
+                        stringResource(R.string.plus_conflict_title),
+                        conflict.hint?.let { stringResource(R.string.plus_conflict_body_hint, it) } ?: stringResource(R.string.plus_conflict_body),
+                    )
+                    transferMessage?.let { Text(it, color = colors.danger, style = AuroraType.Secondary) }
+                    AuroraButton(
+                        stringResource(R.string.plus_conflict_move),
+                        {
+                            scope.launch {
+                                when (val r = app.account.transferPurchase(conflict.token)) {
+                                    is ApiResult.Ok -> {
+                                        app.billing.store(r.value)
+                                        app.billing.clearConflict()
+                                        transferMessage = null
+                                    }
+                                    is ApiResult.Refused -> if (r.code == "reauth_required") {
+                                        context.activity()?.let { app.account.reauthenticate(it) }
+                                        app.account.clearEmailStep()
+                                        transferMessage = reauthText
+                                    } else transferMessage = if (r.code == "transfer_limit") limitText else failedText
+                                    ApiResult.Unreachable -> transferMessage = offlineText
+                                }
+                            }
+                        },
+                        Modifier.fillMaxWidth(), kind = ButtonKind.Secondary,
+                    )
+                }
                 if (billing.verifying) Notice(stringResource(R.string.plus_verifying_title), stringResource(R.string.plus_verifying_body))
                 if (billing.pending) Notice(stringResource(R.string.plus_payment_pending), stringResource(R.string.plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp))
                 billing.message?.let { Notice(stringResource(R.string.plus_google_play), it) }
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     AuroraButton(stringResource(R.string.plus_restore_purchases), { scope.launch { runCatching { app.billing.refresh() } } }, kind = ButtonKind.Quiet)
                 }
+                Text(stringResource(R.string.plus_play_note), color = colors.textTertiary, style = AuroraType.Caption)
                 Text(
                     stringResource(R.string.plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p),
                     color = colors.textTertiary,

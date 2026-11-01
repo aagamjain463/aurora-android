@@ -156,7 +156,10 @@ class DowngradeTest {
         assertTrue(runsRefusedByQuota(r, spent, Free, t, zone).isNotEmpty())
         assertTrue(liveRuns(r, spent, Free, t, zone).none { it.covers(t) })
         val tomorrow = DeviceTime(start + 86_400_000L, t.elapsed + 86_400_000L, t.boot)
-        assertTrue(liveRuns(r, spent, Free, tomorrow, zone).any { it.covers(tomorrow) })
+        val window = r.activations.single().windows(tomorrow.wall, zone).first { it.first <= tomorrow.wall && it.second > tomorrow.wall }
+        val occId = occurrenceId(r.activations.single(), window.first)
+        val spentTomorrow = spent.copy(authorizations = mapOf(occId to CommitmentAuthorization("res", "a", window.first, window.second)))
+        assertTrue(liveRuns(r, spentTomorrow, Free, tomorrow, zone).any { it.covers(tomorrow) })
     }
 
     @Test
