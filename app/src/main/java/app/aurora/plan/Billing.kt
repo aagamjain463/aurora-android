@@ -7,6 +7,7 @@ import android.content.Intent
 import androidx.core.net.toUri
 import app.aurora.BuildConfig
 import app.aurora.R
+import app.aurora.data.AuroraJson
 import app.aurora.data.JsonValue
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
@@ -22,16 +23,29 @@ import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
 import kotlin.coroutines.resume
 
-/** One way to buy Plus: a base plan of the Plus subscription with its price as Play formats it. */
+/** One way to buy Plus: a base plan of a Plus subscription with its price as Play formats it. */
 data class Offer(val basePlan: String, val price: String, val yearly: Boolean, internal val details: ProductDetails, internal val token: String)
 
 data class BillingState(
@@ -39,34 +53,95 @@ data class BillingState(
     val offers: List<Offer> = emptyList(),
     /** A purchase is waiting for payment (for example cash or UPI collect). It doesn't grant Plus until it completes. */
     val pending: Boolean = false,
+    /** Play reports a purchase and the server hasn't confirmed it yet. Plus starts when it does. */
+    val verifying: Boolean = false,
     val message: String? = null,
 ) {
     enum class Connection { Connecting, Ready, Unavailable }
 }
 
+/** This install's random id, in storage no backup or transfer copies: a snapshot restored from elsewhere doesn't match it. */
+private fun installId(context: Context): String {
+    val file = File(context.noBackupFilesDir, "install_id")
+    if (!file.exists()) file.writeText(UUID.randomUUID().toString())
+    return file.readText()
+}
+
+/** Asks the verification server about a purchase. Null when it can't be reached: what is stored stays. */
+private fun httpVerifier(url: String): suspend (String, String, String, String) -> SignedEntitlement? = { token, product, install, pkg ->
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val body = buildJsonObject {
+                put("purchaseToken", token)
+                put("productId", product)
+                put("installId", install)
+                put("packageName", pkg)
+            }.toString()
+            val c = URL(url).openConnection() as HttpURLConnection
+            try {
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.connectTimeout = 15_000
+                c.readTimeout = 20_000
+                c.setRequestProperty("Content-Type", "application/json")
+                c.outputStream.use { it.write(body.toByteArray()) }
+                if (c.responseCode != 200) null
+                else AuroraJson.decodeFromString(SignedEntitlement.serializer(), c.inputStream.bufferedReader().use { it.readText() })
+            } finally {
+                c.disconnect()
+            }
+        }.getOrNull()
+    }
+}
+
 /**
- * Google Play Billing for aurora plus. The plan comes only from purchases Play reports, cached for
- * offline use ([EntitlementCache], [planFrom]). There is no server: purchases are checked on the phone
- * only, which is enough to unlock features but not proof against a modified app. Server-side
- * verification is a launch dependency (docs/PRODUCT.md).
+ * Google Play Billing for aurora plus. Play sells it and reports purchases; the verification server asks
+ * Google whether each purchase is real and signs the answer; only a signed answer unlocks Plus. The answer
+ * is stored for offline use ([planFrom] says for how long). Everything is checked again at every start,
+ * and at most a day apart while the process lives, because the Shield service can keep it alive for weeks.
  */
 class BillingRepository(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val cache: JsonValue<EntitlementCache>,
+    private val cache: JsonValue<SignedEntitlement>,
     private val wallClock: () -> Long = System::currentTimeMillis,
+    private val publicKey: String = BuildConfig.ENTITLEMENT_PUBLIC_KEY,
+    private val verify: suspend (String, String, String, String) -> SignedEntitlement? = httpVerifier(BuildConfig.ENTITLEMENT_URL),
+    private val configured: Boolean = BuildConfig.ENTITLEMENT_URL.isNotBlank() && BuildConfig.ENTITLEMENT_PUBLIC_KEY.isNotBlank(),
 ) {
-    private val plusProducts = setOf(BuildConfig.PLUS_PRODUCT_ID)
+    private val plusProducts = BuildConfig.PLUS_PRODUCT_IDS.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    private val install by lazy { installId(context) }
     private val _state = MutableStateFlow(BillingState())
     val state: StateFlow<BillingState> = _state
+    private var retries: Job? = null
 
-    val plan: StateFlow<Plan> = cache.state
-        .map { planFrom(it?.value ?: EntitlementCache(), wallClock()) }
+    /** The stored snapshot, if it really is the server's. Checking a signature is slow, so the last answer is kept. */
+    private var checked: Pair<SignedEntitlement, EntitlementSnapshot?>? = null
+    private fun snapshot(signed: SignedEntitlement?): EntitlementSnapshot? {
+        if (signed == null) return null
+        checked?.takeIf { it.first == signed }?.let { return it.second }
+        return verifiedSnapshot(signed, publicKey).also { checked = signed to it }
+    }
+
+    val loaded: Boolean get() = cache.state.value != null
+
+    suspend fun awaitLoaded() {
+        cache.state.first { it != null }
+    }
+
+    /** The plan at this moment, read fresh: expiry is a matter of the clock, not of anything changing. */
+    fun planNow(): Plan = planFrom(snapshot(cache.value), install, context.packageName, wallClock())
+
+    val subscription: StateFlow<EntitlementSnapshot?> = cache.state
+        .map { snapshot(it?.value) }
+        .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val plan: StateFlow<Plan> = combine(cache.state, flow { while (true) { emit(Unit); delay(60_000L) } }) { _, _ -> planNow() }
         .stateIn(scope, SharingStarted.Eagerly, Plan.Free)
 
     private val listener = PurchasesUpdatedListener { result, purchases ->
         when (result.responseCode) {
-            BillingResponseCode.OK -> scope.launch { apply(purchases.orEmpty()) }
+            BillingResponseCode.OK -> scope.launch { apply(purchases.orEmpty(), complete = false) }
             BillingResponseCode.USER_CANCELED -> Unit
             BillingResponseCode.ITEM_ALREADY_OWNED -> scope.launch { refresh() }
             else -> _state.value = _state.value.copy(message = describe(result))
@@ -78,6 +153,16 @@ class BillingRepository(
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().enablePrepaidPlans().build())
         .enableAutoServiceReconnection()
         .build()
+
+    init {
+        scope.launch {
+            while (true) {
+                delay(6 * 60 * 60_000L)
+                val age = wallClock() - (subscription.value?.issuedAt ?: 0)
+                if (client.isReady && age > 24 * 60 * 60_000L) runCatching { refresh() }
+            }
+        }
+    }
 
     fun connect() {
         if (client.isReady) {
@@ -99,22 +184,23 @@ class BillingRepository(
         })
     }
 
-    /** Asks Play again for purchases and prices: "Restore purchases" and every app start. */
+    /** Asks Play again for purchases and prices, and the server about any purchase: "Restore purchases" and every app start. */
     suspend fun refresh() {
+        // A timeout and a late answer can both call back: only the first counts.
         val (purchasesResult, purchases) = suspendCancellableCoroutine { c ->
-            client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(ProductType.SUBS).build()) { r, list -> c.resume(r to list) }
+            client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(ProductType.SUBS).build()) { r, list -> if (c.isActive) c.resume(r to list) }
         }
-        if (purchasesResult.responseCode == BillingResponseCode.OK) apply(purchases)
         val offers = queryOffers()
         _state.value = _state.value.copy(
             connection = if (purchasesResult.responseCode == BillingResponseCode.OK) BillingState.Connection.Ready else BillingState.Connection.Unavailable,
-            offers = offers,
+            offers = if (configured) offers else emptyList(),
             message = when {
                 purchasesResult.responseCode != BillingResponseCode.OK -> describe(purchasesResult)
-                offers.isEmpty() -> context.getString(R.string.billing_not_for_sale)
+                offers.isEmpty() || !configured -> context.getString(R.string.billing_not_for_sale)
                 else -> null
             },
         )
+        if (purchasesResult.responseCode == BillingResponseCode.OK) apply(purchases, complete = true)
     }
 
     private suspend fun queryOffers(): List<Offer> {
@@ -122,7 +208,7 @@ class BillingRepository(
             plusProducts.map { QueryProductDetailsParams.Product.newBuilder().setProductId(it).setProductType(ProductType.SUBS).build() },
         ).build()
         val details = suspendCancellableCoroutine { c ->
-            client.queryProductDetailsAsync(params) { r, result -> c.resume(if (r.responseCode == BillingResponseCode.OK) result.productDetailsList else emptyList()) }
+            client.queryProductDetailsAsync(params) { r, result -> if (c.isActive) c.resume(if (r.responseCode == BillingResponseCode.OK) result.productDetailsList else emptyList()) }
         }
         return details.flatMap { product ->
             product.subscriptionOfferDetails.orEmpty()
@@ -135,25 +221,65 @@ class BillingRepository(
         }.sortedBy { it.yearly }
     }
 
-    private suspend fun apply(purchases: List<Purchase>) {
-        val verdict = evaluate(
-            purchases.map {
-                PurchaseFacts(
-                    it.products, it.purchaseState == Purchase.PurchaseState.PURCHASED, it.purchaseState == Purchase.PurchaseState.PENDING,
-                    it.isAcknowledged, it.isAutoRenewing, it.purchaseToken,
-                )
-            },
-            plusProducts,
-        )
-        for (token in verdict.toAcknowledge) {
-            suspendCancellableCoroutine { c ->
-                client.acknowledgePurchase(AcknowledgePurchaseParams.newBuilder().setPurchaseToken(token).build()) { c.resume(it) }
+    private suspend fun apply(purchases: List<Purchase>, complete: Boolean) {
+        applyFacts(purchases.map {
+            PurchaseFacts(
+                it.products, it.purchaseState == Purchase.PurchaseState.PURCHASED, it.purchaseState == Purchase.PurchaseState.PENDING,
+                it.isAcknowledged, it.isAutoRenewing, it.purchaseToken,
+            )
+        }, complete) { token ->
+            suspendCancellableCoroutine<Unit> { c ->
+                client.acknowledgePurchase(AcknowledgePurchaseParams.newBuilder().setPurchaseToken(token).build()) { if (c.isActive) c.resume(Unit) }
             }
         }
-        runCatching {
-            cache.update { EntitlementCache(verdict.plus, wallClock(), verdict.productId, verdict.autoRenewing) }
-        }
+    }
+
+    /** [complete]: this is every purchase Play knows of, so none at all means no subscription. */
+    internal suspend fun applyFacts(purchases: List<PurchaseFacts>, complete: Boolean, acknowledge: suspend (String) -> Unit) {
+        val verdict = evaluate(purchases, plusProducts)
         _state.value = _state.value.copy(pending = verdict.pending)
+        if (verdict.purchased.isEmpty()) {
+            if (complete) runCatching { cache.reset() }
+            _state.value = _state.value.copy(verifying = false)
+            return
+        }
+        if (!configured) return
+        _state.value = _state.value.copy(verifying = true)
+        for (p in verdict.purchased) {
+            val product = p.products.first { it in plusProducts }
+            val signed = verify(p.token, product, install, context.packageName)
+            val answer = signed?.let { verifiedSnapshot(it, publicKey) }?.takeIf { it.installId == install && it.packageName == context.packageName }
+            if (signed == null || answer == null) {
+                // Unreachable or nonsense: keep what is stored, and try again soon. Nothing is decided here.
+                retryLater()
+                return
+            }
+            runCatching { cache.update { signed } }
+            if (answer.tier == "plus") {
+                // Play refunds a purchase that isn't acknowledged within three days, so only a verified one is.
+                if (!p.acknowledged) acknowledge(p.token)
+                break
+            }
+        }
+        retries?.cancel()
+        _state.value = _state.value.copy(verifying = false)
+    }
+
+    private fun retryLater() {
+        if (retries?.isActive == true) return
+        retries = scope.launch {
+            for (wait in listOf(30_000L, 120_000L, 600_000L)) {
+                delay(wait)
+                runCatching { if (client.isReady) refresh() }
+                if (!_state.value.verifying) return@launch
+            }
+        }
+    }
+
+    /** Settings › Delete all data: the stored answer goes, and Play is asked again. */
+    suspend fun forget() {
+        cache.reset()
+        connect()
     }
 
     /** Opens Play's purchase sheet. Returns false (with a message) if it couldn't be shown. */

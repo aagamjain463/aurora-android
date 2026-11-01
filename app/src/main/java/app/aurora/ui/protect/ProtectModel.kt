@@ -10,7 +10,6 @@ import app.aurora.plan.Allowance
 import app.aurora.plan.Plan
 import app.aurora.progress.History
 import app.aurora.plan.ProtectedItem
-import app.aurora.plan.canAdd
 import app.aurora.plan.limit
 import app.aurora.protect
 import app.aurora.protect.AddResult
@@ -154,29 +153,19 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
         if (app.protection.resume(item, app.plan) == AddResult.AtLimit) atLimit(Allowance.ProtectedItems)
     }
 
-    /** Changes the rules in one transaction. A running Always Block window is committed first. */
+    /** Changes the rules in one transaction, if the plan allows the result. A running Always Block window is committed first. */
     fun edit(transform: (Rules) -> Rules) = write { app.editRules(transform) }
 
     /** Runs an action, handling storage errors like every other write. */
     fun run(block: suspend () -> Unit) = write(block)
-
-    /**
-     * Enables something counted by [allowance] when the plan allows one more, given [enabledNow]
-     * already enabled. Otherwise explains, once, and changes nothing.
-     */
-    fun enableWithin(allowance: Allowance, enabledNow: Int, transform: (Rules) -> Rules) {
-        if (canAdd(app.plan, allowance, enabledNow)) edit(transform) else atLimit(allowance)
-    }
 
     fun atLimit(allowance: Allowance) {
         val max = limit(app.plan, allowance) ?: return
         _notice.value = when (allowance) {
             Allowance.ProtectedItems -> LimitNotice(app.getString(R.string.limit_items_title), app.resources.getQuantityString(R.plurals.limit_items_body, max, max), plus = true)
             Allowance.IntentApps -> LimitNotice(app.resources.getQuantityString(R.plurals.limit_intent_title, max, max), app.resources.getQuantityString(R.plurals.limit_intent_body, max, max), true)
-            Allowance.DailyLimitRules -> LimitNotice(app.resources.getQuantityString(R.plurals.limit_daily_title, max, max), app.resources.getQuantityString(R.plurals.limit_daily_body, max, max), true)
-            Allowance.Schedules -> LimitNotice(app.getString(R.string.limit_schedule_title), app.resources.getQuantityString(R.plurals.limit_schedule_body, max, max), true)
-            Allowance.FocusProfiles -> LimitNotice(app.getString(R.string.limit_focus_title), app.getString(R.string.limit_focus_body), true)
-            Allowance.AlwaysBlockMinutesPerDay -> LimitNotice(app.getString(R.string.limit_always_title), app.resources.getQuantityString(R.plurals.limit_always_body, max, max), true)
+            Allowance.ActiveGoals -> LimitNotice(app.getString(R.string.goal_plan_title), app.getString(R.string.goal_plan_body), true)
+            Allowance.CommittedMinutesPerDay -> LimitNotice(app.getString(R.string.limit_always_title), app.resources.getQuantityString(R.plurals.limit_always_body, max, max), true)
         }
     }
 
@@ -209,7 +198,7 @@ fun Rules.summary(key: String, plan: Plan, website: Boolean, modeName: (Mode) ->
     val extras = buildList {
         add(modeName(rule.mode))
         if (key in activeIntents(plan)) add("Intentional opening")
-        if (!website) activeLimits(plan).find { it.key == key }?.let { add("${app.aurora.ui.components.minutesText(it.minutes)} a day") }
+        if (!website) activeLimits().find { it.key == key }?.let { add("${app.aurora.ui.components.minutesText(it.minutes)} a day") }
     }
     return extras.joinToString(" · ")
 }

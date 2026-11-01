@@ -181,14 +181,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     app.scope.launch { runCatching { app.preferences.setOnboardingStep(0) } }
                     onFinish()
                 }
-                problem?.let { Text(problemText(it), color = colors.danger, style = AuroraType.Secondary) }
+                problem?.takeUnless { it.overLimit }?.let { Text(problemText(it), color = colors.danger, style = AuroraType.Secondary) }
                 val name = stringResource(R.string.home_normal_title)
                 val startNow = {
                     if (android.os.Build.VERSION.SDK_INT >= 33 && !SessionNotification.allowed(context)) {
                         runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
                     }
                     vm.run {
-                        problem = app.activate(normalSession(name, chosen, mode), Timing.Now(firstMinutes))
+                        problem = app.activate(normalSession(name, chosen, mode), Timing.Now(firstMinutes))?.problem
                         if (problem == null) finish()
                     }
                     Unit

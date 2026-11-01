@@ -43,9 +43,8 @@ import app.aurora.AuroraApplication
 import app.aurora.data.Access
 import app.aurora.data.formatDuration
 import app.aurora.data.openUsageAccessSettings
-import app.aurora.plan.Feature
+import app.aurora.plan.EntitlementPolicy
 import app.aurora.plan.Plan
-import app.aurora.plan.has
 import app.aurora.protect.key
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIcons
@@ -133,7 +132,7 @@ fun LazyListScope.usageSection(state: InsightsState, vm: InsightsViewModel, onMo
         val resources = LocalResources.current
         ChoicePills(
             Period.entries, state.period,
-            { p -> if (p == Period.Month && !has(state.plan, Feature.AdvancedInsights)) onMonthLocked() else vm.select(p) },
+            { p -> if (p == Period.Month && !EntitlementPolicy.canAccessAdvancedAnalytics(state.plan).allowed) onMonthLocked() else vm.select(p) },
             label = { resources.getString(it.label) }, fill = true, segmented = true,
             modifier = Modifier.padding(horizontal = Space.M),
         )

@@ -180,8 +180,7 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
             else {
                 val preset = initial.copy(name = name.trim(), keys = keys, config = config)
                 vm.run {
-                    vm.app.saveIntentPreset(preset)
-                    onSaved(preset.id)
+                    if (vm.app.saveIntentPreset(preset) == null) onSaved(preset.id)
                 }
             }
         },

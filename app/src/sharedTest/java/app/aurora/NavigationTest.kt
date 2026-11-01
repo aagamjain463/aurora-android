@@ -23,6 +23,14 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
+import app.aurora.plan.EntitlementPolicy
+import app.aurora.progress.Goal
+import app.aurora.progress.GoalKind
+import app.aurora.progress.GoalPeriod
+import app.aurora.progress.GoalStatus
+import app.aurora.protect.Activation
+import app.aurora.protect.FreeKeep
+import app.aurora.protect.Timing
 import app.aurora.plan.ProtectedItem
 import app.aurora.protect.ShieldPreset
 import app.aurora.protect.FocusPlan
@@ -297,5 +305,84 @@ class NavigationTest {
         awaitText("Delete Daily learning?")
         compose.onNodeWithText("Delete").performClick()
         compose.waitUntil(5_000) { app.rules.value!!.trackGoals.isEmpty() }
+    }
+
+    private fun cleanPlanState(app: AuroraApplication) = runBlocking {
+        app.runtime.reset()
+        app.rules.update { it.copy(version = 1, shields = emptyList(), configs = emptyList(), activations = emptyList(), trackGoals = emptyList(), limits = emptyList(), keep = FreeKeep()) }
+        app.limitPrompt.value = null
+    }
+
+    private fun apps(range: IntRange) = range.map { "com.example.app$it" }
+
+    @Test
+    fun aSixthTargetIsExplainedChangesNothingAndLeadsToPlus() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        cleanPlanState(app)
+        launch(onboarded = true)
+        fun session(keys: List<String>) = UsageConfig(keys.first(), "S", custom = false, shield = ShieldPreset(keys.first(), "S", keys), createdAt = 1)
+        runBlocking {
+            org.junit.Assert.assertNull(app.activate(session(apps(1..5)), Timing.Now(30)))
+            org.junit.Assert.assertNotNull(app.activate(session(apps(6..6)), Timing.Now(30)))
+        }
+        awaitText("That\'s the most for now")
+        org.junit.Assert.assertEquals(1, app.runtime.value!!.runs.size)
+        // Cancelling can't continue the action: it never happened.
+        compose.onNodeWithText("Cancel").performClick()
+        compose.waitUntil(5_000) { app.limitPrompt.value == null }
+        org.junit.Assert.assertEquals(1, app.runtime.value!!.runs.size)
+        // Upgrading goes to the plan comparison, which matches the rule.
+        app.limitPrompt.value = LimitPrompt(EntitlementPolicy.canActivateShieldTarget(app.plan, apps(1..5).toSet(), apps(6..6).toSet()))
+        awaitText("See Aurora Plus")
+        compose.onNodeWithText("See Aurora Plus").performClick()
+        awaitText("Active Shield apps and sites")
+    }
+
+    @Test
+    fun aSecondGoalNamesTheActiveOneAndSwitchingKeepsItsHistory() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        cleanPlanState(app)
+        val first = Goal("first", "Read daily", GoalKind.Limit, GoalPeriod.Daily, 30, createdAt = System.currentTimeMillis())
+        runBlocking { org.junit.Assert.assertTrue(app.saveGoal(first).allowed) }
+        launch(onboarded = true)
+        tab("Track").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Goals")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Goals")).performClick()
+        awaitText("Create a Goal")
+        compose.onNodeWithText("Create a Goal").performClick()
+        awaitText("Name your goal")
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Second goal")
+        compose.onNodeWithText("Next").performClick()
+        compose.onNodeWithText("A time limit").performClick()
+        compose.onNodeWithText("Next").performClick()
+        compose.onNodeWithText("Whole screen time").performClick()
+        compose.onNodeWithText("Next").performClick()
+        compose.onNodeWithText("30 min").performClick()
+        compose.onNodeWithText("Create goal").performClick()
+        awaitText("Read daily is your active goal", substring = true)
+        org.junit.Assert.assertEquals(1, app.rules.value!!.trackGoals.size)
+        compose.onNodeWithText("Archive it").performSemanticsAction(SemanticsActions.OnClick)
+        awaitText("Second goal")
+        val goals = app.rules.value!!.trackGoals.associateBy { it.name }
+        org.junit.Assert.assertEquals(GoalStatus.Archived, goals.getValue("Read daily").status)
+        org.junit.Assert.assertEquals(GoalStatus.Active, goals.getValue("Second goal").status)
+    }
+
+    @Test
+    fun overFreesLimitsHomeSaysSoAndThePersonChooses() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        cleanPlanState(app)
+        // What Plus leaves behind: more switched on than Free covers. Nothing is deleted.
+        val preset = ShieldPreset("all", "All", apps(1..8))
+        val config = UsageConfig("all", "All", shieldId = "all", createdAt = 1)
+        runBlocking {
+            app.rules.update { it.copy(shields = listOf(preset), configs = listOf(config), activations = listOf(Activation("a", "all", Timing.Always, true, 1))) }
+        }
+        launch(onboarded = true)
+        scrollTo("Choose what stays active").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("Shield apps and sites: 5 of 5").fetchSemanticsNodes().isNotEmpty() }
+        scrollTo("Keep these active").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitUntil(5_000) { app.rules.value!!.keep.shield.size == 5 }
+        org.junit.Assert.assertEquals(8, app.rules.value!!.shields.single().keys.size)
     }
 }

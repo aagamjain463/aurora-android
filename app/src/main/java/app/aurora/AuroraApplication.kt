@@ -24,7 +24,8 @@ import app.aurora.data.ScreenTimeRepository
 import app.aurora.data.accessState
 import app.aurora.data.dataStore
 import app.aurora.plan.BillingRepository
-import app.aurora.plan.EntitlementCache
+import app.aurora.plan.LimitDecision
+import app.aurora.plan.SignedEntitlement
 import app.aurora.plan.Plan
 import app.aurora.progress.History
 import app.aurora.protect.DeviceTime
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.sync.Mutex
 import java.io.IOException
 import java.time.ZoneId
 
@@ -66,11 +68,21 @@ class AuroraApplication : Application() {
     val history by lazy { JsonValue(dataStore, "history", History.serializer(), History(), scope, strict = false) }
 
     val billing by lazy {
-        BillingRepository(this, scope, JsonValue(dataStore, "entitlement", EntitlementCache.serializer(), EntitlementCache(), scope, strict = false))
+        BillingRepository(this, scope, JsonValue(dataStore, "entitlement", SignedEntitlement.serializer(), SignedEntitlement(), scope, strict = false))
     }
 
-    /** The one source of the current plan: what Google Play last confirmed (plan/Entitlement.kt). */
-    val plan: Plan get() = billing.plan.value
+    /** The one source of the current plan: what the verification server last signed (plan/Entitlement.kt). */
+    val plan: Plan get() = billing.planNow()
+
+    /**
+     * Held by every operation that checks a plan limit and then stores what it allows, across rules and
+     * runtime, so two of them can't each claim the last slot or minutes.
+     * ponytail: one lock for all of them. These are rare, human-speed writes; split it if that ever shows.
+     */
+    val entitlements = Mutex()
+
+    /** A plan limit stopped something. The app's root explains it once, with what to do next. */
+    val limitPrompt = MutableStateFlow<LimitPrompt?>(null)
 
     /** Storage refused a write. The app's root shows it once; nothing changed. */
     val saveFailed = MutableStateFlow(false)
@@ -108,6 +120,7 @@ class AuroraApplication : Application() {
             protectedList.first { it != null }
             rules.state.first { it != null }
             runtime.state.first { it != null }
+            billing.awaitLoaded()
             runCatching { migrateRuntime() }
             runCatching { commitScheduleWindows() }
             history.state.first { it != null }
@@ -119,12 +132,17 @@ class AuroraApplication : Application() {
 
     /** The decision snapshot, from memory only. Null while anything is still loading or unreadable. */
     fun policySnapshot(exempt: Set<String>, usedToday: Map<String, Long>): PolicyState? {
+        // Until the stored plan is read, a Plus person would look Free.
+        if (!billing.loaded) return null
         val list = protectedList.value ?: return null
         val rules = rules.value ?: return null
         val runtime = runtime.value ?: return null
         return policyState(list, rules, runtime, plan, exempt, usedToday, now(), ZoneId.systemDefault())
     }
 }
+
+/** What the root dialog shows. [shorter] starts again with a length that fits. */
+class LimitPrompt(val decision: LimitDecision, val shorter: ((Int) -> Unit)? = null)
 
 @Composable
 inline fun <reified VM : ViewModel> auroraViewModel(crossinline create: (AuroraApplication) -> VM): VM {

@@ -78,9 +78,9 @@ class RulesTest {
             limits = (1..4).map { DailyLimit("com.app$it", 10) },
         )
         val free = policyState(list, rules, Runtime(), Plan.Free, emptySet(), emptyMap(), t, zone)!!
-        // One schedule on Free; it covers only the group's active items (app7 is paused).
-        assertEquals(setOf(setOf("com.app1", "com.app2")), free.restrictions.filter { it.start <= t.wall }.map { it.keys }.toSet())
-        assertEquals(3, free.limits.size)
+        // Schedules have no limit of their own on Free; each covers only active items (app7 is paused).
+        assertEquals(setOf(setOf("com.app1", "com.app2"), (1..5).map { "com.app$it" }.toSet()), free.restrictions.filter { it.start <= t.wall }.map { it.keys }.toSet())
+        assertEquals(4, free.limits.size)
         val plus = policyState(list, rules, Runtime(), Plan.Plus, emptySet(), emptyMap(), t, zone)!!
         assertEquals(4, plus.limits.size)
         assertTrue(plus.restrictions.any { it.keys.size == 7 })

@@ -2,11 +2,9 @@ package app.aurora
 
 import androidx.datastore.preferences.core.edit
 import app.aurora.data.dataStore
-import app.aurora.plan.Allowance
+import app.aurora.plan.EntitlementPolicy
 import app.aurora.plan.Plan
 import app.aurora.plan.ProtectedItem
-import app.aurora.plan.alwaysBlockMinutesLeft
-import app.aurora.plan.reserveAlwaysBlock
 import app.aurora.progress.DayStats
 import app.aurora.progress.FocusRecord
 import app.aurora.progress.ProtectionRecord
@@ -27,7 +25,13 @@ import app.aurora.protect.covers
 import app.aurora.protect.key
 import app.aurora.protect.migrated
 import app.aurora.protect.settledIntents
-import app.aurora.protect.toEntry
+import app.aurora.protect.ActivationProblem
+import app.aurora.protect.Refusal
+import app.aurora.protect.activeTargets
+import app.aurora.protect.ledgerEntry
+import app.aurora.protect.quotaToday
+import app.aurora.protect.targetsRefusal
+import app.aurora.protect.usesQuota
 import app.aurora.protect.waitFor
 import app.aurora.protect.windowAt
 import java.io.IOException
@@ -35,6 +39,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import kotlinx.coroutines.sync.withLock
 
 /*
  * The things a person does that change protection or progress. Each is one or two transactions and
@@ -69,11 +74,11 @@ suspend fun AuroraApplication.unprotect(items: Collection<ProtectedItem>) {
     }
 }
 
-enum class StartResult { Started, OverAllowance, NothingSelected }
+enum class StartResult { Started, OverAllowance, OverTargets, NothingSelected }
 
 /**
- * Starts a [mode] session over [keys] for [minutes]. Always Block on Free must fit the day's remaining
- * Always Block minutes; its reservation is stored with the session, in one transaction.
+ * Starts a [mode] session over [keys] for [minutes]. It must fit the plan's targets and, for Cooldown and
+ * Always Block, the day's shared minutes. Its reservation is stored with the session, in one transaction.
  */
 suspend fun AuroraApplication.startProtection(
     keys: Set<String>,
@@ -81,32 +86,38 @@ suspend fun AuroraApplication.startProtection(
     minutes: Int,
     friction: FrictionSettings = FrictionSettings(),
     cooldownWaitMinutes: Int = 15,
-): StartResult {
-    if (keys.isEmpty()) return StartResult.NothingSelected
-    if (minutes <= 0) return StartResult.NothingSelected
-    var result = StartResult.Started
+): StartResult = entitlements.withLock {
+    if (keys.isEmpty()) return@withLock StartResult.NothingSelected
+    if (minutes <= 0) return@withLock StartResult.NothingSelected
+    val r = rules.value ?: throw IOException("Rules can't be read")
+    val rt = runtime.value ?: throw IOException("Runtime can't be read")
     val t = now()
-    val session = ProtectionSession(UUID.randomUUID().toString(), keys, mode, Session.start(t, minutes), friction, cooldownWaitMinutes)
-    runtime.update { r ->
-        if (mode != Mode.AlwaysBlock) return@update r.pruned(t).copy(sessions = r.pruned(t).sessions + session)
-        val reservation = reserveAlwaysBlock(plan, r.ledger.map { it.toReservation() }, Instant.ofEpochMilli(t.wall), minutes, ZoneId.systemDefault())
-        if (reservation == null) {
-            result = StartResult.OverAllowance
-            r
-        } else {
-            r.pruned(t).copy(sessions = r.pruned(t).sessions + session, ledger = r.ledger + reservation.toEntry())
+    val zone = ZoneId.systemDefault()
+    targetsRefusal(plan, activeTargets(r, rt, t, zone, plan), keys, emptyList())?.let {
+        explain(it)
+        return@withLock StartResult.OverTargets
+    }
+    val entry = rt.ledgerEntry(t.wall, t.wall + minutes * 60_000L, t, zone)
+    if (mode.usesQuota) {
+        val decision = EntitlementPolicy.canStartCommittedProtection(plan, rt.ledger, entry.start, entry.end, ZoneId.of(entry.zone))
+        if (!decision.allowed) {
+            explain(Refusal(ActivationProblem.OverCommittedAllowance, decision))
+            return@withLock StartResult.OverAllowance
         }
     }
-    if (result == StartResult.Started) {
-        history.update { it.withProtection(ProtectionRecord(session.id, t.wall, t.wall + minutes * 60_000L, keys)) }
-        if (mode == Mode.AlwaysBlock) history.update { it.withAlwaysBlock(dayOf(t.wall), t.wall, minutes) }
+    val session = ProtectionSession(UUID.randomUUID().toString(), keys, mode, Session.start(t, minutes), friction, cooldownWaitMinutes)
+    runtime.update { x ->
+        val base = x.pruned(t)
+        base.copy(sessions = base.sessions + session, ledger = if (mode.usesQuota) base.ledger + entry else base.ledger)
     }
-    return result
+    history.update { it.withProtection(ProtectionRecord(session.id, t.wall, t.wall + minutes * 60_000L, keys)) }
+    if (mode == Mode.AlwaysBlock) history.update { it.withAlwaysBlock(dayOf(t.wall), t.wall, minutes) }
+    StartResult.Started
 }
 
-/** Always Block minutes left today, or null when unlimited. */
-fun AuroraApplication.alwaysBlockLeft(): Int? =
-    alwaysBlockMinutesLeft(plan, runtime.value?.ledger.orEmpty().map { it.toReservation() }, LocalDate.now())
+/** Committed minutes left today, or null when unlimited. */
+fun AuroraApplication.committedMinutesLeft(): Int? =
+    runtime.value?.quotaToday(plan, now(), ZoneId.systemDefault())?.remainingMs?.let { (it / 60_000).toInt() }
 
 /**
  * Turns off a cancellable session. An Always Block session has no in-app early end: this refuses it,
@@ -140,34 +151,33 @@ suspend fun AuroraApplication.skipWindow(scheduleId: String) {
 
 /**
  * Commits every Always Block schedule window that is running now into an Always Block session, once.
- * From then on, editing or deleting the schedule can't end that window early. On Free the committed part
- * is what the day's Always Block allowance still covers; the rest of the window stays a full block that
- * can be turned off. Called before any schedule edit, and whenever the snapshot is built.
+ * From then on, editing or deleting the schedule can't end that window early. Only for a Phase 3 schedule
+ * in the moment before the start-up migration turns it into an activation. A window the day's allowance
+ * can't cover isn't committed. Called before any schedule edit, and whenever the snapshot is built.
  */
-suspend fun AuroraApplication.commitScheduleWindows() {
-    val r = rules.value ?: return
-    val list = protectedList.value ?: return
+suspend fun AuroraApplication.commitScheduleWindows() = entitlements.withLock {
+    val r = rules.value ?: return@withLock
+    val list = protectedList.value ?: return@withLock
+    if (!billing.loaded) return@withLock
     val t = now()
     val zone = ZoneId.systemDefault()
     val active = list.active(plan).map { it.key }.toSet()
-    val due = r.activeSchedules(plan).filter { it.mode == Mode.AlwaysBlock }.mapNotNull { s -> s.windowAt(t.wall, zone)?.let { s to it } }
-    if (due.isEmpty()) return
+    val due = r.activeSchedules().filter { it.mode == Mode.AlwaysBlock }.mapNotNull { s -> s.windowAt(t.wall, zone)?.let { s to it } }
+    if (due.isEmpty()) return@withLock
     val started = mutableListOf<ProtectionSession>()
     runtime.update { rt ->
         var next = rt
         for ((schedule, window) in due) {
             val (start, end) = window
             if (next.sessions.any { it.scheduleId == schedule.id && it.time.startWall >= start }) continue
-            val wantMinutes = ((end - t.wall + 59_999) / 60_000).toInt()
-            val minutes = minOf(wantMinutes, alwaysBlockMinutesLeft(plan, next.ledger.map { it.toReservation() }, dayOf(t.wall)) ?: wantMinutes)
-            if (minutes <= 0) continue
-            val reservation = reserveAlwaysBlock(plan, next.ledger.map { it.toReservation() }, Instant.ofEpochMilli(t.wall), minutes, zone) ?: continue
+            val entry = next.ledgerEntry(t.wall, end, t, zone)
+            if (!EntitlementPolicy.canStartCommittedProtection(plan, next.ledger, entry.start, entry.end, ZoneId.of(entry.zone)).allowed) continue
             val session = ProtectionSession(
                 "schedule-${schedule.id}-$start", r.covers(schedule, active), Mode.AlwaysBlock,
-                Session(t.wall, t.elapsed, t.boot, minOf(minutes * 60_000L, end - t.wall)), scheduleId = schedule.id,
+                Session(t.wall, t.elapsed, t.boot, end - t.wall), scheduleId = schedule.id,
             )
             started += session
-            next = next.copy(sessions = next.sessions + session, ledger = next.ledger + reservation.toEntry())
+            next = next.copy(sessions = next.sessions + session, ledger = next.ledger + entry)
         }
         next
     }
@@ -177,9 +187,9 @@ suspend fun AuroraApplication.commitScheduleWindows() {
 }
 
 /** Changes the rules, after committing any running Always Block window, so an edit never cancels one. */
-suspend fun AuroraApplication.editRules(transform: (Rules) -> Rules) {
+suspend fun AuroraApplication.editRules(transform: (Rules) -> Rules): Refusal? {
     commitScheduleWindows()
-    rules.update(transform)
+    return changeRules(transform)
 }
 
 /** Phase 3 → reinvention: a running Lockdown becomes an Always Block session. Idempotent. */
@@ -339,12 +349,23 @@ suspend fun AuroraApplication.foregroundChanged(pkg: String?) {
 
 // ---- Focus -----------------------------------------------------------------------------------------
 
-suspend fun AuroraApplication.startFocus(minutes: Int, profileId: String?, groupId: String?, intention: String) {
+/**
+ * Starts Focus. Focus itself is unlimited, but the Shield targets it activates answer to the plan: refused
+ * (false, and explained) when they would pass the limit.
+ */
+suspend fun AuroraApplication.startFocus(minutes: Int, profileId: String?, groupId: String?, intention: String): Boolean = entitlements.withLock {
     val t = now()
     val session = Session.start(t, minutes, groupId, profileId, intention)
+    val r = rules.value ?: throw IOException("Rules can't be read")
+    val rt = runtime.value ?: throw IOException("Runtime can't be read")
+    val keys = r.cover(groupId, protectedList.value?.active(plan)?.map { it.key }?.toSet().orEmpty())
+    targetsRefusal(plan, activeTargets(r, rt, t, ZoneId.systemDefault(), plan), keys, emptyList())?.let {
+        explain(it)
+        return@withLock false
+    }
     runtime.update { it.copy(focus = session) }
-    val keys = rules.value?.cover(groupId, protectedList.value?.active(plan)?.map { it.key }?.toSet().orEmpty()).orEmpty()
     history.update { it.withProtection(ProtectionRecord("focus-${t.wall}", t.wall, t.wall + minutes * 60_000L, keys)) }
+    true
 }
 
 /**
@@ -370,9 +391,6 @@ suspend fun AuroraApplication.dismissFocus() {
     runtime.update { r -> if (r.focus?.isOver(now()) == true) r.copy(focus = null) else r }
 }
 
-/** Whether one more of [allowance] can be enabled when [current] are enabled now. */
-fun AuroraApplication.canEnable(allowance: Allowance, current: Int) = app.aurora.plan.canAdd(plan, allowance, current)
-
 /**
  * Settings › Delete all data: every preference, protected item, rule, session and history entry on this
  * phone. Running Always Block sessions are kept: deleting data is not a way to end a commitment.
@@ -382,13 +400,16 @@ suspend fun AuroraApplication.deleteAllData() {
     val t = now()
     val committed = runtime.value?.sessions.orEmpty().filter { !it.cancellable && !it.time.isOver(t) }
     val committedRuns = runtime.value?.runs.orEmpty().filter { !it.cancellable(t) && !it.isOver(t) }
+    // Deleting data isn't a way to get today's committed minutes back, either.
+    val ledger = runtime.value?.ledger.orEmpty()
     dataStore.edit { it.clear() }
     rules.reset()
     runtime.reset()
     history.reset()
-    if (committed.isNotEmpty() || committedRuns.isNotEmpty()) {
+    billing.forget()
+    if (committed.isNotEmpty() || committedRuns.isNotEmpty() || ledger.isNotEmpty()) {
         try {
-            runtime.update { Runtime(sessions = committed, runs = committedRuns) }
+            runtime.update { Runtime(sessions = committed, runs = committedRuns, ledger = ledger) }
         } catch (_: IOException) {
             // Storage failed; nothing more can be kept.
         }

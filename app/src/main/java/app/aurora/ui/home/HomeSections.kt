@@ -166,7 +166,7 @@ private fun rememberStarter(app: AuroraApplication): (UsageConfig, Int, (Activat
         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
         app.scope.launch {
             try {
-                onResult(app.activate(c, Timing.Now(minutes)))
+                onResult(app.activate(c, Timing.Now(minutes))?.problem)
             } catch (_: IOException) {
                 app.saveFailed.value = true
             }
@@ -287,7 +287,7 @@ fun LazyListScope.homeNow(d: ProtectData, app: AuroraApplication, onOpenFocus: (
 fun LazyListScope.homeLater(d: ProtectData, app: AuroraApplication, onOpenFocus: (String) -> Unit, listed: Set<String>, showScheduled: Boolean) {
     val runs = app.runsNow(d.time)
     val zone = ZoneId.systemDefault()
-    val entitled = d.rules.entitledActivations(d.plan)
+    val entitled = d.rules.entitledActivations(d.plan, d.time.wall, zone)
     val scheduled = d.rules.activations.filter { (it.timing is Timing.Later || it.timing is Timing.Recurring) && showScheduled && it.configId !in listed }
     if (scheduled.isNotEmpty()) item(key = "scheduled-label") { Column(Modifier.animateItem()) { HomeLabel(stringResource(R.string.home_scheduled)) } }
     items(scheduled, key = { "act-" + it.id }) { a -> Column(Modifier.animateItem()) { ActivationCard(a, d, app, a.id in entitled, zone) } }
@@ -416,6 +416,7 @@ private fun ActivationControls(a: Activation, d: ProtectData, app: AuroraApplica
         when {
             !a.enabled -> stringResource(R.string.home_paused)
             !entitled -> stringResource(R.string.home_paused_plan)
+            d.runtime.quotaDenied.keys.any { it == "later:${a.id}" || it.startsWith("rec:${a.id}:") } -> stringResource(R.string.home_skipped_quota)
             next != null -> stringResource(R.string.home_next_start, java.time.Instant.ofEpochMilli(next).atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, ")) + clockTime(next))
             else -> ""
         },
@@ -541,7 +542,7 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
     val context = LocalContext.current
     val access = rememberAccess(Access.Accessibility)
     val zone = ZoneId.systemDefault()
-    val entitled = d.rules.entitledActivations(d.plan)
+    val entitled = d.rules.entitledActivations(d.plan, d.time.wall, zone)
     var pending by remember { mutableStateOf<Pair<UsageConfig, Int>?>(null) }
     // Without Shield a session is only a timer: nothing starts until it's on.
     var disclosure by remember { mutableStateOf(false) }
@@ -585,7 +586,8 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
                     )
                 }
             }
-            problem?.takeIf { it.first == c.id }?.let { (_, p) ->
+            // Plan limits are explained at the app's root.
+            problem?.takeIf { it.first == c.id && !it.second.overLimit }?.let { (_, p) ->
                 Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
             }
             schedules.forEach { a ->

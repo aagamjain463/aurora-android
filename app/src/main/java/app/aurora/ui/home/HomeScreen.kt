@@ -55,6 +55,7 @@ import app.aurora.data.clockTicks
 import app.aurora.data.formatDuration
 import app.aurora.data.timeAway
 import app.aurora.plan.Plan
+import app.aurora.protect.planExcess
 import app.aurora.progress.History
 import app.aurora.progress.levelFor
 import app.aurora.progress.light
@@ -128,7 +129,7 @@ sealed interface AwayState {
 fun protectionToday(history: History, rules: Rules, runtime: Runtime, list: ProtectedList, plan: Plan, from: Long, to: Long, zone: ZoneId): List<ProtectedSpan> {
     val active = list.active(plan).map { it.key }.toSet()
     val recorded = history.protection.filter { it.end > from && it.start < to }.map { ProtectedSpan(it.start, it.end, it.keys) }
-    val windows = rules.activeSchedules(plan).flatMap { s ->
+    val windows = rules.activeSchedules().flatMap { s ->
         val keys = rules.covers(s, active)
         s.windowsBetween(from, to, zone).filterNot { (start, _) -> runtime.skipped[s.id] == start && s.mode != Mode.AlwaysBlock }
             .map { (start, end) -> ProtectedSpan(start, end, keys) }
@@ -202,6 +203,7 @@ fun HomeScreen(
     onOpenFocus: (runId: String) -> Unit,
     onOpenLegacyFocus: () -> Unit,
     onOpenSettings: () -> Unit,
+    onKeep: () -> Unit = {},
 ) {
     val today = auroraViewModel { TodayModel(it) }
     val protect = auroraViewModel { ProtectModel(it) }
@@ -264,6 +266,12 @@ fun HomeScreen(
         val active = d != null && sessionRunning(d, today.app)
         // What is running, finishing or needs attention leads: a Shield warning sits right under the hero.
         if (d != null) homeNow(d, today.app, onOpenFocus, onOpenLegacyFocus)
+        if (d != null && d.rules.planExcess(d.plan, d.time.wall, java.time.ZoneId.systemDefault()).any) item(key = "over-free") {
+            Column(Modifier.animateItem().padding(horizontal = Space.Gutter).padding(top = Space.S), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                app.aurora.ui.components.Notice(stringResource(R.string.keep_banner_title), stringResource(R.string.keep_banner_body))
+                app.aurora.ui.components.AuroraButton(stringResource(R.string.keep_banner_action), onKeep, Modifier.fillMaxWidth(), kind = app.aurora.ui.components.ButtonKind.Secondary)
+            }
+        }
         val running = d?.let { today.app.runsNow(it.time).map { r -> r.configId } }.orEmpty()
         val ready = d?.rules?.readyToStart(Int.MAX_VALUE)?.filterNot { it.id in running }.orEmpty()
         if (d != null && !active) item(key = "start") { Column(Modifier.animateItem()) { StartBlocking(d, today.app, onNormalUse, onCustom, primary = !busy) } }

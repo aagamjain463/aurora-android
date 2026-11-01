@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.AuroraApplication
-import app.aurora.BuildConfig
 import app.aurora.plan.Allowance
 import app.aurora.plan.BillingState
 import app.aurora.plan.FreeLimits
@@ -61,15 +60,17 @@ fun PlusScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val billing by app.billing.state.collectAsStateWithLifecycle()
     val plan by app.billing.plan.collectAsStateWithLifecycle()
+    val subscription by app.billing.subscription.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val colors = Aurora.colors
     val compare = listOf(
     Triple(stringResource(R.string.plus_compare_items), "${FreeLimits.getValue(Allowance.ProtectedItems)}", stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_always), minutesText(FreeLimits.getValue(Allowance.AlwaysBlockMinutesPerDay)), stringResource(R.string.plus_unlimited)),
     Triple(stringResource(R.string.plus_compare_intent), "${FreeLimits.getValue(Allowance.IntentApps)}", stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.limits_name), "${FreeLimits.getValue(Allowance.DailyLimitRules)}", stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.schedules_name), "${FreeLimits.getValue(Allowance.Schedules)}", stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_profiles), "${FreeLimits.getValue(Allowance.FocusProfiles)}", stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_goals), "${FreeLimits.getValue(Allowance.ActiveGoals)}", stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_always), minutesText(FreeLimits.getValue(Allowance.CommittedMinutesPerDay)), stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_modes), stringResource(R.string.plus_unlimited), stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_profiles), stringResource(R.string.plus_unlimited), stringResource(R.string.plus_unlimited)),
+    Triple(stringResource(R.string.plus_compare_rules), stringResource(R.string.plus_unlimited), stringResource(R.string.plus_unlimited)),
     Triple(stringResource(R.string.plus_compare_included), stringResource(R.string.plus_included), stringResource(R.string.plus_included)),
     Triple(stringResource(R.string.tab_insights), stringResource(R.string.plus_period_week), stringResource(R.string.plus_period_month)),
 )
@@ -118,8 +119,16 @@ fun PlusScreen(onBack: () -> Unit) {
         item(key = "buy") {
             SectionLabel(if (plan == Plan.Plus) stringResource(R.string.plus_your_subscription) else stringResource(R.string.plus_choose_a_plan))
             Column(Modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                subscription?.let { s ->
+                    when {
+                        plan == Plan.Plus && s.state == "in_grace_period" -> Notice(stringResource(R.string.plus_grace_title), stringResource(R.string.plus_grace_body))
+                        plan == Plan.Plus -> Text(stringResource(if (s.autoRenewing) R.string.plus_renews_on else R.string.plus_ends_on, dateOf(s.paidThrough)), color = colors.textSecondary, style = AuroraType.Secondary)
+                        s.state == "on_hold" -> Notice(stringResource(R.string.plus_hold_title), stringResource(R.string.plus_hold_body))
+                        s.state == "too_many_devices" -> Notice(stringResource(R.string.plus_devices_title), stringResource(R.string.plus_devices_body))
+                    }
+                }
                 when {
-                    plan == Plan.Plus -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, BuildConfig.PLUS_PRODUCT_ID) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+                    plan == Plan.Plus || subscription?.state == "on_hold" -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
                     billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = colors.textSecondary, style = AuroraType.Secondary)
                     billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = colors.textSecondary, style = AuroraType.Secondary)
                     else -> billing.offers.forEach { offer ->
@@ -131,6 +140,7 @@ fun PlusScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+                if (billing.verifying) Notice(stringResource(R.string.plus_verifying_title), stringResource(R.string.plus_verifying_body))
                 if (billing.pending) Notice(stringResource(R.string.plus_payment_pending), stringResource(R.string.plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp))
                 billing.message?.let { Notice(stringResource(R.string.plus_google_play), it) }
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -145,6 +155,8 @@ fun PlusScreen(onBack: () -> Unit) {
         }
     }
 }
+
+private fun dateOf(at: Long): String = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(at))
 
 private tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this

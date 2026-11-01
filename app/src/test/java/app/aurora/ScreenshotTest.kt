@@ -373,6 +373,9 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun shieldIntent() = capture("shield_intent") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
 
     @Test fun plus() = capture("plus") { app.aurora.ui.plus.PlusScreen(onBack = {}) }
+    @Test fun limit_shield() = capture("limit_shield") { app.aurora.ui.plus.LimitPromptDialog(app.aurora.LimitPrompt(app.aurora.plan.LimitDecision(false, app.aurora.plan.LimitReason.ShieldTargets, 5, 5, 0, app.aurora.plan.Remedy.FreeASlot, true)), {}, {}) }
+    @Test fun limit_committed() = capture("limit_committed") { app.aurora.ui.plus.LimitPromptDialog(app.aurora.LimitPrompt(app.aurora.plan.LimitDecision(false, app.aurora.plan.LimitReason.CommittedProtection, 95 * 60_000L, 120 * 60_000L, 25 * 60_000L, app.aurora.plan.Remedy.ChooseShorter, true, resetAt = 0), { }), {}, {}) }
+    @Test fun goal_limit() = capture("goal_limit") { app.aurora.ui.track.GoalLimitDialog(app.aurora.progress.Goal("g", "Daily Study", app.aurora.progress.GoalKind.Session, app.aurora.progress.GoalPeriod.Daily, 60), {}, {}, { _, _ -> }) }
 
     /** A run that just succeeded: Home opens on its finish. */
     @Test fun homeFinished() {

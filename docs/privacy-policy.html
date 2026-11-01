@@ -20,8 +20,8 @@
 <p class="meta">Effective 30 October 2026</p>
 
 <p>Aurora is a digital wellbeing app for Android. It helps you choose when to open the apps that pull you
-away. Aurora is built to work entirely on your phone: it has no account, no analytics, no advertising and
-no permission to use the internet.</p>
+away. Aurora is built to work on your phone: it has no account, no analytics and no advertising. It uses the
+internet for one thing, which is confirming an Aurora Plus purchase. Your usage never leaves your phone.</p>
 
 <h2>What Aurora keeps, and where</h2>
 <p>Aurora stores your settings and your progress in its private storage on your phone: the apps and
@@ -56,11 +56,16 @@ created on your phone and contains only the name of what is running and its time
 
 <h2>Purchases</h2>
 <p>Aurora Plus is sold through Google Play. Google processes the payment under
-<a href="https://policies.google.com/privacy">Google's privacy policy</a>. Aurora only asks Google Play,
-on your phone, whether you have an active subscription. We never see your payment details.</p>
+<a href="https://policies.google.com/privacy">Google's privacy policy</a>. We never see your payment details.</p>
+<p>When you buy or restore Aurora Plus, Aurora sends three things to Aurora's verification service: the
+purchase token Google Play gave your phone, the subscription product, and a random id made for this
+install. The service asks Google whether the purchase is valid and sends back a signed answer. It stores a
+hash of the token, the random ids that used it (at most five) and the subscription's state. That id isn't
+linked to you or your Google account by us, and nothing about the apps you use or block is ever sent. If you
+never buy Plus, none of this happens.</p>
 
 <h2>Children</h2>
-<p>Aurora is not directed at children under 13 and collects no personal information from anyone.</p>
+<p>Aurora is not directed at children under 13 and collects no personal information from anyone beyond the purchase details above.</p>
 
 <h2>Changes</h2>
 <p>If this policy changes, the new version will be published at this address with a new effective date.

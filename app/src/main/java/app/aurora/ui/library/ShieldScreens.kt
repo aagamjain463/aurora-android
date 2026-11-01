@@ -200,8 +200,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
             friction = FrictionSettings(task, difficulty, pause), cooldownWaitMinutes = wait ?: initial.cooldownWaitMinutes,
         )
         vm.run {
-            vm.app.saveShield(preset)
-            onSaved(preset.id)
+            if (vm.app.saveShield(preset) == null) onSaved(preset.id)
         }
     }
     StepFlow(

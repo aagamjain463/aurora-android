@@ -10,18 +10,14 @@ import java.net.IDN
 
 enum class Plan { Free, Plus }
 
-enum class Allowance { ProtectedItems, IntentApps, DailyLimitRules, Schedules, FocusProfiles, AlwaysBlockMinutesPerDay }
-
-enum class Feature { AdvancedInsights, Challenges }
+enum class Allowance { ProtectedItems, IntentApps, ActiveGoals, CommittedMinutesPerDay }
 
 /** Every limit number lives here and nowhere else. aurora plus has no limits. */
 val FreeLimits: Map<Allowance, Int> = mapOf(
     Allowance.ProtectedItems to 5,
     Allowance.IntentApps to 3,
-    Allowance.DailyLimitRules to 3,
-    Allowance.Schedules to 1,
-    Allowance.FocusProfiles to 1,
-    Allowance.AlwaysBlockMinutesPerDay to 120,
+    Allowance.ActiveGoals to 1,
+    Allowance.CommittedMinutesPerDay to 120,
 )
 
 /** null means unlimited. */
@@ -29,10 +25,6 @@ fun limit(plan: Plan, allowance: Allowance): Int? = if (plan == Plan.Plus) null 
 
 /** Whether one more can be added when [current] already exist. Removing something never needs a check. */
 fun canAdd(plan: Plan, allowance: Allowance, current: Int): Boolean = limit(plan, allowance)?.let { current < it } ?: true
-
-fun has(plan: Plan, feature: Feature): Boolean = when (feature) {
-    Feature.AdvancedInsights, Feature.Challenges -> plan == Plan.Plus
-}
 
 /**
  * An app or website aurora watches. Apps and websites share one pool, and each item is normalised
@@ -56,6 +48,7 @@ sealed interface ProtectedItem {
             /**
              * A bare host name such as "Example.com." or "www.example.com", stored as "example.com".
              * Unicode names are stored in their ASCII form. URLs, paths, ports and single labels are rejected.
+             * Other subdomains are their own target, because the Shield matches them separately.
              */
             fun of(host: String): Website? {
                 val name = host.trim().trimEnd('.').lowercase().removePrefix("www.")

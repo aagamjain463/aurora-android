@@ -57,7 +57,11 @@ import app.aurora.progress.RecordDays
 import app.aurora.progress.RecordWeeks
 import app.aurora.progress.RunRecord
 import app.aurora.progress.SessionStats
+import androidx.compose.foundation.layout.FlowRow
+import app.aurora.progress.GoalStatus
 import app.aurora.progress.goalProgress
+import app.aurora.protect.activeGoalIds
+import app.aurora.setGoalStatus
 import app.aurora.progress.levelFor
 import app.aurora.progress.sessionStats
 import app.aurora.progress.totalXp
@@ -106,7 +110,7 @@ enum class TrackTab(val label: Int) { Progress(R.string.track_tab_progress), Goa
 private enum class StatPeriod(val label: Int) { Today(R.string.reclaimed_today), Week(R.string.reclaimed_week), Overall(R.string.reclaimed_overall) }
 
 /** A goal as Track shows it: [subject] is its session's or apps' name. */
-data class GoalRow(val goal: Goal, val subject: String, val progress: GoalProgress)
+data class GoalRow(val goal: Goal, val subject: String, val progress: GoalProgress, val measuring: Boolean = true)
 
 private data class TrackState(
     val loading: Boolean = true,
@@ -154,8 +158,10 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
                 ).mapValues { (_, from) -> sessionStats(history.runs, live, from, tomorrow, t.wall) },
                 reclaimed = reclaimed,
                 recent = history.runs.takeLast(3).reversed(),
-                goals = rules.trackGoals.sortedByDescending { it.createdAt }.map { g ->
-                    GoalRow(g, subject(g), goalProgress(g, history.runs, live, history.service, usage[g.id].orEmpty(), today, t.wall, zone))
+                goals = rules.activeGoalIds(app.plan).let { active ->
+                    rules.trackGoals.sortedWith(compareByDescending<Goal> { it.id in active }.thenByDescending { it.createdAt }).map { g ->
+                        GoalRow(g, subject(g), goalProgress(g, history.runs, live, history.service, usage[g.id].orEmpty(), today, t.wall, zone), g.id in active)
+                    }
                 },
                 usageAccess = app.access.isGranted(Access.Usage),
             )
@@ -173,6 +179,16 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
         g.apps.isEmpty() -> app.getString(R.string.track_screen_time)
         g.apps.size == 1 -> app.catalog.app(g.apps.single())?.label ?: g.apps.single()
         else -> app.resources.getQuantityString(R.plurals.count_apps, g.apps.size, g.apps.size)
+    }
+
+    /** Null when done; otherwise the Goal that holds Free's one active slot. */
+    fun setStatus(id: String, status: GoalStatus, replacing: String? = null, replacingStatus: GoalStatus = GoalStatus.Paused, onBlocked: () -> Unit = {}) {
+        viewModelScope.launch {
+            val done = runCatching { app.setGoalStatus(id, status, replacing, replacingStatus).allowed }.getOrDefault(true)
+            if (!done) onBlocked()
+            measuring?.join()
+            refresh()
+        }
     }
 
     fun delete(id: String) {
@@ -197,6 +213,14 @@ fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, o
     var period by rememberSaveable { mutableStateOf(StatPeriod.Today) }
     var plusNote by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Goal?>(null) }
+    var resuming by remember { mutableStateOf<Goal?>(null) }
+    resuming?.let { g ->
+        val current = state.goals.firstOrNull { it.measuring }?.goal
+        GoalLimitDialog(current, onPlus, { resuming = null }) { old, status ->
+            resuming = null
+            vm.setStatus(g.id, GoalStatus.Active, replacing = old.id, replacingStatus = status)
+        }
+    }
     LifecycleResumeEffect(minute) {
         vm.refresh()
         onPauseOrDispose { }
@@ -219,7 +243,9 @@ fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, o
         }
         when (tab) {
             TrackTab.Progress -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else progressSection(state, period, { period = it })
-            TrackTab.Goals -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else goalsSection(state, onCreateGoal) { deleting = it }
+            TrackTab.Goals -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else goalsSection(state, onCreateGoal, { deleting = it }) { g, status ->
+                vm.setStatus(g.id, status, onBlocked = { resuming = g })
+            }
             TrackTab.Usage -> usageSection(usageState, usage) { plusNote = true }
         }
     }
@@ -323,18 +349,19 @@ private fun RecentSessions(recent: List<RunRecord>) {
     }
 }
 
-private fun LazyListScope.goalsSection(state: TrackState, onCreate: () -> Unit, onDelete: (Goal) -> Unit) {
+private fun LazyListScope.goalsSection(state: TrackState, onCreate: () -> Unit, onDelete: (Goal) -> Unit, onStatus: (Goal, GoalStatus) -> Unit) {
     item(key = "goal-create") {
         AuroraButton(stringResource(R.string.goal_create), onCreate, Modifier.padding(horizontal = Space.M).padding(bottom = Space.XS).fillMaxWidth(), icon = AuroraIcons.Plus)
     }
     if (state.goals.isEmpty()) item(key = "goal-empty") {
         EmptyState(stringResource(R.string.goal_empty_title), stringResource(R.string.goal_empty_body), icon = AuroraIcons.Target)
     }
-    items(state.goals, key = { "goal-" + it.goal.id }) { row -> GoalCard(row, state.usageAccess) { onDelete(row.goal) } }
+    items(state.goals, key = { "goal-" + it.goal.id }) { row -> GoalCard(row, state.usageAccess, { onStatus(row.goal, it) }) { onDelete(row.goal) } }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun GoalCard(row: GoalRow, usageAccess: Boolean, onDelete: () -> Unit) {
+private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) -> Unit, onDelete: () -> Unit) {
     val colors = Aurora.colors
     val context = LocalContext.current
     val g = row.goal
@@ -348,7 +375,17 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onDelete: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
             Text(g.name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
-            when (p.state) {
+            if (!row.measuring) Text(
+                stringResource(
+                    when (g.status) {
+                        GoalStatus.Active -> R.string.goal_status_plan
+                        GoalStatus.Paused -> R.string.goal_status_paused
+                        GoalStatus.Completed -> R.string.goal_status_completed
+                        GoalStatus.Archived -> R.string.goal_status_archived
+                    },
+                ),
+                color = colors.textSecondary, style = AuroraType.Label,
+            ) else when (p.state) {
                 GoalState.OnTrack -> Text(stringResource(R.string.goal_on_track), color = colors.accent, style = AuroraType.Label)
                 GoalState.Achieved -> Text(stringResource(R.string.goal_achieved), color = colors.accent, style = AuroraType.Label)
                 GoalState.Failed -> Text(stringResource(R.string.goal_failed), color = colors.violetText, style = AuroraType.Label)
@@ -387,6 +424,16 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onDelete: () -> Unit) {
             )
             DayStrip(p.record.map { it.second })
             Text(summary, color = colors.textSecondary, style = AuroraType.Caption)
+        }
+        // Wraps rather than squeezes: the labels must stay whole at any text size.
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.XS, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+            if (g.status == GoalStatus.Active) {
+                AuroraButton(stringResource(R.string.goal_pause), { onStatus(GoalStatus.Paused) }, kind = ButtonKind.Quiet, compact = true)
+                AuroraButton(stringResource(R.string.goal_complete), { onStatus(GoalStatus.Completed) }, kind = ButtonKind.Quiet, compact = true)
+                AuroraButton(stringResource(R.string.goal_archive), { onStatus(GoalStatus.Archived) }, kind = ButtonKind.Quiet, compact = true)
+            } else {
+                AuroraButton(stringResource(R.string.goal_resume), { onStatus(GoalStatus.Active) }, kind = ButtonKind.Secondary, compact = true)
+            }
         }
         AuroraButton(stringResource(R.string.goal_delete), onDelete, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet, compact = true)
     }

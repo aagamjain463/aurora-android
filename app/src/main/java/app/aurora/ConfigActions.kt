@@ -1,8 +1,8 @@
 package app.aurora
 
-import app.aurora.plan.Plan
-import app.aurora.plan.alwaysBlockMinutesLeft
-import app.aurora.plan.reserveAlwaysBlock
+import app.aurora.plan.EntitlementPolicy
+import app.aurora.plan.LimitDecision
+import app.aurora.progress.GoalStatus
 import app.aurora.progress.Goal
 import app.aurora.progress.GoalKind
 import app.aurora.progress.ProtectionRecord
@@ -10,6 +10,21 @@ import app.aurora.progress.reaching
 import app.aurora.progress.record
 import app.aurora.protect.Activation
 import app.aurora.protect.ActivationProblem
+import app.aurora.protect.ActiveTargets
+import app.aurora.protect.FreeKeep
+import app.aurora.protect.Refusal
+import app.aurora.protect.activeGoalIds
+import app.aurora.protect.activeTargets
+import app.aurora.protect.cover
+import app.aurora.protect.goalsReconciled
+import app.aurora.protect.ledgerEntry
+import app.aurora.protect.requestedIntent
+import app.aurora.protect.requestedShield
+import app.aurora.protect.retainedIntent
+import app.aurora.protect.retainedShield
+import app.aurora.protect.runsRefusedByQuota
+import app.aurora.protect.targetsRefusal
+import app.aurora.protect.usesQuota
 import app.aurora.protect.ConfigRun
 import app.aurora.protect.Decision
 import app.aurora.protect.DeviceTime
@@ -34,12 +49,13 @@ import app.aurora.protect.migratedToConfigurations
 import app.aurora.protect.problem
 import app.aurora.protect.runsToMaterialize
 import app.aurora.protect.shieldOf
-import app.aurora.protect.toEntry
 import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /*
  * The things a person does with presets, configurations, activations and goals (docs/CONFIGURATIONS.md).
@@ -102,16 +118,62 @@ fun AuroraApplication.runsNow(t: DeviceTime = now()): List<ConfigRun> {
     return liveRuns(r, rt, plan, t, zone).filter { it.covers(t) }
 }
 
+// ---- The one way rules that can activate protection change -------------------------------------------
+
+/** The targets of a running Focus. */
+private fun AuroraApplication.focusKeys(t: DeviceTime, r: Rules): Set<String> =
+    runtime.value?.focus?.takeUnless { it.isOver(t) }?.let { r.cover(it.groupId, protectedList.value?.active(plan)?.map { i -> i.key }?.toSet().orEmpty()) }.orEmpty()
+
+/**
+ * Why [next] can't replace [old]: it would switch on targets past the plan's limit. The check is on the
+ * union after the change, so replacing a target is fine. Over-limit data already saved never refuses an
+ * edit that adds nothing.
+ */
+private fun AuroraApplication.refusalOf(next: Rules, old: Rules): Refusal? {
+    val t = now()
+    val rt = runtime.value ?: return null
+    val added = (next.requestedShield(t.wall, zone) - old.requestedShield(t.wall, zone).toSet()).toSet()
+    val addedIntent = (next.requestedIntent(t.wall, zone) - old.requestedIntent(t.wall, zone).toSet()).toSet()
+    if (added.isEmpty() && addedIntent.isEmpty()) return null
+    // What keeps its slot after the change: what is running, and what was retained and is still on.
+    val running = activeTargets(Rules(), rt, t, zone, plan, focusKeys(t, next))
+    val shieldKeep = old.retainedShield(plan, t.wall, zone)
+    val intentKeep = old.retainedIntent(plan, t.wall, zone)
+    val staying = ActiveTargets(
+        running.shield + next.requestedShield(t.wall, zone).filter { it !in added && (shieldKeep == null || it in shieldKeep) },
+        running.intent + next.requestedIntent(t.wall, zone).filter { it !in addedIntent && (intentKeep == null || it in intentKeep) },
+    )
+    return targetsRefusal(plan, staying, added, addedIntent)
+}
+
+/**
+ * Changes the rules if the result stays within the plan, in one transaction, or changes nothing and says
+ * why. Every edit that can switch on a target comes through here, whichever screen asks.
+ */
+suspend fun AuroraApplication.changeRules(transform: (Rules) -> Rules): Refusal? = entitlements.withLock {
+    var refusal: Refusal? = null
+    rules.update { r ->
+        val next = transform(r)
+        refusal = refusalOf(next, r)
+        if (refusal == null) next else r
+    }
+    refusal?.also { explain(it) }
+}
+
+/** Shows why, at the app's root. The screen that asked changes nothing. */
+fun AuroraApplication.explain(refusal: Refusal, shorter: ((Int) -> Unit)? = null) {
+    refusal.decision?.let { limitPrompt.value = LimitPrompt(it, shorter) }
+}
+
 // ---- Presets ---------------------------------------------------------------------------------------
 
-/** Saves [p] (new or edited). Running protection keeps the copy it started with; future runs use this. */
-suspend fun AuroraApplication.saveShield(p: ShieldPreset) {
-    rules.update { r -> r.copy(shields = r.shields.filterNot { it.id == p.id } + p) }
-}
+/**
+ * Saves [p] (new or edited). Running protection keeps the copy it started with; future runs use this. A preset
+ * nothing activates can be anything; one that is switched on is held to the plan.
+ */
+suspend fun AuroraApplication.saveShield(p: ShieldPreset): Refusal? = changeRules { r -> r.copy(shields = r.shields.filterNot { it.id == p.id } + p) }
 
-suspend fun AuroraApplication.saveIntentPreset(p: IntentPreset) {
-    rules.update { r -> r.copy(intentPresets = r.intentPresets.filterNot { it.id == p.id } + p) }
-}
+suspend fun AuroraApplication.saveIntentPreset(p: IntentPreset): Refusal? = changeRules { r -> r.copy(intentPresets = r.intentPresets.filterNot { it.id == p.id } + p) }
 
 /** Names of the configurations using a preset: a preset in use can't be deleted until they change. */
 fun AuroraApplication.configsUsing(presetId: String): List<String> =
@@ -134,9 +196,7 @@ fun newId(): String = UUID.randomUUID().toString()
 
 // ---- Configurations --------------------------------------------------------------------------------
 
-suspend fun AuroraApplication.saveConfig(c: UsageConfig) {
-    rules.update { r -> r.copy(configs = r.configs.filterNot { it.id == c.id } + c) }
-}
+suspend fun AuroraApplication.saveConfig(c: UsageConfig): Refusal? = changeRules { r -> r.copy(configs = r.configs.filterNot { it.id == c.id } + c) }
 
 /**
  * Deletes a configuration and its schedules. Goals linked to it go with it, and only when [removeGoals]
@@ -161,75 +221,78 @@ suspend fun AuroraApplication.deleteConfig(id: String, removeGoals: Boolean): Bo
 }
 
 /**
- * Applies [c] at [timing]: a run now, or a stored activation. Returns why not, when it can't (nothing
- * changes then). Always Block on Free must fit the day's remaining Always Block minutes when it starts now.
+ * Applies [c] at [timing]: a run now, or a stored activation. Returns why not when it can't, and nothing
+ * changes then. Order for a start now: check the plan, then reserve the time, store the commitment and
+ * start enforcing it, all in one transaction. The lock means two starts can't both claim the last slot or minutes.
  */
-suspend fun AuroraApplication.activate(c: UsageConfig, timing: Timing): ActivationProblem? {
-    syncRuns()
+suspend fun AuroraApplication.activate(c: UsageConfig, timing: Timing): Refusal? = entitlements.withLock {
+    syncLocked()
     val r = rules.value ?: throw IOException("Rules can't be read")
+    val rt0 = runtime.value ?: throw IOException("Runtime can't be read")
     val t = now()
     val withConfig = r.copy(configs = r.configs.filterNot { it.id == c.id } + c)
-    withConfig.problem(c, timing, plan, runsNow(t), t.wall)?.let { return it }
+    withConfig.problem(c, timing, plan, rt0, t, zone, focusKeys(t, withConfig))?.let { refusal ->
+        val left = (refusal.decision?.remaining ?: 0) / 60_000
+        // A start that doesn't fit offers what does.
+        val fits = timing is Timing.Now && left >= 1 && refusal.problem == ActivationProblem.OverCommittedAllowance
+        explain(refusal, if (fits) { minutes -> scope.launch { saving { activate(c, Timing.Now(minutes)) } } } else null)
+        return@withLock refusal
+    }
     if (timing !is Timing.Now) {
         rules.update { x ->
             x.copy(configs = x.configs.filterNot { it.id == c.id } + c, activations = x.activations + Activation(newId(), c.id, timing, true, t.wall))
         }
-        syncRuns()
-        return null
+        syncLocked()
+        return@withLock null
     }
     val shield = withConfig.shieldOf(c)
     val run = ConfigRun(
         "now:${newId()}", c.id, c.name, null, c.custom, shield, withConfig.intentOf(c), c.focus,
         start = t.wall, end = t.wall + timing.minutes * 60_000L, time = Session.start(t, timing.minutes),
     )
-    var refused = false
     runtime.update { rt ->
         val base = rt.pruned(t)
-        if (shield?.mode != Mode.AlwaysBlock) return@update base.copy(runs = base.runs + run)
-        val reservation = reserveAlwaysBlock(plan, rt.ledger.map { it.toReservation() }, Instant.ofEpochMilli(t.wall), timing.minutes, zone)
-        if (reservation == null) {
-            refused = true
-            rt
-        } else base.copy(runs = base.runs + run, ledger = base.ledger + reservation.toEntry())
+        if (shield?.mode?.usesQuota == true) base.copy(runs = base.runs + run, ledger = base.ledger + base.ledgerEntry(run.start, run.end!!, t, zone))
+        else base.copy(runs = base.runs + run)
     }
-    if (refused) return ActivationProblem.OverAlwaysBlockAllowance
     if (c.custom) rules.update { x -> x.copy(configs = x.configs.filterNot { it.id == c.id } + c) }
     history.update { it.withProtection(ProtectionRecord(run.id, t.wall, run.end!!, shield?.keys.orEmpty().toSet())) }
     if (shield?.mode == Mode.AlwaysBlock) history.update { it.withAlwaysBlock(dayOf(t.wall), t.wall, timing.minutes) }
-    return null
+    null
 }
 
 /**
- * Stores every occurrence that has started (freezing its presets) and settles every run that is over.
- * Called when aurora starts, from Home, and from the Shield service. Idempotent.
+ * Stores every occurrence that has started (freezing its presets) and settles every run that is over. A
+ * committed occurrence reserves its time here, on the plan as it is now. One the allowance can't cover
+ * doesn't start, and the person is told once. Called when aurora starts, from Home, and from the Shield
+ * service. Idempotent.
  */
-suspend fun AuroraApplication.syncRuns() {
+suspend fun AuroraApplication.syncRuns() = entitlements.withLock { syncLocked() }
+
+private suspend fun AuroraApplication.syncLocked() {
     val r = rules.value ?: return
-    if (runtime.value == null) return
+    if (runtime.value == null || !billing.loaded) return
     val t = now()
+    if (r.goalsReconciled(plan, t.wall) != r) rules.update { it.goalsReconciled(plan, t.wall) }
     val started = mutableListOf<ConfigRun>()
     val ended = mutableListOf<ConfigRun>()
+    val refused = mutableListOf<ConfigRun>()
     runtime.update { rt ->
         // A run stored with no start (an early build of this migration) starts from now instead of 1970.
         var next = if (rt.runs.none { it.start <= 0 }) rt else rt.copy(runs = rt.runs.map { if (it.start <= 0) it.copy(start = t.wall) else it })
-        for (run in runsToMaterialize(r, rt, plan, t, zone)) {
-            var committed: Long? = null
-            if (run.shield?.mode == Mode.AlwaysBlock && plan != Plan.Plus) {
-                // Free: the committed part is what today's Always Block allowance still covers.
-                val want = (((run.end ?: t.wall) - t.wall + 59_999) / 60_000).toInt()
-                val left = alwaysBlockMinutesLeft(plan, next.ledger.map { it.toReservation() }, dayOf(t.wall)) ?: want
-                val minutes = minOf(want, left)
-                reserveAlwaysBlock(plan, next.ledger.map { it.toReservation() }, Instant.ofEpochMilli(t.wall), minutes, zone)?.let { next = next.copy(ledger = next.ledger + it.toEntry()) }
-                committed = if (minutes >= want) null else t.wall + minutes * 60_000L
-            }
-            val frozen = run.copy(committedUntil = committed)
-            started += frozen
-            next = next.copy(runs = next.runs + frozen)
+        refused += runsRefusedByQuota(r, next, plan, t, zone).filter { it.id !in next.quotaDenied }
+        if (refused.isNotEmpty()) next = next.copy(quotaDenied = next.quotaDenied + refused.map { it.id to (it.end ?: (t.wall + 86_400_000L)) })
+        for (run in runsToMaterialize(r, next, plan, t, zone)) {
+            val end = run.end
+            if (run.shield?.mode?.usesQuota == true && end != null) next = next.copy(ledger = next.ledger + next.ledgerEntry(run.start, end, t, zone))
+            started += run
+            next = next.copy(runs = next.runs + run)
         }
         ended += next.runs.filter { it.isOver(t) }
-        if (ended.isEmpty() && started.isEmpty() && next.runs == rt.runs) rt
+        if (ended.isEmpty() && started.isEmpty() && next.runs == rt.runs && next.quotaDenied == rt.quotaDenied) rt
         else next.copy(runs = next.runs - ended.toSet(), closed = next.closed + ended.map { it.id to (it.endAt(t) ?: t.wall) })
     }
+    refused.forEach { SessionNotification.quotaRefused(this, it.name) }
     if (started.isNotEmpty()) history.update { h -> started.fold(h) { acc, run -> acc.withStarted(run) } }
     if (ended.isNotEmpty()) {
         val spans = history.value?.service.orEmpty()
@@ -240,11 +303,11 @@ suspend fun AuroraApplication.syncRuns() {
     val h = history.value
     val evidenceFrom = h?.service?.firstOrNull()?.start
     if (h != null && evidenceFrom != null) {
-        val known = h.runs.map { it.id }.toSet() + runtime.value?.closed?.keys.orEmpty() + runtime.value?.runs.orEmpty().map { it.id }
-        val entitled = r.entitledActivations(plan)
+        val known = h.runs.map { it.id }.toSet() + runtime.value?.closed?.keys.orEmpty() + runtime.value?.runs.orEmpty().map { it.id } + runtime.value?.quotaDenied?.keys.orEmpty()
+        val entitled = r.entitledActivations(plan, t.wall, zone)
         val missed = r.activations.filter { it.id in entitled }.flatMap { a ->
             a.endedWindows(maxOf(evidenceFrom, t.wall - 2 * 86_400_000L), t.wall, zone).mapNotNull { w ->
-                r.runFor(a, w)?.takeIf { it.id !in known }
+                r.runFor(a, w, plan, t.wall, zone)?.takeIf { it.id !in known }
             }
         }
         // Screen-off time counts as away, so a window slept through is protected time like any other.
@@ -313,16 +376,32 @@ suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
     return true
 }
 
-/** Pauses or resumes a schedule or an Always activation. Re-enabling Always starts a new occurrence from now. */
-suspend fun AuroraApplication.setActivationEnabled(id: String, enabled: Boolean) {
+/**
+ * Pauses or resumes a schedule or an Always activation. Re-enabling Always starts a new occurrence from now.
+ * Resuming is activating: it answers to the plan like any other way in.
+ */
+suspend fun AuroraApplication.setActivationEnabled(id: String, enabled: Boolean): Refusal? {
     syncRuns()
     val now = now().wall
-    rules.update { r ->
+    val refusal = changeRules { r ->
         r.copy(activations = r.activations.map { a ->
             if (a.id != id) a else a.copy(enabled = enabled, createdAt = if (enabled && a.timing is Timing.Always) now else a.createdAt)
         })
     }
     syncRuns()
+    return refusal
+}
+
+/**
+ * After a downgrade: which targets and Goal stay active on Free. Nothing else changes, nothing is deleted, and
+ * it can be changed at any time. Choosing more than the plan's limit keeps the first ones.
+ */
+suspend fun AuroraApplication.chooseKept(shield: Set<String>, intent: Set<String>, goalId: String?) {
+    entitlements.withLock {
+        val t = now().wall
+        rules.update { r -> r.copy(keep = FreeKeep(shield, intent, goalId)).goalsReconciled(plan, t) }
+        syncLocked()
+    }
 }
 
 /** Removes a schedule. Its occurrence already running (frozen) continues: Always Block can't be ended this way. */
@@ -372,8 +451,36 @@ suspend fun AuroraApplication.serviceSeen(connected: Boolean, newSpan: Boolean =
 
 // ---- Goals -----------------------------------------------------------------------------------------
 
-suspend fun AuroraApplication.saveGoal(g: Goal) {
-    rules.update { r -> r.copy(trackGoals = r.trackGoals.filterNot { it.id == g.id } + g) }
+/**
+ * Saves [g]. A Goal saved as active must fit the plan: the check runs in the same transaction as the
+ * write, so two saves can't both take the last slot. Refused, nothing is stored.
+ */
+suspend fun AuroraApplication.saveGoal(g: Goal): LimitDecision {
+    var decision = LimitDecision(true)
+    val now = now().wall
+    rules.update { r ->
+        val others = r.copy(trackGoals = r.trackGoals.filterNot { it.id == g.id })
+        decision = if (g.status == GoalStatus.Active) EntitlementPolicy.canActivateGoal(plan, others.activeGoalIds(plan).size) else LimitDecision(true)
+        if (decision.allowed) others.copy(trackGoals = others.trackGoals + g).goalsReconciled(plan, now) else r
+    }
+    return decision
+}
+
+/**
+ * Moves a Goal to [status]. Resuming one is activating it, and answers to the plan. History, streaks and
+ * linked activity stay. [replacing] moves that Goal to [replacingStatus] in the same transaction, for
+ * "pause this one and start that one".
+ */
+suspend fun AuroraApplication.setGoalStatus(id: String, status: GoalStatus, replacing: String? = null, replacingStatus: GoalStatus = GoalStatus.Paused): LimitDecision {
+    var decision = LimitDecision(true)
+    val now = now().wall
+    rules.update { r ->
+        val freed = r.copy(trackGoals = r.trackGoals.map { if (it.id == replacing) it.copy(status = replacingStatus) else it })
+        val others = freed.copy(trackGoals = freed.trackGoals.filterNot { it.id == id })
+        decision = if (status == GoalStatus.Active) EntitlementPolicy.canActivateGoal(plan, others.activeGoalIds(plan).size) else LimitDecision(true)
+        if (decision.allowed) freed.copy(trackGoals = freed.trackGoals.map { if (it.id == id) it.copy(status = status) else it }).goalsReconciled(plan, now) else r
+    }
+    return decision
 }
 
 suspend fun AuroraApplication.deleteGoal(id: String) {

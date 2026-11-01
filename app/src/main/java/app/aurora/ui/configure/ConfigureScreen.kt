@@ -26,12 +26,14 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.R
 import app.aurora.activate
-import app.aurora.alwaysBlockLeft
+import app.aurora.committedMinutesLeft
 import app.aurora.protect.strict
 import app.aurora.ui.strict.UninstallProtection
 import app.aurora.auroraViewModel
 import app.aurora.newId
 import app.aurora.protect.ActivationProblem
+import app.aurora.protect.quotaToday
+import app.aurora.protect.usesQuota
 import app.aurora.protect.FocusPlan
 import app.aurora.protect.IntentPreset
 import app.aurora.protect.Mode
@@ -178,8 +180,8 @@ fun ConfigureScreen(
     }
 
     val shieldOn = app.aurora.rememberAccess(app.aurora.data.Access.Accessibility) == app.aurora.data.AccessState.Granted
-    // Free's Always Block minutes left today: the pre-picked hour shrinks to fit.
-    val blockLeft = if (alwaysBlock && whenKind == When.Now) vm.app.alwaysBlockLeft() else null
+    // Free's committed minutes left today: the pre-picked hour shrinks to fit.
+    val blockLeft = if (shield?.mode?.usesQuota == true && whenKind == When.Now) vm.app.committedMinutesLeft() else null
     androidx.compose.runtime.LaunchedEffect(blockLeft) { if (blockLeft != null && (minutes ?: 0) > blockLeft) minutes = blockLeft.takeIf { it > 0 } }
     val hasSites = shield?.keys.orEmpty().any { it.startsWith(app.aurora.protect.WebPrefix) }
     val gate = app.aurora.ui.protect.shieldGateNeeded(hasSites)
@@ -207,8 +209,7 @@ fun ConfigureScreen(
     // Both run in the ViewModel's scope (the main thread), so navigating afterwards is always safe.
     val saveOnly = {
         vm.run {
-            vm.app.saveConfig(config.copy(focus = if (focusOn && task.isNotBlank()) FocusPlan(task.trim(), description.trim(), goal.trim(), if (focusWindow) null else focusMinutes) else null))
-            onDone(config.id)
+            if (vm.app.saveConfig(config.copy(focus = if (focusOn && task.isNotBlank()) FocusPlan(task.trim(), description.trim(), goal.trim(), if (focusWindow) null else focusMinutes) else null)) == null) onDone(config.id)
         }
     }
     // The first time protection starts, ask to show it in the notification shade (Android 13+).
@@ -217,7 +218,7 @@ fun ConfigureScreen(
     val confirm = {
         val t = timing
         if (t != null) vm.run {
-            problem = vm.app.activate(config, t)
+            problem = vm.app.activate(config, t)?.problem
             if (problem == null) {
                 if (android.os.Build.VERSION.SDK_INT >= 33 && !app.aurora.SessionNotification.allowed(context)) {
                     runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
@@ -295,12 +296,8 @@ fun ConfigureScreen(
             }
         },
         footer = {
-            problem?.let { p ->
-                Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
-                if (p in setOf(ActivationProblem.OverItems, ActivationProblem.OverIntentApps, ActivationProblem.OverSchedules, ActivationProblem.OverAlwaysBlockAllowance)) {
-                    AuroraButton(stringResource(R.string.plus_see), onPlus, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
-                }
-            }
+            // Plan limits are explained at the app's root.
+            problem?.takeUnless { it.overLimit }?.let { p -> Text(problemText(p), color = colors.danger, style = AuroraType.Secondary) }
             if (custom && !forGoal && (step == Step.Contents || step == Step.Review) && name.isNotBlank() && (shield != null || intent != null)) {
                 AuroraButton(stringResource(R.string.cfg_save_for_later), { saveOnly() }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
             }
@@ -369,7 +366,7 @@ fun ConfigureScreen(
                 }
                 // The chosen timing's settings follow on the same screen.
                 if (whenKind == null || whenKind == When.Always) return@StepFlow
-                val allowance = if (alwaysBlock && whenKind == When.Now) vm.app.alwaysBlockLeft() else null
+                val allowance = if (shield?.mode?.usesQuota == true && whenKind == When.Now) vm.app.committedMinutesLeft() else null
                 val max = allowance ?: (24 * 60)
                 if (whenKind == When.Later) {
                     item(key = "date") { DateChoice(laterDay) { laterDay = it } }
@@ -433,6 +430,12 @@ fun ConfigureScreen(
                     Text(stringResource(R.string.cfg_overlap, overlap.joinToString(", ") { d.label(it).ifBlank { it.removePrefix("web:") } }), color = colors.textSecondary, style = AuroraType.Secondary)
                 }
                 if (strict) item(key = "commit") { CommitBlock(committed, { committed = it }, onStrict) }
+                if (shield?.mode?.usesQuota == true) item(key = "allowance") {
+                    Column(Modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                        CommittedAllowance(d)
+                        if (d.plan == app.aurora.plan.Plan.Free && whenKind == When.Recurring) Text(stringResource(R.string.committed_schedule_note), color = colors.textSecondary, style = AuroraType.Caption)
+                    }
+                }
                 // Focus is an addition, so it comes after what the session is.
                 if (whenKind != When.Always) {
                     item(key = "focus-label") { Label(stringResource(R.string.cfg_focus_label)) }
@@ -457,6 +460,21 @@ fun ConfigureScreen(
 }
 
 /** The commitment every strict session asks for, wherever it is started. */
+@Composable
+fun CommittedAllowance(d: app.aurora.ui.protect.ProtectData) {
+    val status = d.runtime.quotaToday(d.plan, d.time, java.time.ZoneId.systemDefault())
+    val left = status.remainingMs ?: return
+    val colors = Aurora.colors
+    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        Text(stringResource(R.string.committed_today_title), color = colors.textPrimary, style = AuroraType.BodyStrong)
+        Text(
+            stringResource(R.string.committed_today_body, minutesText((status.usedMs / 60_000).toInt()), minutesText((left / 60_000).toInt()), minutesText(((status.limitMs ?: 0) / 60_000).toInt()), clockTime(status.resetAt)),
+            color = colors.textSecondary, style = AuroraType.Secondary,
+        )
+        Text(stringResource(R.string.committed_today_note), color = colors.textTertiary, style = AuroraType.Caption)
+    }
+}
+
 @Composable
 fun CommitBlock(committed: Boolean, onChange: (Boolean) -> Unit, onStrict: (() -> Unit)?) {
     val colors = Aurora.colors
@@ -545,8 +563,7 @@ fun problemText(p: ActivationProblem): String = stringResource(
         ActivationProblem.TooShort -> R.string.duration_problem_empty
         ActivationProblem.OverItems -> R.string.cfg_problem_items
         ActivationProblem.OverIntentApps -> R.string.cfg_problem_intents
-        ActivationProblem.OverSchedules -> R.string.cfg_problem_schedules
-        ActivationProblem.OverAlwaysBlockAllowance -> R.string.cfg_problem_allowance
+        ActivationProblem.OverCommittedAllowance -> R.string.cfg_problem_allowance
     },
 )
 
