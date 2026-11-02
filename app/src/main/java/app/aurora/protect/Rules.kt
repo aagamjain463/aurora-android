@@ -150,7 +150,7 @@ data class Rules(
     /** What the person wants more time for (onboarding). Shown back to them, never sent anywhere. */
     val motivations: List<String> = emptyList(),
     val defaultRule: AppRule = AppRule(),
-    /** Content surfaces to leave automatically (Web & content Shield, experimental): [ContentShorts], [ContentReels]. */
+    /** Content surfaces to leave automatically (Web & content Shield, experimental): [ContentShorts], [ContentReels], [ContentInstagramFeed]. */
     val content: Set<String> = emptySet(),
     /** 0: the Phase 3/reinvention model. 1: presets and configurations ([migratedToConfigurations]). */
     val version: Int = 0,
@@ -177,6 +177,7 @@ val DefaultProfile = FocusProfile("focus", "Deep work", 25)
 
 const val ContentShorts = "youtube_shorts"
 const val ContentReels = "instagram_reels"
+const val ContentInstagramFeed = "instagram_feed"
 
 /** A key the engine understands: the package name for an app, "web:<domain>" for a site. */
 val ProtectedItem.key: String

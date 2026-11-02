@@ -77,11 +77,16 @@ class Interceptor(
     private var interrupted = false
     /** The last app (not aurora, not an overlay) whose window came to the front. */
     private var lastApp: String? = null
+    /** Whether [lastApp]'s window was a locked Settings page. */
+    private var lastLocked = false
     /** Counts every window event except overlays, so a delayed check can tell whether anything happened. */
     private var windows = 0L
 
-    /** [ownApp]: one of aurora's own screens came to the front, so the person left the protected app. */
-    fun onWindow(packageName: String?, eventUptime: Long, receivedUptime: Long, ownApp: Boolean = false) {
+    /**
+     * [ownApp]: one of aurora's own screens came to the front, so the person left the protected app.
+     * [lockedScreen]: the window is a Settings page a strict commitment locks ([LockedScreens]).
+     */
+    fun onWindow(packageName: String?, eventUptime: Long, receivedUptime: Long, ownApp: Boolean = false, lockedScreen: Boolean = false) {
         // A late event from the app the person just left with Return home (one opening sends 2–3, spread
         // over half a second) is not a new opening. Without this the Shield reappeared over the home screen.
         if (packageName != null && packageName == leftApp && uptime() - leftAt < LeftGraceMs &&
@@ -89,11 +94,14 @@ class Interceptor(
         if (leftApp != null && packageName != null && packageName != leftApp && packageName !in overlays &&
             (packageName != ownPackage || ownApp)) leftObservedAt = eventUptime
         val current = snapshot()
-        val decision = decide(packageName, wallClock(), current)
+        val decision = decide(packageName, wallClock(), current, lockedScreen)
         trace.decided(decision, receivedUptime)
         if (packageName != null && packageName !in overlays) {
             windows++
-            if (packageName != ownPackage) lastApp = packageName
+            if (packageName != ownPackage) {
+                lastApp = packageName
+                lastLocked = lockedScreen
+            }
         }
         when {
             decision is Decision.Shield -> {
@@ -163,7 +171,7 @@ class Interceptor(
         val pkg = lastApp ?: return
         if (pkg == shownFor) return
         val current = snapshot() ?: return
-        when (val decision = decide(pkg, wallClock(), current)) {
+        when (val decision = decide(pkg, wallClock(), current, lastLocked)) {
             is Decision.Shield -> uptime().let { shield(decision, it, it) }
             is Decision.TemporarilyAllowed, Decision.Allow -> if (pkg in current.protectedPackages) watch(pkg)
             else -> Unit
@@ -233,7 +241,7 @@ class Interceptor(
         val mark = windows
         schedule(ConfirmMs) {
             if (attempt >= ConfirmRetries || windows != mark || shownFor != pkg || lastApp != pkg) return@schedule
-            val decision = decide(pkg, wallClock(), snapshot()) as? Decision.Shield ?: return@schedule
+            val decision = decide(pkg, wallClock(), snapshot(), lastLocked) as? Decision.Shield ?: return@schedule
             val now = uptime()
             trace.recovered()
             trace.presented(presenter.present(ShieldRequest(pkg, decision.reason, decision.until, now, now, now, fresh = false, decision = decision)))

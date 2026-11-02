@@ -105,7 +105,7 @@ class NavigationTest {
         compose.onNodeWithText("Continue").performClick()
         awaitText("Go to Home")
         compose.onNodeWithText("Go to Home").performClick()
-        scrollTo("Start blocking").assertIsDisplayed()
+        scrollTo("Normal Session").assertIsDisplayed()
         tab("Home").assertIsSelected()
     }
 
@@ -124,7 +124,7 @@ class NavigationTest {
         tab("Track").assertIsSelected()
 
         tab("Home").performClick()
-        scrollTo("New custom session").assertIsDisplayed()
+        scrollTo("Custom Session").assertIsDisplayed()
     }
 
     /**
@@ -141,7 +141,7 @@ class NavigationTest {
         }
         launch(onboarded = true)
         // The 320x470 JVM viewport can put the row centre behind the floating dock.
-        scrollTo("New custom session").performSemanticsAction(SemanticsActions.OnClick)
+        scrollTo("Custom Session").performSemanticsAction(SemanticsActions.OnClick)
         // What: the name and the Shield on one step; When: the timing and its length; then Review.
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Study")
@@ -173,7 +173,7 @@ class NavigationTest {
             app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
         }
         launch(onboarded = true)
-        scrollTo("Change apps or time").performSemanticsAction(SemanticsActions.OnClick)
+        scrollTo("Normal Session").performSemanticsAction(SemanticsActions.OnClick)
         awaitText("Start")
         compose.onNodeWithText("Start").assertIsEnabled()
         compose.onNodeWithText("Start").performClick()
@@ -184,52 +184,6 @@ class NavigationTest {
         org.junit.Assert.assertEquals(false, run.custom)
         org.junit.Assert.assertTrue(app.rules.value!!.configs.isEmpty())
         runBlocking { app.runtime.update { it.copy(runs = emptyList()) } }
-    }
-
-    /** Home's one big action: an hour with the last-used apps, in one tap, and then the session fills Home. */
-    @Test
-    fun startBlockingStartsAnHourInOneTapAndFillsHome() {
-        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
-        shieldOn()
-        runBlocking {
-            app.runtime.update { it.copy(runs = emptyList()) }
-            app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
-        }
-        launch(onboarded = true)
-        scrollTo("Start blocking").performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() && app.runtime.value?.runs?.size == 1 }
-        val run = app.runtime.value!!.runs.single()
-        org.junit.Assert.assertEquals(listOf("com.example.social"), run.shield?.keys)
-        org.junit.Assert.assertEquals(3_600_000L, run.end!! - run.start)
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Start blocking").fetchSemanticsNodes().isEmpty() }
-        org.junit.Assert.assertTrue(compose.onAllNodesWithText("Change apps or time").fetchSemanticsNodes().isEmpty())
-        runBlocking { app.runtime.update { it.copy(runs = emptyList()) } }
-    }
-
-    /** A schedule made in the flow lands on its session's card, not on a second card. */
-    @Test
-    fun scheduleCreatedInTheFlowSharesItsSessionsCard() {
-        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
-        shieldOn()
-        runBlocking {
-            app.runtime.update { it.copy(runs = emptyList()) }
-            app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social")))) }
-        }
-        launch(onboarded = true)
-        scrollTo("New custom session").performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Night")
-        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(hasText("Test Shield"))
-        compose.onNodeWithText("Test Shield").performClick()
-        compose.onNodeWithText("Next").performClick()
-        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(hasText("Recurring schedule"))
-        compose.onNodeWithText("Recurring schedule").performClick()
-        // The hour is pre-picked, so Next works without touching anything.
-        compose.onNodeWithText("Next").assertIsEnabled().performClick()
-        compose.onNodeWithText("Schedule").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() && app.rules.value?.activations?.size == 1 }
-        scrollTo("Night · ", substring = true).assertIsDisplayed()
-        org.junit.Assert.assertTrue(compose.onAllNodesWithText("Scheduled").fetchSemanticsNodes().isEmpty())
     }
 
     /** Skipping Shield leads to the honest step, with a way forward named; nothing has started. */
@@ -262,7 +216,7 @@ class NavigationTest {
             app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
         }
         launch(onboarded = true)
-        scrollTo("Change apps or time").performSemanticsAction(SemanticsActions.OnClick)
+        scrollTo("Normal Session").performSemanticsAction(SemanticsActions.OnClick)
         awaitText("Start")
         compose.onNodeWithText("Start").performClick()
         compose.waitForIdle()

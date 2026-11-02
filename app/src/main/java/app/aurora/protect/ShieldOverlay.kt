@@ -136,8 +136,8 @@ class OverlayShieldPresenter(
         onClosed(home)
     }
 
-    /** One overlay window: its view and the owners Compose expects from an activity. */
-    private class Host(context: Context, private val onBack: () -> Unit) :
+    /** One overlay window: its view and the owners Compose expects from an activity. Also used by [ContentService]'s cover. */
+    internal class Host(context: Context, private val onBack: () -> Unit) :
         LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner, OnBackPressedDispatcherOwner {
         private val registry = LifecycleRegistry(this)
         private val saved = SavedStateRegistryController.create(this)

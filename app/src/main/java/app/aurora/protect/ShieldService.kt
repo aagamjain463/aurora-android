@@ -41,6 +41,7 @@ class ShieldService : AccessibilityService() {
     private var presenter: OverlayShieldPresenter? = null
     private var lastCommitCheck = 0L
     private var screenReceiver: BroadcastReceiver? = null
+    private var screens = LockedScreens()
 
     /** Today's use of apps with a daily limit, re-measured while one is open. Empty without usage access. */
     @Volatile private var usedToday: Map<String, Long> = emptyMap()
@@ -62,6 +63,7 @@ class ShieldService : AccessibilityService() {
         )
         // Built from memory for every event: grants, schedules and Focus are never stale.
         val locked = lockedPackages(this)
+        screens = lockedScreens(this)
         interceptor.snapshot = { app.policySnapshot(exempt, usedToday)?.copy(locked = locked) }
         this.interceptor = interceptor
         scope?.cancel()
@@ -92,7 +94,8 @@ class ShieldService : AccessibilityService() {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         // aurora's own screens (not this service's overlay) count as leaving the protected app.
         val ownApp = event.packageName?.toString() == packageName && event.className?.toString()?.startsWith("app.aurora.") == true
-        interceptor?.onWindow(event.packageName?.toString(), event.eventTime, received, ownApp)
+        val pkg = event.packageName?.toString()
+        interceptor?.onWindow(pkg, event.eventTime, received, ownApp, screens.matches(pkg, event.className, event.text))
         if (received - lastCommitCheck > CommitCheckMs) {
             lastCommitCheck = received
             val app = application as AuroraApplication

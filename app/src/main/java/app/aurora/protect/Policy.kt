@@ -17,7 +17,7 @@ package app.aurora.protect
  * - [Cooldown]: a wait, then timed access. [Friction]: a task, then timed access.
  * - [IntentCooldown]: closed after intentional use, until its timer ends.
  * - [Intent]: a deliberate decision and a chosen amount of time.
- * - [Locked]: Settings or a package installer while a strict commitment runs ([PolicyState.locked]).
+ * - [Locked]: Accessibility, Date & time or a package installer while a strict commitment runs.
  */
 enum class ShieldReason {
     AlwaysBlock,
@@ -37,7 +37,7 @@ enum class ShieldReason {
 
 /**
  * Always Block, Cooldown and Friction are strict: no early exit in aurora, and while one with an end runs,
- * Settings and uninstalling are locked and the clock can't be moved under it. Only Flexible can be undone.
+ * Accessibility, Date & time and uninstalling are locked and the clock can't be moved under it. Only Flexible can be undone.
  */
 val Mode.strict: Boolean get() = this != Mode.Flexible
 
@@ -135,9 +135,22 @@ data class PolicyState(
     val intentUses: Map<String, IntentUse> = emptyMap(),
     val intentCooldowns: Map<String, Long> = emptyMap(),
     val midnight: Long = Long.MAX_VALUE,
-    /** Settings and package installers: shielded while a strict commitment runs ([lockedUntil]), exempt otherwise. */
+    /** Package installers: shielded while a strict commitment runs ([lockedUntil]), exempt otherwise. */
     val locked: Set<String> = emptySet(),
 )
+
+/**
+ * The Settings pages a strict commitment locks, while the rest of Settings stays open: Accessibility (where
+ * the Shield is turned off) and Date & time. A page is matched by its activity class or by its window title
+ * ([titles], lowercase), because most Settings pages share one activity (SubSettings).
+ */
+data class LockedScreens(val packages: Set<String> = emptySet(), val titles: Set<String> = emptySet()) {
+    fun matches(packageName: String?, className: CharSequence?, text: List<CharSequence>): Boolean =
+        packageName in packages && (LockedClassHints.any { className?.contains(it, ignoreCase = true) == true } ||
+            text.any { it.toString().trim().lowercase() in titles })
+}
+
+private val LockedClassHints = listOf("Accessibility", "DateTime", "DateAndTime")
 
 /** When the strict commitments running at [now] end, or null when none is running. */
 fun PolicyState.lockedUntil(now: Long): Long? =
@@ -149,17 +162,18 @@ fun PolicyState.strongest(key: String, now: Long): Restriction? =
 
 /**
  * What to do when [packageName] comes to the front. A null [state] means the configuration isn't known.
+ * [lockedScreen]: the window is a Settings page [LockedScreens] matches.
  *
  * Precedence, strongest first: Always Block, Flexible, Focus, a spent daily limit, Cooldown, Friction,
  * an Intent cooldown, then Intent. A grant lifts only its own level and weaker: a Cooldown grant lifts
  * Cooldown and Friction, a Friction grant lifts Friction. Any grant also covers Intent, so the person
  * isn't asked twice. Nothing lifts Always Block, Flexible, Focus or a spent limit.
  */
-fun decide(packageName: String?, now: Long, state: PolicyState?): Decision {
+fun decide(packageName: String?, now: Long, state: PolicyState?, lockedScreen: Boolean = false): Decision {
     if (packageName.isNullOrBlank()) return Decision.Invalid
     if (state == null) return Decision.Unavailable
-    // While a strict commitment runs, Settings and installers can't be used to undo it.
-    if (packageName in state.locked) state.lockedUntil(now)?.let { return Decision.Shield(packageName, ShieldReason.Locked, it) }
+    // While a strict commitment runs, Accessibility, Date & time and installers can't be used to undo it.
+    if (lockedScreen || packageName in state.locked) state.lockedUntil(now)?.let { return Decision.Shield(packageName, ShieldReason.Locked, it) }
     if (packageName in state.exempt) return Decision.Exempt
 
     val top = state.strongest(packageName, now)
@@ -216,8 +230,8 @@ fun nextChange(key: String, now: Long, state: PolicyState): Long? {
 
 /**
  * Never shielded by an app restriction: the system UI, Settings, permission screens, package installers,
- * and phone and emergency flows. Settings and the installers are locked during a strict commitment
- * ([PolicyState.locked]); calls and emergency flows never are.
+ * and phone and emergency flows. The installers and Settings' Accessibility and Date & time pages are
+ * locked during a strict commitment ([PolicyState.locked], [LockedScreens]); calls and emergency flows never are.
  * The device's launchers, keyboard, default dialer and Settings app are added at runtime (Exemptions.kt).
  */
 val SystemExempt = setOf(

@@ -53,6 +53,7 @@ import app.aurora.data.UsageKeepDays
 import app.aurora.data.reclaimed
 import app.aurora.data.clockTicks
 import app.aurora.data.formatDuration
+import app.aurora.data.openAccessSettings
 import app.aurora.data.timeAway
 import app.aurora.plan.Plan
 import app.aurora.protect.planExcess
@@ -193,8 +194,8 @@ class TodayModel(val app: AuroraApplication) : ViewModel() {
 }
 
 /**
- * Home. One hero and one big action, then saved sessions, then Time Reclaimed: real time away from
- * protected apps, measured from Android's usage records, never the time someone set on a timer.
+ * Home. One hero, the two ways in, then Time Reclaimed: real time away from protected apps, measured
+ * from Android's usage records, never the time someone set on a timer. Custom sessions follow.
  */
 @Composable
 fun HomeScreen(
@@ -262,25 +263,14 @@ fun HomeScreen(
         }
         val d = data
         val busy = d != null && busyNow(d, today.app)
-        // While a session runs it fills Home: the hero, its card and what needs attention, nothing to start.
-        val active = d != null && sessionRunning(d, today.app)
-        // What is running, finishing or needs attention leads: a Shield warning sits right under the hero.
-        if (d != null) homeNow(d, today.app, onOpenFocus, onOpenLegacyFocus)
-        if (d != null && d.rules.planExcess(d.plan, d.time.wall, java.time.ZoneId.systemDefault()).any) item(key = "over-free") {
-            app.aurora.ui.components.Notice(
-                stringResource(R.string.keep_banner_title), stringResource(R.string.keep_banner_body),
-                Modifier.animateItem().padding(horizontal = Space.M).padding(top = Space.S),
-            ) {
-                app.aurora.ui.components.AuroraButton(stringResource(R.string.keep_banner_action), onKeep, Modifier.fillMaxWidth(), kind = app.aurora.ui.components.ButtonKind.Secondary)
-            }
-        }
+        // One filled action per screen: while something runs, starting another is secondary.
+        // Saved sessions start in one tap; while one exists, it holds Home's filled action.
         val running = d?.let { today.app.runsNow(it.time).map { r -> r.configId } }.orEmpty()
         val ready = d?.rules?.readyToStart(Int.MAX_VALUE)?.filterNot { it.id in running }.orEmpty()
-        if (d != null && !active) item(key = "start") { Column(Modifier.animateItem()) { StartBlocking(d, today.app, onNormalUse, onCustom, primary = !busy) } }
-        // Saved sessions and their schedules, one card each.
-        if (d != null && !active && ready.isNotEmpty()) item(key = "ready") { Column(Modifier.animateItem()) { QuickStart(ready, d, today.app) } }
-        // Time Reclaimed follows. Without usage access Home stays quiet: Track is where it asks.
-        if (!active && away !is AwayState.Loading && away !is AwayState.NoUsageAccess) item(key = "metric") {
+        // The two ways in lead, right under the promise.
+        item(key = "choose") { Column(Modifier.animateItem()) { ChooseCard(onNormalUse, onCustom, primary = !busy && ready.isEmpty()) } }
+        // Time Reclaimed follows at once: real time away, today, this week and overall.
+        if (away !is AwayState.Loading) item(key = "metric") {
             Column(Modifier.rise().padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.L)) {
                 Text(stringResource(R.string.today_metric_label), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
                 Spacer(Modifier.height(Space.S))
@@ -297,6 +287,11 @@ fun HomeScreen(
                             }
                         }
                     }
+                    AwayState.NoUsageAccess -> {
+                        Text(stringResource(R.string.today_metric_not_measured), Modifier.padding(vertical = Space.XS), color = colors.textPrimary, style = AuroraType.Headline)
+                        Text(stringResource(R.string.today_metric_no_access), color = colors.textSecondary, style = AuroraType.Secondary)
+                        AuroraButton(stringResource(R.string.today_metric_allow), { openAccessSettings(context, Access.Usage) }, Modifier.padding(top = Space.S), kind = ButtonKind.Secondary)
+                    }
                     AwayState.Unavailable -> {
                         Text("—", color = colors.textPrimary, style = AuroraType.Metric)
                         Text(stringResource(R.string.usage_records_unavailable_body), color = colors.textSecondary, style = AuroraType.Secondary)
@@ -305,8 +300,19 @@ fun HomeScreen(
                 }
             }
         }
-        // Schedules of what isn't listed above, and always-on, which stays reachable even during a session.
-        if (d != null) homeLater(d, today.app, onOpenFocus, listed = ready.map { it.id }.toSet(), showScheduled = !active)
+        // Then what is running, finishing or needs attention: Home shows what matters now.
+        if (d != null) homeNow(d, today.app, onOpenFocus, onOpenLegacyFocus)
+        if (d != null && d.rules.planExcess(d.plan, d.time.wall, java.time.ZoneId.systemDefault()).any) item(key = "over-free") {
+            app.aurora.ui.components.Notice(
+                stringResource(R.string.keep_banner_title), stringResource(R.string.keep_banner_body),
+                Modifier.animateItem().padding(horizontal = Space.M).padding(top = Space.S),
+            ) {
+                app.aurora.ui.components.AuroraButton(stringResource(R.string.keep_banner_action), onKeep, Modifier.fillMaxWidth(), kind = app.aurora.ui.components.ButtonKind.Secondary)
+            }
+        }
+        if (d != null && ready.isNotEmpty()) item(key = "ready") { Column(Modifier.animateItem()) { QuickStart(ready, d, today.app, primary = !busy) } }
+        // What is scheduled, always on and recent.
+        if (d != null) homeLater(d, today.app, onOpenFocus)
     }
     }
     // Content frosts under the status bar, never under the clock.

@@ -12,7 +12,7 @@
     <string name="shield_service_label">Aurora Shield</string>
     <string name="shield_service_description">Shield steps in when an app you chose to protect opens. Aurora reads only the name of the app in front. It doesn\'t read your screen or what you type, and nothing leaves your phone. Turn it off here at any time.</string>
     <string name="content_service_label">Aurora Web &amp; content Shield</string>
-    <string name="content_service_description">Optional. Lets Aurora pause websites you protect in supported browsers, and leave YouTube Shorts or Instagram Reels if you turned that on. It reads the address shown in the browser\'s address bar and the names of on-screen elements in those apps. It doesn\'t read messages, passwords or what you type, it doesn\'t store or send anything, and nothing leaves your phone. Turn it off here at any time.</string>
+    <string name="content_service_description">Optional. Lets Aurora pause websites you protect in supported browsers, and leave YouTube Shorts or Instagram Reels, or cover Instagram posts and Search, if you turned that on. It reads the address shown in the browser\'s address bar and the names of on-screen elements in those apps. It doesn\'t read messages, passwords or what you type, it doesn\'t store or send anything, and nothing leaves your phone. Turn it off here at any time.</string>
 
     <!-- Product names -->
     <string name="tab_today">Today</string>
@@ -226,7 +226,7 @@
     <string name="start_friction_body">It has to be completed before every access.</string>
     <string name="start_review_cooldown">Wait: %1$s before each access</string>
     <string name="start_commit_body">Once it starts, nothing in Aurora can end it early. Editing apps, schedules or groups won\'t end it either.</string>
-    <string name="start_commit_limits">Settings and uninstalling stay locked until it ends. Calls and emergency services always work.</string>
+    <string name="start_commit_limits">Accessibility, date and time and uninstalling stay locked until it ends. Calls and emergency services always work.</string>
     <string name="start_always_block_allowance">%1$s of Cooldown and Always Block left today on Aurora Free.</string>
 
     <!-- Schedules -->
@@ -472,14 +472,19 @@
     <string name="web_shorts">Leave YouTube Shorts</string>
     <string name="web_reels">Leave Instagram Reels</string>
     <string name="web_shorts_body">Keep the rest of YouTube. When Shorts opens, Aurora goes back.</string>
-    <string name="web_reels_body">Keep messages and posts. When Reels opens, Aurora goes back.</string>
+    <string name="web_reels_body">Keep messages. The Reels tab goes back. A reel a friend sends plays, but not the next one.</string>
+    <string name="web_ig_feed">Hide Instagram posts and Search</string>
+    <string name="web_ig_feed_body">Keep stories and messages. Home posts and Search stay covered.</string>
+    <string name="ig_cover_posts">Posts are off in Aurora. Stories and messages are still here.</string>
+    <string name="ig_cover_search">Search is off in Aurora.</string>
+    <string name="ig_one_reel">Only the reel you were sent</string>
     <string name="web_experimental">experimental</string>
     <string name="web_experimental_body">These apps change often, so this can stop working after an update. It isn\'t tested on every version.</string>
     <string name="web_disclosure_title">Turn on Web &amp; content Shield</string>
     <string name="web_open_settings">Open settings</string>
     <string name="web_supported_browsers">Works in %1$s. Other browsers, in-app browsers and some private tabs aren\'t covered.</string>
     <string name="web_items">Websites · %1$s items protected</string>
-    <string name="web_disclosure_body">This is a second, optional accessibility service called Aurora Web &amp; content Shield.\n\nIn supported browsers it reads the address shown in the address bar, to pause sites you protect. In YouTube and Instagram it checks the names of on-screen elements, only to notice Shorts or Reels if you turned that on.\n\nIt doesn\'t read messages, passwords or what you type. Nothing is stored or sent, and nothing leaves your phone. You can turn it off in Settings › Accessibility at any time.</string>
+    <string name="web_disclosure_body">This is a second, optional accessibility service called Aurora Web &amp; content Shield.\n\nIn supported browsers it reads the address shown in the address bar, to pause sites you protect. In YouTube and Instagram it checks the names of on-screen elements, only to notice Shorts, Reels, Instagram posts or Search if you turned that on.\n\nIt doesn\'t read messages, passwords or what you type. Nothing is stored or sent, and nothing leaves your phone. You can turn it off in Settings › Accessibility at any time.</string>
     <string name="web_see_plus">See Aurora Plus</string>
     <string name="web_invalid">That doesn\'t look like a website. Try something like reddit.com.</string>
     <string name="web_duplicate">%1$s is already protected.</string>
@@ -498,11 +503,9 @@
     <!-- Home -->
     <string name="shield_library_headline">Shield yourself from distractions.</string>
     <string name="home_normal_title">Normal Session</string>
-    <string name="home_start_title">Start blocking</string>
-    <string name="home_start_body">%1$s · %2$s</string>
-    <string name="home_start_empty">Choose your apps, then start.</string>
-    <string name="home_change">Change apps or time</string>
-    <string name="home_new_custom">New custom session</string>
+    <string name="home_normal_body">Pick apps and a time. Starts now.</string>
+    <string name="home_custom_title">Custom Session</string>
+    <string name="home_custom_body">Your own, saved to reuse</string>
     <string name="need_name">Give it a name to continue.</string>
     <string name="need_when">Choose when it starts.</string>
     <string name="need_task">Add a task to focus on, and a target time if you set one.</string>
@@ -653,7 +656,7 @@
     <string name="shield_type_title">Choose the Shield type</string>
     <string name="shield_review_note">Saving doesn\'t start it. Start it from Home.</string>
     <string name="shield_save">Save Shield</string>
-    <string name="shield_always_block_note">How long it lasts is set when you start it on Home. It can\'t be ended early, and Settings and uninstalling stay locked until it ends.</string>
+    <string name="shield_always_block_note">How long it lasts is set when you start it on Home. It can\'t be ended early, and Accessibility, date and time and uninstalling stay locked until it ends.</string>
 
     <!-- Intent library and builder -->
     <string name="intent_tab_title">Use with purpose. Not impulse.</string>
@@ -756,8 +759,8 @@
     <string name="strict_clock_body">Changing the date or time doesn\'t end a session or finish a Cooldown wait, even across a restart.</string>
     <string name="strict_uninstall">No uninstalling</string>
     <string name="strict_uninstall_body">Uninstall screens are locked. With uninstall protection on, Android also refuses to uninstall Aurora from the Play Store or a computer.</string>
-    <string name="strict_settings">Settings are locked</string>
-    <string name="strict_settings_body">While it runs, Settings can\'t be opened, so the Shield service, permissions, force stop and the date and time stay as they are. Calls and emergency services always work.</string>
+    <string name="strict_settings">Key settings are locked</string>
+    <string name="strict_settings_body">While it runs, Accessibility and Date &amp; time in Settings can\'t be opened, so the Shield stays on and the clock stays put. The rest of Settings works. Calls and emergency services always work.</string>
     <string name="strict_setup">Turn on below</string>
     <string name="strict_limits">Only steps outside Android itself get around it: safe mode, a factory reset, or a computer with USB debugging already on.</string>
     <string name="strict_admin_title">Uninstall protection</string>
@@ -771,7 +774,7 @@
     <string name="admin_explanation">While Always Block, Cooldown or Friction runs, Aurora can\'t be uninstalled. You can turn this off in Aurora whenever nothing strict is running.</string>
     <string name="admin_disable_warning">Turning this off lets Aurora be uninstalled.</string>
     <string name="shield_locked_title">%1$s is locked</string>
-    <string name="shield_locked_body">Settings and uninstalling are locked until your protection ends, so it can\'t be undone early.</string>
+    <string name="shield_locked_body">Accessibility, date and time and uninstalling are locked until your protection ends, so it can\'t be undone early.</string>
     <string name="settings_strict_row">Strict protection</string>
 
     <!-- Focus inside a session -->

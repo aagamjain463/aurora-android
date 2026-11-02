@@ -31,6 +31,7 @@ import app.aurora.data.openAccessSettings
 import app.aurora.plan.Allowance
 import app.aurora.plan.ProtectedItem
 import app.aurora.protect.BrowserNames
+import app.aurora.protect.ContentInstagramFeed
 import app.aurora.protect.ContentReels
 import app.aurora.protect.ContentService
 import app.aurora.protect.ContentShorts
@@ -146,13 +147,17 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
         item(key = "content") {
             SectionLabel(stringResource(R.string.web_feeds))
             RowGroup {
-                for ((i, surface) in listOf(ContentShorts, ContentReels).withIndex()) {
+                for ((i, surface) in listOf(ContentShorts, ContentReels, ContentInstagramFeed).withIndex()) {
                     if (i > 0) RowDivider()
                     val on = surface in d.rules.content
+                    val (title, body) = when (surface) {
+                        ContentShorts -> R.string.web_shorts to R.string.web_shorts_body
+                        ContentReels -> R.string.web_reels to R.string.web_reels_body
+                        else -> R.string.web_ig_feed to R.string.web_ig_feed_body
+                    }
                     ToggleRow(
-                        title = if (surface == ContentShorts) stringResource(R.string.web_shorts) else stringResource(R.string.web_reels),
-                        subtitle = if (surface == ContentShorts) stringResource(R.string.web_shorts_body)
-                        else stringResource(R.string.web_reels_body),
+                        title = stringResource(title),
+                        subtitle = stringResource(body),
                         checked = on,
                         onCheckedChange = { want -> vm.edit { r -> r.copy(content = if (want) r.content + surface else r.content - surface) } },
                     )

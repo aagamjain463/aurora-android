@@ -281,4 +281,23 @@ class PolicyTest {
         val strict = state(r(ShieldReason.AlwaysBlock).copy(locks = true)).copy(locked = setOf(settings))
         assertEquals(Decision.Exempt, decide("com.android.phone", 30 * min, strict))
     }
+
+    /** Settings stays open during a commitment; only its Accessibility and Date & time pages are locked. */
+    @Test
+    fun strictCommitmentLocksOnlyAccessibilityAndDateTimePages() {
+        val settings = "com.android.settings"
+        val s = state(r(ShieldReason.Cooldown, 0, 120 * min).copy(locks = true)).copy(exempt = setOf(settings))
+        assertEquals(Decision.Exempt, decide(settings, 30 * min, s))
+        assertEquals(ShieldReason.Locked, (decide(settings, 30 * min, s, lockedScreen = true) as Decision.Shield).reason)
+        assertEquals(Decision.Exempt, decide(settings, 120 * min, s, lockedScreen = true))
+        assertEquals(Decision.Exempt, decide(settings, 30 * min, state(r(ShieldReason.Flexible)).copy(exempt = setOf(settings)), lockedScreen = true))
+
+        val screens = LockedScreens(setOf(settings), setOf("accessibility", "date & time", "aurora shield"))
+        assertTrue(screens.matches(settings, "com.android.settings.SubSettings", listOf(" Accessibility ")))
+        assertTrue(screens.matches(settings, "com.android.settings.SubSettings", listOf("Aurora Shield")))
+        assertTrue(screens.matches(settings, "com.android.settings.Settings\$DateTimeSettingsActivity", emptyList()))
+        assertFalse(screens.matches(settings, "com.android.settings.SubSettings", listOf("Wi-Fi")))
+        assertFalse(screens.matches(settings, "com.android.settings.Settings", listOf("Settings")))
+        assertFalse(screens.matches("com.other", "com.other.AccessibilityActivity", listOf("Accessibility")))
+    }
 }

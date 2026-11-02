@@ -128,6 +128,7 @@ fun parseDuration(hours: String, minutes: String, min: Int, max: Int): Int? =
  * protection last?"), [hint] what it means. With [endsFromNow] the end time is shown, for durations that
  * start now.
  * [customInitially] opens the hours and minutes fields even when [value] matches a preset.
+ * Empty [presets] shows only the hours and minutes fields.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -144,7 +145,7 @@ fun DurationPicker(
     customInitially: Boolean = false,
 ) {
     val colors = Aurora.colors
-    var custom by rememberSaveable { mutableStateOf(customInitially || (value != null && value !in presets)) }
+    var custom by rememberSaveable { mutableStateOf(presets.isEmpty() || customInitially || (value != null && value !in presets)) }
     var hours by rememberSaveable { mutableStateOf(if (custom && value != null) (value / 60).takeIf { it > 0 }?.toString().orEmpty() else "") }
     var minutes by rememberSaveable { mutableStateOf(if (custom && value != null) (value % 60).toString() else "") }
     val problem = if (custom && (hours.isNotEmpty() || minutes.isNotEmpty())) durationProblem(hours, minutes, min, max) else null
@@ -152,7 +153,7 @@ fun DurationPicker(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.S)) {
         if (title != null) Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
         if (hint != null) Text(hint, color = colors.textSecondary, style = AuroraType.Secondary)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        if (presets.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
             presets.forEach { p ->
                 Chip(minutesText(p), selected = !custom && value == p, spoken = minutesSpoken(p)) {
                     custom = false
