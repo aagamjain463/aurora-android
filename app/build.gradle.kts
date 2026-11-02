@@ -1,10 +1,72 @@
 import java.util.Properties
+import java.net.URI
+import java.security.KeyFactory
+import java.security.spec.X509EncodedKeySpec
+import java.util.Base64
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.roborazzi)
+}
+
+// Firebase's downloaded Android config is the default; Gradle properties remain CI overrides.
+val googleServices = providers.fileContents(layout.projectDirectory.file("google-services.json")).asText.orNull
+    ?.let { JsonSlurper().parseText(it) as Map<*, *> }
+val firebaseClient = (googleServices?.get("client") as? List<*>)?.filterIsInstance<Map<*, *>>()?.firstOrNull {
+    val info = it["client_info"] as? Map<*, *>
+    (info?.get("android_client_info") as? Map<*, *>)?.get("package_name") == "app.aurora"
+}
+require(googleServices == null || firebaseClient != null) {
+    "app/google-services.json has no Android client for app.aurora. Download the matching Firebase Android app configuration."
+}
+val projectInfo = googleServices?.get("project_info") as? Map<*, *>
+val clientInfo = firebaseClient?.get("client_info") as? Map<*, *>
+val apiKey = (firebaseClient?.get("api_key") as? List<*>)?.filterIsInstance<Map<*, *>>()?.firstOrNull()?.get("current_key") as? String ?: ""
+val webClientId = (firebaseClient?.get("oauth_client") as? List<*>)?.filterIsInstance<Map<*, *>>()?.firstOrNull {
+    it["client_type"] == 3
+}?.get("client_id") as? String ?: ""
+fun authProperty(name: String, fallback: String = "") = providers.gradleProperty("aurora.$name").getOrElse(fallback).trim()
+val authConfiguration = mapOf(
+    "firebaseApiKey" to authProperty("firebaseApiKey", apiKey),
+    "firebaseAppId" to authProperty("firebaseAppId", clientInfo?.get("mobilesdk_app_id") as? String ?: ""),
+    "firebaseProjectId" to authProperty("firebaseProjectId", projectInfo?.get("project_id") as? String ?: ""),
+    "googleWebClientId" to authProperty("googleWebClientId", webClientId),
+    "serverUrl" to authProperty("serverUrl"),
+    "entitlementPublicKey" to authProperty("entitlementPublicKey"),
+)
+val validateAuthConfiguration = tasks.register("validateAuthConfiguration") {
+    group = "verification"
+    description = "Rejects installable builds without Firebase sign-in and the account service."
+    inputs.properties(authConfiguration)
+    doLast {
+        val missing = inputs.properties.filterValues { it.toString().isBlank() }.keys
+        check(missing.isEmpty()) {
+            "Aurora sign-in is not configured. Missing: ${missing.joinToString { "aurora.$it" }}. " +
+                "Add app/google-services.json with Google sign-in enabled, or supply Gradle properties. See docs/ACCOUNT_SYSTEM.md."
+        }
+        check(inputs.properties.getValue("googleWebClientId").toString().endsWith(".apps.googleusercontent.com")) {
+            "aurora.googleWebClientId must be a Google OAuth Web application client ID (client_type 3), not an Android client ID."
+        }
+        val server = URI(inputs.properties.getValue("serverUrl").toString())
+        check(server.scheme == "https" && !server.host.isNullOrBlank() && server.userInfo == null && server.fragment == null) {
+            "aurora.serverUrl must be an HTTPS account-service URL."
+        }
+        check(runCatching {
+            KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(
+                Base64.getDecoder().decode(inputs.properties.getValue("entitlementPublicKey").toString())
+            ))
+        }.isSuccess) { "aurora.entitlementPublicKey must be the account service's Base64 X.509 RSA public key." }
+    }
+}
+androidComponents.onVariants { variant ->
+    val suffix = variant.name.replaceFirstChar { it.uppercaseChar() }
+    tasks.matching { it.name in listOf("assemble$suffix", "package$suffix", "bundle$suffix", "install$suffix") }.configureEach {
+        dependsOn(validateAuthConfiguration)
+    }
 }
 
 android {
@@ -23,17 +85,17 @@ android {
         val plusProducts = providers.gradleProperty("aurora.plusProductIds").getOrElse("aurora_plus_monthly,aurora_plus_annual")
         buildConfigField("String", "PLUS_PRODUCT_IDS", "\"$plusProducts\"")
         // The account service (server/). Empty: nobody can sign in to anything server-controlled on this build.
-        buildConfigField("String", "SERVER_URL", "\"${providers.gradleProperty("aurora.serverUrl").getOrElse("")}\"")
-        buildConfigField("String", "ENTITLEMENT_PUBLIC_KEY", "\"${providers.gradleProperty("aurora.entitlementPublicKey").getOrElse("")}\"")
+        buildConfigField("String", "SERVER_URL", JsonOutput.toJson(authConfiguration.getValue("serverUrl")))
+        buildConfigField("String", "ENTITLEMENT_PUBLIC_KEY", JsonOutput.toJson(authConfiguration.getValue("entitlementPublicKey")))
         // The Firebase project. These identify the app and aren't secrets, so they may ship in the APK
         // (docs/ACCOUNT_SYSTEM.md). Set them in ~/.gradle/gradle.properties. Empty: sign-in says it isn't set up.
-        fun property(name: String) = providers.gradleProperty(name).getOrElse("")
+        fun property(name: String) = authConfiguration[name.removePrefix("aurora.")] ?: providers.gradleProperty(name).getOrElse("")
         val firebaseProject = property("aurora.firebaseProjectId")
         val linkHost = property("aurora.emailLinkHost").ifBlank { if (firebaseProject.isNotBlank()) "$firebaseProject.firebaseapp.com" else "aurora-not-configured.invalid" }
-        buildConfigField("String", "FIREBASE_API_KEY", "\"${property("aurora.firebaseApiKey")}\"")
-        buildConfigField("String", "FIREBASE_APP_ID", "\"${property("aurora.firebaseAppId")}\"")
-        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProject\"")
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${property("aurora.googleWebClientId")}\"")
+        buildConfigField("String", "FIREBASE_API_KEY", JsonOutput.toJson(property("aurora.firebaseApiKey")))
+        buildConfigField("String", "FIREBASE_APP_ID", JsonOutput.toJson(property("aurora.firebaseAppId")))
+        buildConfigField("String", "FIREBASE_PROJECT_ID", JsonOutput.toJson(firebaseProject))
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", JsonOutput.toJson(property("aurora.googleWebClientId")))
         buildConfigField("String", "EMAIL_LINK_HOST", "\"$linkHost\"")
         buildConfigField("String", "SUPPORT_EMAIL", "\"${property("aurora.supportEmail")}\"")
         buildConfigField("String", "LEGAL_BASE_URL", "\"${property("aurora.legalBaseUrl")}\"")

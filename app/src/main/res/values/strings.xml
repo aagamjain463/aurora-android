@@ -156,8 +156,8 @@
     <string name="today_metric_not_measured">Not measured yet</string>
     <string name="today_metric_allow">Allow usage access</string>
 
-    <!-- Protect — APPROVED: protect_headline -->
-    <string name="protect_headline">Never get distracted from what matters.</string>
+    <!-- Approved copy retained as a brand contract in CopyTest. -->
+    <string name="protect_headline" tools:ignore="UnusedResources">Never get distracted from what matters.</string>
     <string name="protect_add_apps">Add apps</string>
     <string name="session_ends_at">Ends at %1$s</string>
     <string name="session_turn_off">Turn off protection</string>

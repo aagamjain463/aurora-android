@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.aurora",
+      "sha256_cert_fingerprints": [
+        "B6:77:17:A7:3B:CE:4D:9F:8C:6F:4E:5E:C2:95:56:1D:37:9E:20:03:D7:68:09:BB:9F:AA:65:00:88:AE:97:23"
+      ]
+    }
+  }
+]

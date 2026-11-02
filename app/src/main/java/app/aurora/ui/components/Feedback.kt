@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -27,6 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -102,19 +107,22 @@ fun EmptyState(
  * never as an error.
  */
 @Composable
-fun Notice(eyebrow: String, body: String, modifier: Modifier = Modifier) {
+fun Notice(eyebrow: String, body: String, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
     val colors = Aurora.colors
     Column(
         modifier
-            .padding(horizontal = Space.M)
             .fillMaxWidth()
+            .clip(Radius.L)
+            .background(colors.surface)
             .glass(colors, Radius.L, tint = colors.violet)
-            .padding(Space.M)
-            .semantics(mergeDescendants = true) { },
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(Space.L),
+        verticalArrangement = Arrangement.spacedBy(Space.M),
     ) {
-        Text(eyebrow.lowercase(), color = colors.violetText, style = AuroraType.Eyebrow)
-        Text(body, color = colors.textPrimary, style = AuroraType.Secondary)
+        Column(Modifier.semantics(mergeDescendants = true) { }, verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+            Text(eyebrow, Modifier.semantics { heading() }, color = colors.violetText, style = AuroraType.Title)
+            Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
+        }
+        action?.invoke()
     }
 }
 
@@ -157,6 +165,7 @@ fun AuroraDialog(
     content: (@Composable () -> Unit)? = null,
 ) {
     val colors = Aurora.colors
+    val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() } - Space.XXL
     BasicAlertDialog(onDismissRequest = onDismiss) {
         // Native window blur, where the phone allows it: the page frosts behind the dialog.
         val view = androidx.compose.ui.platform.LocalView.current
@@ -171,56 +180,35 @@ fun AuroraDialog(
         }
         Column(
             Modifier
-                // Denser than other glass: where the phone can't blur, the page must not fight the text.
+                .fillMaxWidth()
+                .heightIn(max = maxHeight.coerceAtLeast(0.dp))
+                // Keep the message readable even when window blur is unavailable.
                 .clip(Radius.Dialog)
-                .background(colors.surface.copy(alpha = 0.72f))
-                .glass(colors, Radius.Dialog)
-                .padding(Space.L),
+                .background(colors.surface)
+                .glass(colors, Radius.Dialog),
         ) {
-            Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
-            if (body != null) {
-                Spacer(Modifier.height(Space.S))
-                Text(body, color = colors.textSecondary, style = AuroraType.Body)
-            }
-            if (content != null) {
-                Spacer(Modifier.height(Space.L))
-                content()
+            Column(
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                    .padding(horizontal = Space.L).padding(top = Space.L, bottom = Space.S),
+            ) {
+                Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
+                if (body != null) {
+                    Spacer(Modifier.height(Space.S))
+                    Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
+                }
+                if (content != null) {
+                    Spacer(Modifier.height(Space.L))
+                    content()
+                }
             }
             if (confirmLabel.isNotEmpty() || dismissLabel != null) {
-                Spacer(Modifier.height(Space.L))
-                DialogButtons(
-                    confirm = { if (confirmLabel.isNotEmpty()) AuroraButton(confirmLabel, onConfirm) },
-                    dismiss = dismissLabel?.let { { AuroraButton(it, onDismiss, kind = ButtonKind.Quiet, compact = true) } },
-                )
-            }
-        }
-    }
-}
-
-/**
- * Side by side at the end when both fit; otherwise stacked, the confirm action on top, so a long label or
- * large text never wraps inside a button.
- */
-@Composable
-private fun DialogButtons(confirm: @Composable () -> Unit, dismiss: (@Composable () -> Unit)?) {
-    androidx.compose.ui.layout.Layout(
-        content = { confirm(); dismiss?.invoke() },
-        modifier = Modifier.fillMaxWidth(),
-    ) { measurables, constraints ->
-        val gap = Space.XS.roundToPx()
-        val loose = constraints.copy(minWidth = 0)
-        val wide = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
-        if (wide.sum() + gap * maxOf(0, wide.size - 1) <= constraints.maxWidth) {
-            val placed = measurables.map { it.measure(loose) }
-            layout(constraints.maxWidth, placed.maxOfOrNull { it.height } ?: 0) {
-                var x = constraints.maxWidth
-                placed.forEach { p -> x -= p.width; p.placeRelative(x, 0); x -= gap }
-            }
-        } else {
-            val placed = measurables.map { it.measure(loose.copy(minWidth = constraints.maxWidth)) }
-            layout(constraints.maxWidth, if (placed.isEmpty()) 0 else placed.sumOf { it.height } + gap * (placed.size - 1)) {
-                var y = 0
-                placed.forEach { p -> p.placeRelative(0, y); y += p.height + gap }
+                Column(
+                    Modifier.padding(horizontal = Space.L).padding(top = Space.S, bottom = Space.L),
+                    verticalArrangement = Arrangement.spacedBy(Space.XS),
+                ) {
+                    if (confirmLabel.isNotEmpty()) AuroraButton(confirmLabel, onConfirm, Modifier.fillMaxWidth())
+                    if (dismissLabel != null) AuroraButton(dismissLabel, onDismiss, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                }
             }
         }
     }

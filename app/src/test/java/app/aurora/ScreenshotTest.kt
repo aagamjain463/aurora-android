@@ -9,6 +9,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.core.app.ApplicationProvider
 import android.content.pm.ApplicationInfo
@@ -373,7 +375,17 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun shieldIntent() = capture("shield_intent") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
 
     @Test fun plus() = capture("plus") { app.aurora.ui.plus.PlusScreen(onBack = {}) }
-    @Test fun account() = capture("account") { app.aurora.ui.account.AccountScreen(onBack = {}, onPlus = {}) }
+    @Test fun login() {
+        capture("login") { app.aurora.ui.account.Login(onEmail = {}) }
+        val help = compose.onNodeWithText("Trouble signing in?", useUnmergedTree = true)
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        help.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        org.junit.Assert.assertEquals("Help should remain a readable single line", 1, layouts.single().lineCount)
+        org.junit.Assert.assertFalse("Help text must remain complete", layouts.single().isLineEllipsized(0))
+        val privacy = compose.onNodeWithText("Privacy Policy", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("Help belongs below the legal links", help.fetchSemanticsNode().boundsInRoot.top >= privacy.bottom)
+    }
+    @Test fun account() =capture("account") { app.aurora.ui.account.AccountScreen(onBack = {}, onPlus = {}) }
     @Test fun limit_shield() = capture("limit_shield") { app.aurora.ui.plus.LimitPromptDialog(app.aurora.LimitPrompt(app.aurora.plan.LimitDecision(false, app.aurora.plan.LimitReason.ShieldTargets, 5, 5, 0, app.aurora.plan.Remedy.FreeASlot, true)), {}, {}) }
     @Test fun limit_committed() = capture("limit_committed") { app.aurora.ui.plus.LimitPromptDialog(app.aurora.LimitPrompt(app.aurora.plan.LimitDecision(false, app.aurora.plan.LimitReason.CommittedProtection, 95 * 60_000L, 120 * 60_000L, 25 * 60_000L, app.aurora.plan.Remedy.ChooseShorter, true, resetAt = 0), { }), {}, {}) }
     @Test fun goal_limit() = capture("goal_limit") { app.aurora.ui.track.GoalLimitDialog(app.aurora.progress.Goal("g", "Daily Study", app.aurora.progress.GoalKind.Session, app.aurora.progress.GoalPeriod.Daily, 60), {}, {}, { _, _ -> }) }

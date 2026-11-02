@@ -347,7 +347,7 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
             Text(run.name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
             IconStack(keys, d, max = 4, size = 28.dp)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
             run.shield?.let { ModeChip(it.mode, label = it.name) }
             run.intent?.let { IntentChip(it.name) }
         }
@@ -568,7 +568,7 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
                 Text(if (only == null) c.name else c.name + " · " + scheduleWords(only.timing, zone), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
                 IconStack(keys, d, max = 4, size = 28.dp)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                 shield?.let { if (it.name == c.name) ModeChip(it.mode) else ModeChip(it.mode, label = it.name) }
                 intent?.let { IntentChip(it.name) }
             }

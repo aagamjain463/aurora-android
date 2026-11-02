@@ -267,8 +267,10 @@ fun HomeScreen(
         // What is running, finishing or needs attention leads: a Shield warning sits right under the hero.
         if (d != null) homeNow(d, today.app, onOpenFocus, onOpenLegacyFocus)
         if (d != null && d.rules.planExcess(d.plan, d.time.wall, java.time.ZoneId.systemDefault()).any) item(key = "over-free") {
-            Column(Modifier.animateItem().padding(horizontal = Space.Gutter).padding(top = Space.S), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                app.aurora.ui.components.Notice(stringResource(R.string.keep_banner_title), stringResource(R.string.keep_banner_body))
+            app.aurora.ui.components.Notice(
+                stringResource(R.string.keep_banner_title), stringResource(R.string.keep_banner_body),
+                Modifier.animateItem().padding(horizontal = Space.M).padding(top = Space.S),
+            ) {
                 app.aurora.ui.components.AuroraButton(stringResource(R.string.keep_banner_action), onKeep, Modifier.fillMaxWidth(), kind = app.aurora.ui.components.ButtonKind.Secondary)
             }
         }

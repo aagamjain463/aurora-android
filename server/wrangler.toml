@@ -6,14 +6,14 @@ compatibility_date = "2026-10-01"
 PACKAGE_NAME = "app.aurora"
 PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
 # The Firebase project whose ID tokens this server accepts.
-FIREBASE_PROJECT_ID = "REPLACE_WITH_FIREBASE_PROJECT_ID"
+FIREBASE_PROJECT_ID = "aurora-24aa9"
 ENVIRONMENT = "production"
 
 # wrangler d1 create aurora, then paste its id here. Then: wrangler d1 migrations apply aurora --remote
 [[d1_databases]]
 binding = "DB"
 database_name = "aurora"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "6451367c-aaf3-4fa9-b124-2f307dd752e9"
 migrations_dir = "migrations"
 
 # Daily: finishes account deletions past their grace period and drops expired records.

@@ -154,29 +154,30 @@ fun PlusScreen(onBack: () -> Unit) {
                     Notice(
                         stringResource(R.string.plus_conflict_title),
                         conflict.hint?.let { stringResource(R.string.plus_conflict_body_hint, it) } ?: stringResource(R.string.plus_conflict_body),
-                    )
-                    transferMessage?.let { Text(it, color = colors.danger, style = AuroraType.Secondary) }
-                    AuroraButton(
-                        stringResource(R.string.plus_conflict_move),
-                        {
-                            scope.launch {
-                                when (val r = app.account.transferPurchase(conflict.token)) {
-                                    is ApiResult.Ok -> {
-                                        app.billing.store(r.value)
-                                        app.billing.clearConflict()
-                                        transferMessage = null
+                    ) {
+                        transferMessage?.let { Text(it, color = colors.danger, style = AuroraType.Secondary) }
+                        AuroraButton(
+                            stringResource(R.string.plus_conflict_move),
+                            {
+                                scope.launch {
+                                    when (val r = app.account.transferPurchase(conflict.token)) {
+                                        is ApiResult.Ok -> {
+                                            app.billing.store(r.value)
+                                            app.billing.clearConflict()
+                                            transferMessage = null
+                                        }
+                                        is ApiResult.Refused -> if (r.code == "reauth_required") {
+                                            context.activity()?.let { app.account.reauthenticate(it) }
+                                            app.account.clearEmailStep()
+                                            transferMessage = reauthText
+                                        } else transferMessage = if (r.code == "transfer_limit") limitText else failedText
+                                        ApiResult.Unreachable -> transferMessage = offlineText
                                     }
-                                    is ApiResult.Refused -> if (r.code == "reauth_required") {
-                                        context.activity()?.let { app.account.reauthenticate(it) }
-                                        app.account.clearEmailStep()
-                                        transferMessage = reauthText
-                                    } else transferMessage = if (r.code == "transfer_limit") limitText else failedText
-                                    ApiResult.Unreachable -> transferMessage = offlineText
                                 }
-                            }
-                        },
-                        Modifier.fillMaxWidth(), kind = ButtonKind.Secondary,
-                    )
+                            },
+                            Modifier.fillMaxWidth(), kind = ButtonKind.Secondary,
+                        )
+                    }
                 }
                 if (billing.verifying) Notice(stringResource(R.string.plus_verifying_title), stringResource(R.string.plus_verifying_body))
                 if (billing.pending) Notice(stringResource(R.string.plus_payment_pending), stringResource(R.string.plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp))

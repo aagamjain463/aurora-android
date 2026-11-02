@@ -31,6 +31,11 @@ keystore.properties
 
 # Google Services (e.g. APIs or Firebase)
 google-services.json
+auth-hosting/terms.html
+auth-hosting/privacy-policy.html
+auth-hosting/account-deletion.html
+.firebase/
+firebase-debug.log
 
 # Android Profiling
 *.hprof

@@ -1,5 +1,19 @@
 # Aurora Account & Cloud Entitlement System
 
+## Configure sign-in before building an APK
+
+The deployed account service is `https://aurora-entitlements.aurora-24aa9.workers.dev`, backed by the `aurora` D1 database in APAC. Firebase project: `aurora-24aa9`. Worker secrets stay in Cloudflare; local credential files stay outside the repository. Deploy changes from `server/` with `wrangler deploy` after applying any new D1 migrations. Google Play purchase verification requires its own Play service-account credential; it is separate from Firebase sign-in.
+
+1. Register the Android app `app.aurora` in your Firebase project. Add the SHA-1 and SHA-256 fingerprints for each signing certificate (debug, upload and Play App Signing as appropriate); `./gradlew :app:signingReport` lists local certificates.
+2. Enable **Google** and **Email link (passwordless sign-in)** in Firebase Authentication. Download the updated `google-services.json` after enabling Google, and place it at `app/google-services.json`. It is gitignored. The build selects the `app.aurora` Android client and its **Web application** OAuth client (`client_type: 3`).
+3. Alternatively, provide `aurora.firebaseApiKey`, `aurora.firebaseAppId`, `aurora.firebaseProjectId` and `aurora.googleWebClientId` in `~/.gradle/gradle.properties` or with `-P` in CI. Explicit properties override the JSON file. Never use the Android OAuth client ID as the Web client ID.
+4. Configure Firebase Hosting email links and authorized domains. `aurora.emailLinkHost` defaults to `<project-id>.firebaseapp.com`; set it for a custom Hosting domain. Publish Android App Links association for the app's signing certificates and test opening an actual email link on the device.
+5. Deploy the account service in `server/` and configure `aurora.serverUrl` and `aurora.entitlementPublicKey`. Its Firebase project must match the app. Authentication alone does not deploy the account/quota service.
+
+Run `./gradlew :app:validateAuthConfiguration` to check required Firebase and account-service build values, including an HTTPS `aurora.serverUrl` and the service's Base64 X.509 RSA `aurora.entitlementPublicKey`. APK/AAB packaging, assembly and installation depend on this check, so missing configuration fails the build instead of shipping disabled sign-in or a blocked account profile. JVM tests can still compile and use the fake identity without cloud configuration. This check validates local configuration; Firebase provider enablement, OAuth signing fingerprints and deployed services require a real-device end-to-end check.
+
+`firebase.json` deploys only the sign-in landing page, Android App Links association and the existing public privacy/terms pages. Deploy with `firebase deploy --only hosting --project aurora-24aa9`. Add each production signing SHA-256 fingerprint to `auth-hosting/.well-known/assetlinks.json` before distributing a differently signed build. Generated legal-page copies are ignored; `docs/` remains their source.
+
 Aurora is local-first in enforcement and cloud-authoritative in identity and entitlements.
 This document details the production account architecture, backend services, cryptographic verification, Google Play billing integration, and privacy controls.
 

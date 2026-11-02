@@ -373,8 +373,9 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
         Modifier.padding(horizontal = Space.M).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors, warm = failed).padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-            Text(g.name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
+        // A long status drops under the name instead of squeezing it to one letter per line.
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
+            Text(g.name, Modifier.padding(end = Space.S), color = colors.textPrimary, style = AuroraType.Title)
             if (!row.measuring) Text(
                 stringResource(
                     when (g.status) {

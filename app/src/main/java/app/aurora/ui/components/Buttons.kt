@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
@@ -104,7 +105,13 @@ fun AuroraButton(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
             if (icon != null) Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(20.dp))
-            Text(text, color = content, style = AuroraType.Label, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            // A compact pill stays one line: large text shrinks to fit (as SegmentedControl does) instead of
+            // breaking into a column of single words.
+            Text(
+                text, color = content, style = AuroraType.Label, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = if (compact) 1 else Int.MAX_VALUE, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                autoSize = if (compact) androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = AuroraType.Label.fontSize) else null,
+            )
         }
     }
 }

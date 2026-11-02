@@ -1,0 +1,18 @@
+{
+  "hosting": {
+    "site": "aurora-24aa9",
+    "public": "auth-hosting",
+    "ignore": ["**/node_modules/**"],
+    "predeploy": [
+      "cp docs/terms.html auth-hosting/terms.html",
+      "cp docs/privacy-policy.html auth-hosting/privacy-policy.html",
+      "cp docs/account-deletion.html auth-hosting/account-deletion.html"
+    ],
+    "rewrites": [
+      {"source": "/finish-sign-in", "destination": "/index.html"}
+    ],
+    "headers": [
+      {"source": "/.well-known/assetlinks.json", "headers": [{"key": "Cache-Control", "value": "public, max-age=300"}]}
+    ]
+  }
+}

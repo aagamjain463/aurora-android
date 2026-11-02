@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -184,7 +185,7 @@ internal fun failureText(f: AuthFailure): String = stringResource(
 )
 
 @Composable
-private fun Login(onEmail: () -> Unit) {
+internal fun Login(onEmail: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as AuroraApplication
     val colors = Aurora.colors
@@ -219,11 +220,11 @@ private fun Login(onEmail: () -> Unit) {
             Modifier.fillMaxWidth(), enabled = available && !busy,
         )
         AuroraButton(stringResource(R.string.auth_continue_email), { app.account.clearSessionEnded(); onEmail() }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, enabled = available && !busy)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             AuroraButton(stringResource(R.string.auth_terms), { openLegal(context, TermsPage) }, kind = ButtonKind.Quiet, compact = true)
             AuroraButton(stringResource(R.string.auth_privacy), { openLegal(context, PrivacyPage) }, kind = ButtonKind.Quiet, compact = true)
-            AuroraButton(stringResource(R.string.auth_trouble), { recover = true }, kind = ButtonKind.Quiet, compact = true)
         }
+        AuroraButton(stringResource(R.string.auth_trouble), { recover = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
     }
     if (recover) RecoverDialog { recover = false }
 }
