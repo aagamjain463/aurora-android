@@ -121,10 +121,18 @@ data class InstagramScreen(
     val tab: String? = null,
     /** A reel is playing full screen. */
     val reelViewer: Boolean = false,
+    /** The reel came in a chat: its viewer names who sent it. Instagram's "Suggested" reels after it don't. */
+    val sentInChat: Boolean = false,
     /** Someone's story is open. */
     val storyViewer: Boolean = false,
-    /** A Home post is on screen. */
+    /** A post is on screen (Home's, or one opened on its own). */
     val posts: Boolean = false,
+    /** The last screen before this one, other than a post or a profile, was a chat. */
+    val fromChat: Boolean = false,
+    /** An audio, effect or similar page: a grid of other people's reels. */
+    val reelsPage: Boolean = false,
+    /** A profile's grid of posts and reels starts here; its header (name, bio, follow, message) is above. */
+    val profileGridTop: Int? = null,
     val storiesBottom: Int? = null,
     val headerBottom: Int? = null,
     val tabBarTop: Int? = null,
@@ -132,33 +140,38 @@ data class InstagramScreen(
 
 sealed interface InstagramVerdict {
     data object Allow : InstagramVerdict
-    /** The Reels tab: the Shield for [key], then back. */
+    /** The Shield for [key], then back. */
     data class Leave(val key: String) : InstagramVerdict
-    /** A reel opened from a message: it plays, but moving on to another reel brings the Shield. */
-    data object OneReel : InstagramVerdict
     /** Cover this band of the screen, so what [key] holds back can't be seen or touched. */
     data class Cover(val top: Int, val bottom: Int, val key: String) : InstagramVerdict
 }
 
 /**
  * What Aurora does on this Instagram screen, given the parts a Shield holds back right now.
- * [reels]: only the Reels tab. [messages]: only messages and stories stay. Reels and posts are off
- * everywhere; a reel or post a friend sends opens, but the next reel brings the Shield. [feed] and
- * [search] are the older separate parts: Home posts, and Search.
+ * [reels]: only the Reels tab. [messages]: only chats and stories. The one reel or post a friend sent
+ * opens from the chat; every other reel and post is held back (Home, Search, the Reels tab, the
+ * "Suggested" reels after a sent one, audio pages, every profile's grid). Profiles themselves stay.
+ * [feed] and [search] are the older separate parts: Home posts, and Search.
  */
 fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed: Boolean, search: Boolean, screenBottom: Int): InstagramVerdict {
     val bottom = s.tabBarTop ?: screenBottom
     // Below the stories row (or the header, once the row has scrolled away), down to the tab bar.
     val belowStories = maxOf(s.storiesBottom ?: 0, s.headerBottom ?: 0)
     fun cover(top: Int, key: String) = if (top < bottom) InstagramVerdict.Cover(top, bottom, key) else InstagramVerdict.Allow
+    val leave = InstagramVerdict.Leave(PartInstagramMessages)
     return when {
         s.storyViewer -> InstagramVerdict.Allow
-        (reels || messages) && s.tab == "clips_tab" -> InstagramVerdict.Leave(if (messages) PartInstagramMessages else PartReels)
-        s.reelViewer -> if (messages) InstagramVerdict.OneReel else InstagramVerdict.Allow
-        messages && s.tab == "feed_tab" -> cover(belowStories, PartInstagramMessages)
-        messages && s.tab == "search_tab" -> cover(0, PartInstagramMessages)
-        // Your own grid is posts too; the header (and its menu to Settings) stays.
-        messages && s.tab == "profile_tab" -> cover(s.headerBottom ?: 0, PartInstagramMessages)
+        messages -> when {
+            s.tab == "clips_tab" -> leave
+            s.reelViewer -> if (s.sentInChat) InstagramVerdict.Allow else leave
+            s.reelsPage -> leave
+            s.profileGridTop != null -> cover(s.profileGridTop, PartInstagramMessages)
+            s.tab == "feed_tab" -> cover(belowStories, PartInstagramMessages)
+            s.tab == "search_tab" -> cover(0, PartInstagramMessages)
+            s.posts && !s.fromChat -> leave
+            else -> InstagramVerdict.Allow
+        }
+        reels && s.tab == "clips_tab" -> InstagramVerdict.Leave(PartReels)
         search && s.tab == "search_tab" -> cover(0, PartInstagramSearch)
         feed && s.tab == "feed_tab" && s.posts -> cover(belowStories, PartInstagramFeed)
         else -> InstagramVerdict.Allow

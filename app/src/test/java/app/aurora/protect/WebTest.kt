@@ -28,19 +28,26 @@ class WebTest {
     }
 
     @Test
-    fun instagramKeepsMessagesStoriesAndSentReels() {
-        fun v(s: InstagramScreen, reels: Boolean = false, messages: Boolean = true, feed: Boolean = false, search: Boolean = false) =
-            instagramVerdict(s, reels, messages, feed, search, screenBottom = 2400)
+    fun instagramKeepsChatsStoriesAndOnlyWhatFriendsSend() {
+        fun v(s: InstagramScreen) = instagramVerdict(s, reels = false, messages = true, feed = false, search = false, screenBottom = 2400)
+        val leave = InstagramVerdict.Leave(PartInstagramMessages)
         val home = InstagramScreen(tab = "feed_tab", posts = true, headerBottom = 200, storiesBottom = 480, tabBarTop = 2200)
         // Home: everything under the stories row is covered; once the row scrolls away, from the header.
         assertEquals(InstagramVerdict.Cover(480, 2200, PartInstagramMessages), v(home))
         assertEquals(InstagramVerdict.Cover(200, 2200, PartInstagramMessages), v(home.copy(storiesBottom = null, posts = false)))
-        // Search, and your own grid under the profile header, are covered; the Reels tab goes back.
         assertEquals(InstagramVerdict.Cover(0, 2200, PartInstagramMessages), v(InstagramScreen(tab = "search_tab", tabBarTop = 2200)))
-        assertEquals(InstagramVerdict.Cover(200, 2200, PartInstagramMessages), v(InstagramScreen(tab = "profile_tab", headerBottom = 200, tabBarTop = 2200)))
-        assertEquals(InstagramVerdict.Leave(PartInstagramMessages), v(InstagramScreen(tab = "clips_tab", reelViewer = true)))
-        // A friend's reel plays once; stories and messages stay.
-        assertEquals(InstagramVerdict.OneReel, v(InstagramScreen(reelViewer = true)))
+        assertEquals(leave, v(InstagramScreen(tab = "clips_tab", reelViewer = true)))
+        // The reel a friend sent plays; the "Suggested" reels after it, or any other reel, don't.
+        assertEquals(InstagramVerdict.Allow, v(InstagramScreen(reelViewer = true, sentInChat = true)))
+        assertEquals(leave, v(InstagramScreen(reelViewer = true)))
+        assertEquals(leave, v(InstagramScreen(reelsPage = true)))
+        // A profile shows its header, never its grid: someone else's, or your own.
+        assertEquals(InstagramVerdict.Cover(774, 2400, PartInstagramMessages), v(InstagramScreen(profileGridTop = 774)))
+        assertEquals(InstagramVerdict.Cover(907, 2200, PartInstagramMessages), v(InstagramScreen(tab = "profile_tab", profileGridTop = 907, tabBarTop = 2200)))
+        // A post opens only from a chat.
+        assertEquals(InstagramVerdict.Allow, v(InstagramScreen(posts = true, fromChat = true)))
+        assertEquals(leave, v(InstagramScreen(posts = true)))
+        // Stories, chats and the inbox stay.
         assertEquals(InstagramVerdict.Allow, v(home.copy(storyViewer = true)))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen(tab = "direct_tab")))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen()))
@@ -52,6 +59,7 @@ class WebTest {
         assertEquals(InstagramVerdict.Leave(PartReels), v(InstagramScreen(tab = "clips_tab", reelViewer = true)))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen(reelViewer = true)))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen(tab = "feed_tab", posts = true, tabBarTop = 2200)))
+        assertEquals(InstagramVerdict.Allow, v(InstagramScreen(profileGridTop = 774)))
         // The older parts still hold: posts, and Search.
         val home = InstagramScreen(tab = "feed_tab", posts = true, headerBottom = 200, storiesBottom = 480, tabBarTop = 2200)
         assertEquals(InstagramVerdict.Cover(480, 2200, PartInstagramFeed), instagramVerdict(home, false, false, feed = true, search = false, screenBottom = 2400))

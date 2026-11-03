@@ -59,11 +59,14 @@ class ContentService : AccessibilityService() {
     /** Whether leaving the Shield now showing goes back inside the app (a held-back screen) or just closes it (a cover). */
     private var leaveBack = true
     private var cover: Cover? = null
-    /** Instagram's share button on a sent reel or post, under "only messages and stories". */
-    private var shareCover: Cover? = null
-    /** The reel someone sent, while it plays: a different one on screen means the person swiped on. */
-    private var oneReel: AccessibilityNodeInfo? = null
-    private var oneReelSince = 0L
+    /** Instagram's share and forward buttons, under "only messages and stories": one cover each. */
+    private val shareCovers = mutableListOf<Cover>()
+    /** Whether the person reached the post on screen from a chat ([InstagramScreen.fromChat]). */
+    private var fromChat = false
+    private val onCoverTap = { key: String, decision: Decision.Shield, owner: String ->
+        lastKey = null
+        present(key, decision, owner, SystemClock.uptimeMillis(), back = false)
+    }
     /** When YouTube started showing a video from a channel that isn't chosen, 0 when it isn't. */
     private var otherChannelSince = 0L
     private val handler = Handler(Looper.getMainLooper())
@@ -95,12 +98,7 @@ class ContentService : AccessibilityService() {
                 }
             }
         }
-        val onTap = { key: String, decision: Decision.Shield, owner: String ->
-            lastKey = null
-            present(key, decision, owner, SystemClock.uptimeMillis(), back = false)
-        }
-        cover = Cover(this, onTap)
-        shareCover = Cover(this, onTap)
+        cover = Cover(this, onCoverTap)
         connectedState.value = true
     }
 
@@ -149,12 +147,15 @@ class ContentService : AccessibilityService() {
 
     private fun hideCovers() {
         cover?.hide()
-        shareCover?.hide()
+        shareCovers.forEach(Cover::hide)
     }
 
     /** Keeps [cover] on [bounds] for [key], or takes it away. */
     private fun keepCover(owner: String, bounds: Rect?, key: String?, decision: Decision.Shield?) {
-        if (bounds == null || key == null || decision == null) return cover?.hide() ?: Unit
+        if (bounds == null || key == null || decision == null) {
+            cover?.hide()
+            return
+        }
         cover?.show(bounds, owner, key, decision)
         handler.removeCallbacks(watchCover)
         handler.postDelayed(watchCover, CheckEveryMs)
@@ -174,56 +175,46 @@ class ContentService : AccessibilityService() {
         } else InstagramVerdict.Allow
         val c = verdict as? InstagramVerdict.Cover
         keepCover(Instagram, c?.let { Rect(0, it.top, resources.displayMetrics.widthPixels, it.bottom) }, c?.key, c?.let { shields[it.key] })
-        // A friend's reel or post can be watched, not passed on.
-        val share = if (messages != null && c == null) readInstagramShare(root) else null
-        if (share != null) shareCover?.show(share, Instagram, PartInstagramMessages, messages!!) else shareCover?.hide()
-        if (verdict != InstagramVerdict.OneReel) oneReel = null
-        when (verdict) {
-            is InstagramVerdict.Leave -> present(verdict.key, shields[verdict.key]!!, Instagram, now)
-            InstagramVerdict.OneReel -> {
-                val current = reelOnScreen(root) ?: return
-                val first = oneReel
-                // The first second is the reel loading in; it may swap its view. After that, a new view is a new reel.
-                if (first == null || now - oneReelSince < SettleMs) {
-                    if (first == null) oneReelSince = now
-                    oneReel = current
-                } else if (current != first) {
-                    oneReel = null
-                    present(PartInstagramMessages, messages!!, Instagram, now)
-                }
-            }
-            else -> Unit
-        }
+        // A friend's reel or post can be watched, not passed on: every share and forward button is covered.
+        val shares = if (messages != null) IgShareIds.flatMap { id -> shown(root, IgId + id) }.map(::boundsOf).filterNot(Rect::isEmpty) else emptyList()
+        while (shareCovers.size < shares.size) shareCovers += Cover(this, onCoverTap)
+        shareCovers.forEachIndexed { i, cover -> shares.getOrNull(i)?.let { cover.show(it, Instagram, PartInstagramMessages, messages!!) } ?: cover.hide() }
+        if (verdict is InstagramVerdict.Leave) present(verdict.key, shields[verdict.key]!!, Instagram, now)
     }
 
     private fun readInstagram(root: AccessibilityNodeInfo): InstagramScreen {
-        fun shown(id: String) = root.findAccessibilityNodeInfosByViewId(IgId + id).filter { it.isVisibleToUser }
-        fun bounds(id: String) = shown(id).firstOrNull()?.let { node -> Rect().also(node::getBoundsInScreen) }
+        fun shown(id: String) = shown(root, IgId + id)
+        fun bounds(id: String) = shown(id).firstOrNull()?.let(::boundsOf)
+        // Instagram marks the chosen tab on its icon, inside the tab.
+        fun selected(n: AccessibilityNodeInfo) = n.isSelected || (0 until n.childCount).any { n.getChild(it)?.isSelected == true }
+        val tab = InstagramTabs.firstOrNull { id -> shown(id).any(::selected) }
+        val posts = FeedPostIds.any { shown(it).isNotEmpty() }
+        val profileGrid = bounds("profile_tabs_container") ?: bounds("profile_viewpager")
+        // Where the person came from: a post counts as sent only when they opened it from a chat. A profile
+        // or comments on the way don't change that; any other screen does.
+        when {
+            shown("thread_fragment_container").isNotEmpty() -> fromChat = true
+            profileGrid != null || posts && tab != "feed_tab" -> Unit
+            else -> fromChat = false
+        }
         return InstagramScreen(
-            tab = InstagramTabs.firstOrNull { id -> shown(id).any { it.isSelected } },
-            reelViewer = shown("clips_viewer_view_pager").isNotEmpty() || shown("clips_video_container").isNotEmpty(),
+            tab = tab,
+            reelViewer = shown("clips_viewer_view_pager").isNotEmpty(),
+            sentInChat = shown("sender_username_or_fullname").isNotEmpty(),
             storyViewer = shown("reel_viewer_root").isNotEmpty(),
-            posts = FeedPostIds.any { shown(it).isNotEmpty() },
+            posts = posts,
+            fromChat = fromChat,
+            reelsPage = shown("clips_pivot_page_fragment").isNotEmpty(),
+            profileGridTop = profileGrid?.top,
             storiesBottom = bounds("reels_tray_container")?.bottom,
             headerBottom = bounds("action_bar_container")?.bottom,
             tabBarTop = bounds("tab_bar")?.top,
         )
     }
 
-    /** Instagram's share button for the reel or post on screen, if one shows. */
-    private fun readInstagramShare(root: AccessibilityNodeInfo): Rect? {
-        val node = IgShareIds.firstNotNullOfOrNull { id -> root.findAccessibilityNodeInfosByViewId(IgId + id).firstOrNull { it.isVisibleToUser } }
-            ?: nodes(root).firstOrNull { n -> n.isVisibleToUser && n.contentDescription?.toString()?.lowercase() in IgShareLabels }
-        return node?.let { Rect().also(it::getBoundsInScreen) }?.takeUnless { it.isEmpty }
-    }
+    private fun shown(root: AccessibilityNodeInfo, id: String) = root.findAccessibilityNodeInfosByViewId(id).filter { it.isVisibleToUser }
 
-    /** The reel filling the middle of the screen. */
-    private fun reelOnScreen(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val m = resources.displayMetrics
-        return root.findAccessibilityNodeInfosByViewId(IgId + "clips_video_container").firstOrNull { node ->
-            Rect().also(node::getBoundsInScreen).contains(m.widthPixels / 2, m.heightPixels / 2)
-        }
-    }
+    private fun boundsOf(node: AccessibilityNodeInfo) = Rect().also(node::getBoundsInScreen)
 
     private fun checkYouTube(app: AuroraApplication, root: AccessibilityNodeInfo, now: Long) {
         val state = app.policySnapshot(emptySet(), emptyMap())
@@ -326,9 +317,8 @@ class ContentService : AccessibilityService() {
         private const val MaxNodes = 600
         private val InstagramTabs = listOf("feed_tab", "search_tab", "clips_tab", "direct_tab", "profile_tab")
         private val FeedPostIds = listOf("row_feed_profile_header", "row_feed_photo_profile_name", "media_group")
-        /** Unverified against a device yet; the content description below is the fallback. */
-        private val IgShareIds = listOf("row_feed_button_share", "clips_ufi_share_button", "direct_share_button")
-        private val IgShareLabels = setOf("share", "send post", "share post", "send reel")
+        /** Share on a reel, share on a post, forward in a chat. Checked against Instagram 453. */
+        private val IgShareIds = listOf("direct_share_button", "row_feed_button_share", "forwarding_shortcut_button")
         /** YouTube view IDs. They change with app updates: experimental. */
         private val YtShortsIds = listOf("reel_player_page_container", "reel_recycler", "reel_watch_player")
         private val YtPlayerIds = listOf("watch_player", "player_view", "player_fragment_container")
