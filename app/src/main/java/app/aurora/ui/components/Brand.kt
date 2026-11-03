@@ -205,18 +205,15 @@ fun GreetingHeadline(text: String, modifier: Modifier = Modifier, tailWords: Int
 }
 
 /**
- * The hero headline: every word but the last [tailWords] light, then the tail large and bold on its own line
- * ("Take back" / "control."). The words never change; only the break and the sizes are design.
+ * The hero headline ("Take back control."): one voice, the serif in full white, set large and left to wrap
+ * as a headline would. No two-tone split: the line reads as one promise.
  */
 @Composable
-fun HeroHeadline(text: String, modifier: Modifier = Modifier, tailWords: Int = 2) {
-    val colors = Aurora.colors
-    val words = text.split(" ")
-    val split = (words.size - tailWords).coerceIn(0, words.size)
-    androidx.compose.foundation.layout.Column(modifier.clearAndSetSemantics { heading(); semanticsText(androidx.compose.ui.text.AnnotatedString(text)) }) {
-        if (split > 0) Text(words.take(split).joinToString(" "), color = colors.headlineLead, style = AuroraType.HeroLead)
-        Text(words.drop(split).joinToString(" "), Modifier.padding(top = 2.dp), color = colors.textPrimary, style = AuroraType.HeroBold)
-    }
+fun HeroHeadline(text: String, modifier: Modifier = Modifier, style: androidx.compose.ui.text.TextStyle = AuroraType.HeroBold) {
+    Text(
+        text, modifier.semantics { heading() }, color = Aurora.colors.textPrimary,
+        style = style.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
+    )
 }
 
 /**

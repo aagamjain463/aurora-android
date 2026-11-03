@@ -70,7 +70,7 @@ import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ContentMaxWidth
 import app.aurora.ui.components.LoadingSurface
 import app.aurora.ui.components.Notice
-import app.aurora.ui.components.TwoToneHeadline
+import app.aurora.ui.components.HeroHeadline
 import app.aurora.ui.onboarding.Welcome
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
@@ -205,7 +205,7 @@ internal fun Login(onEmail: () -> Unit) {
         Spacer(Modifier.height(Space.M))
         AuroraLogo(104.dp)
         Spacer(Modifier.height(Space.L))
-        TwoToneHeadline(stringResource(R.string.today_headline), tailWords = 1)
+        HeroHeadline(stringResource(R.string.today_headline), style = AuroraType.Display)
         Text(stringResource(R.string.auth_login_body), color = colors.textSecondary, style = AuroraType.Body)
         Spacer(Modifier.height(Space.M))
         ended?.let { Notice(stringResource(R.string.account_title), stringResource(if (it == SessionEnd.DeviceRemoved) R.string.auth_device_removed else R.string.auth_session_expired)) }
