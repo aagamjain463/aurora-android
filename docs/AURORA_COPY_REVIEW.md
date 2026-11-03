@@ -15,7 +15,7 @@ Status: **APPROVED — FOUNDER**.
 | `mode_cooldown_desc` | Wait before you can open this app. |
 | `mode_always_block_desc` | No in-app early exit. Protection ends when your timer does. |
 | `always_block_confirm` | I'm ready to commit |
-| `today_headline` | Your phone. Your rules. |
+| `today_headline` | Take back control. |
 | `today_metric_label` | Time Reclaimed |
 | `protect_headline` | Never get distracted from what matters. |
 

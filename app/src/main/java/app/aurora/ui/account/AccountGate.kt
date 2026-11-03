@@ -205,7 +205,7 @@ internal fun Login(onEmail: () -> Unit) {
         Spacer(Modifier.height(Space.M))
         AuroraLogo(104.dp)
         Spacer(Modifier.height(Space.L))
-        TwoToneHeadline(stringResource(R.string.today_headline))
+        TwoToneHeadline(stringResource(R.string.today_headline), tailWords = 1)
         Text(stringResource(R.string.auth_login_body), color = colors.textSecondary, style = AuroraType.Body)
         Spacer(Modifier.height(Space.M))
         ended?.let { Notice(stringResource(R.string.account_title), stringResource(if (it == SessionEnd.DeviceRemoved) R.string.auth_device_removed else R.string.auth_session_expired)) }

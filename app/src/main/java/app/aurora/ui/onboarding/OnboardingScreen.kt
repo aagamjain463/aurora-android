@@ -269,7 +269,7 @@ internal fun Welcome() {
                     Text(stringResource(R.string.app_name), color = colors.textPrimary, style = AuroraType.HeroBold.copy(fontSize = 56.sp, lineHeight = 58.sp))
                 }
             }
-            HeroHeadline(stringResource(R.string.today_headline))
+            HeroHeadline(stringResource(R.string.today_headline), tailWords = 1)
             Spacer(Modifier.height(14.dp))
             Text(stringResource(R.string.today_description), color = colors.textSecondary, style = AuroraType.Body)
         }

@@ -62,9 +62,9 @@ object AuroraType {
     val Metric = style(56, 60, 300, -0.045, "lnum, tnum")
     /** Timers on the Shield and in Focus: light and wide, a watch face. */
     val Hero = style(72, 76, 300, -0.045, "lnum, tnum")
-    /** The quiet first line of a hero headline ("Your phone."). */
+    /** The quiet first line of a hero headline ("Take back"). */
     val HeroLead = style(19, 26, 420, -0.01)
-    /** The serif second line of a hero headline ("Your rules."). */
+    /** The serif second line of a hero headline ("control."). */
     val HeroBold = serif(64, 64, -0.025)
     /** One-word screen titles set large: "Insights", "Settings". */
     val DisplayXL = serif(40, 44, -0.015)

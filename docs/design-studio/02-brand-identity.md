@@ -7,7 +7,7 @@
 Aurora is a premium Android app for intentional technology use: it protects time from the apps that
 pull people away, interrupts unconscious opening, and holds space for focused work.
 
-**Brand promise:** *Your phone. Your rules.* (Founder-approved, the Today headline.)
+**Brand promise:** *Take back control.* (Founder-approved, the Today headline.)
 
 **Personality:** calm, confident, honest, warm. Never punitive, never preachy, never fake.
 

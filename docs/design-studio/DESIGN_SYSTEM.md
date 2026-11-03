@@ -48,7 +48,7 @@ One family: **Geist** (SIL OFL), bundled as a variable font (`res/font/geist`). 
 | --- | --- |
 | `Hero` 66/70 650, tabular | Live timers: Shield, Focus, Home, Strict |
 | `Metric` 44/48 700, tabular | The one number a screen is about |
-| `HeroLead` + `HeroBold` | The two-line hero ("Your phone." / "Your rules.") |
+| `HeroLead` + `HeroBold` | The two-line hero ("Take back" / "control.") |
 | `DisplayXL`, `Display`, `DisplayS` | Screen titles and step titles |
 | `Headline`, `Bar` | Card headlines, the centred top-bar title |
 | `Title`, `Body`, `BodyStrong`, `Secondary`, `Caption` | Reading text. Nothing below 13sp |

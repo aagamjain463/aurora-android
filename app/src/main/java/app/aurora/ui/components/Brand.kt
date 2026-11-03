@@ -206,7 +206,7 @@ fun GreetingHeadline(text: String, modifier: Modifier = Modifier, tailWords: Int
 
 /**
  * The hero headline: every word but the last [tailWords] light, then the tail large and bold on its own line
- * ("Your phone." / "Your rules."). The words never change; only the break and the sizes are design.
+ * ("Take back" / "control."). The words never change; only the break and the sizes are design.
  */
 @Composable
 fun HeroHeadline(text: String, modifier: Modifier = Modifier, tailWords: Int = 2) {

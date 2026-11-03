@@ -17,7 +17,7 @@ class CopyTest {
     @Test
     fun approvedStringsAreExact() {
         val approved = mapOf(
-            R.string.today_headline to "Your phone. Your rules.",
+            R.string.today_headline to "Take back control.",
             R.string.today_description to "Reclaim your time and own your attention.",
             R.string.today_metric_label to "Time Reclaimed",
             R.string.track_headline to "See your progress. Own your growth.",

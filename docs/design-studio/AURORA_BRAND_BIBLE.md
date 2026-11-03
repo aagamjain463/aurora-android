@@ -10,7 +10,7 @@ Detail lives in the numbered studio docs; this page is the rulebook.
 
 - **Concept: the Northern Lights.** Everything in Aurora is a polar night and the light that moves through it.
   Darkness is automatic behaviour; the aurora is awareness and choice.
-- **Promise:** *Your phone. Your rules.*
+- **Promise:** *Take back control.*
 - **Feels like:** calm, vast, alive, intentional. Empowering, never punitive.
 - **One night.** The northern lights only exist in the dark, so Aurora has one theme. There is no light mode.
 
@@ -19,7 +19,7 @@ Detail lives in the numbered studio docs; this page is the rulebook.
 - **The master is `brand/final/aurora-final-logo.png`, chosen by the founder. It is never edited, regenerated or reinterpreted.** `LogoMasterTest` holds its checksum.
 - Symbol: a capital A formed from flowing, translucent northern lights ribbons, emerald at the left into warm gold at the right, on midnight green.
 - Wordmark: "Aurora" as drawn in the master. It is artwork, not a font: use `Wordmark`, never type it out in Cormorant or anything else.
-- Tagline: "Your phone. Your rules." It stays separate from the logo artwork.
+- Tagline: "Take back control." It stays separate from the logo artwork.
 - In the app: `AuroraLogo` (symbol over wordmark), `AuroraMark` (symbol), `Wordmark`. On tab screens use `AuroraHeader`. All are cut from the master by `brand/tools/final_logo.py`; see `brand/final/README.md`.
 - The app icon sets the symbol on the master's midnight green, without the wordmark.
 - The cutouts are light lifted off a dark ground, so use them on night or midnight only. There is no version for pale backgrounds.
@@ -142,7 +142,7 @@ The brand continues where people meet it without opening Aurora, always quiet an
 Second person, plain, specific, kind. Tell the truth about what Shield can and can't do. Founder-approved
 strings are exact and centralised in `res/values/strings.xml` (checked by `CopyTest`):
 
-- Your phone. Your rules. · Time Reclaimed · Never get distracted from what matters.
+- Take back control. · Time Reclaimed · Never get distracted from what matters.
 - Flexible: Blocked until your timer ends, or you turn it off.
 - Friction: Complete a challenge before getting access.
 - Cooldown: Wait before you can open this app.
@@ -175,7 +175,7 @@ gold design, for history only.
 ## 12. Recognition and category ownership
 
 **Category:** intentional phone use. **Descriptor:** Phone use, on your terms.
-**Promise:** Your phone. Your rules.
+**Promise:** Take back control.
 
 Use the same promise across onboarding, store artwork and campaign headlines. The app makes it
 concrete through Shield (protect attention), Intent (open with purpose), and Track (see progress).

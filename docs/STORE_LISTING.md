@@ -13,7 +13,7 @@ Block distracting apps, open apps on purpose, and see real time back. On-device.
 
 ## Full description (4000)
 
-Your phone. Your rules.
+Take back control.
 
 Aurora helps you choose when to open the apps that pull you away, and protects the time you want back.
 Local-first protection with verified accounts: no ads, no trackers, no analytics. Your usage never leaves your phone.

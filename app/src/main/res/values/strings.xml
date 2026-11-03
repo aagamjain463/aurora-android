@@ -141,7 +141,7 @@
     <string name="plus_see">See Aurora Plus</string>
 
     <!-- Today — APPROVED: today_headline, today_description, today_metric_label -->
-    <string name="today_headline">Your phone. Your rules.</string>
+    <string name="today_headline">Take back control.</string>
     <string name="today_description">Reclaim your time and own your attention.</string>
     <string name="today_metric_label">Time Reclaimed</string>
     <string name="reclaimed_today">Today</string>
@@ -321,7 +321,7 @@
     <string name="settings_replay_introduction">Replay introduction</string>
     <string name="settings_open_source_licenses">Open-source licenses</string>
     <string name="settings_version">Version</string>
-    <string name="settings_tagline">Your phone, your rules.</string>
+    <string name="settings_tagline">Take back control.</string>
     <string name="settings_the_mode_suggested_when_you_start_protection_for_an_app_you_add">The mode a new Shield or Normal Session starts on. You can change it each time.</string>
     <string name="settings_done">Done</string>
     <string name="settings_everything_aurora_keeps_is_stored_only_on_this_phone_your_protec">Your protected apps and sites, rules, sessions, daily counts, Goals and what you write are kept on this phone and aren\'t sent to Aurora.\n\n</string>

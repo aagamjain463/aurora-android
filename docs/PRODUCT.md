@@ -79,7 +79,7 @@ Daily limits use measured foreground usage, require Usage access and reset at lo
 
 ## Home and progress
 
-The approved headline is “Your phone. Your rules.” Below it sits “Reclaim your time and own
+The approved headline is “Take back control.” Below it sits “Reclaim your time and own
 your attention.” The main numbers are “Time Reclaimed”: Today, This week (from Monday) and Overall.
 Each is the union of the day's protection spans, minus intervals when an app covered by each span
 was in front. Overlaps count once. Access granted during protection still counts as use. Screen-off
