@@ -130,7 +130,8 @@ fun StepFlow(
                 content = content,
             )
         }
-        Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        // Same gutter as the content above, so the button and its note line up with the page.
+        Column(Modifier.padding(horizontal = Space.Gutter, vertical = Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
             footer?.invoke(this)
             if (!primaryEnabled && whyDisabled != null) Text(whyDisabled, color = colors.textSecondary, style = AuroraType.Secondary)
             AuroraButton(primary, onPrimary, Modifier.fillMaxWidth(), enabled = primaryEnabled)

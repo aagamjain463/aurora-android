@@ -102,6 +102,7 @@ import java.io.IOException
 import kotlin.random.Random
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import app.aurora.ui.components.ContentMaxWidth
 
 /*
@@ -317,7 +318,8 @@ private fun Body(text: String) {
     val start = LocalStartAligned.current
     Text(
         text,
-        if (start) Modifier.fillMaxWidth().padding(top = 8.dp) else Modifier.padding(top = 22.dp).widthIn(max = 270.dp),
+        // Centred as a block too, not just its lines: the column around it may align to the start.
+        if (start) Modifier.fillMaxWidth().padding(top = 8.dp) else Modifier.fillMaxWidth().padding(top = 22.dp).wrapContentWidth().widthIn(max = 270.dp),
         color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = if (start) TextAlign.Start else TextAlign.Center,
     )
 }

@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.time.Duration
 import java.net.URI
 import java.security.KeyFactory
 import java.security.spec.X509EncodedKeySpec
@@ -62,7 +63,10 @@ val validateAuthConfiguration = tasks.register("validateAuthConfiguration") {
         }.isSuccess) { "aurora.entitlementPublicKey must be the account service's Base64 X.509 RSA public key." }
     }
 }
-androidComponents.onVariants { variant ->
+// CI checks code, not a shippable build, and has no Firebase project: it passes -Paurora.skipSignInCheck=true.
+// Its APKs can't sign anyone in. Never pass this for a build people install.
+val skipSignInCheck = providers.gradleProperty("aurora.skipSignInCheck").orNull == "true"
+if (!skipSignInCheck) androidComponents.onVariants { variant ->
     val suffix = variant.name.replaceFirstChar { it.uppercaseChar() }
     tasks.matching { it.name in listOf("assemble$suffix", "package$suffix", "bundle$suffix", "install$suffix") }.configureEach {
         dependsOn(validateAuthConfiguration)
@@ -145,6 +149,8 @@ android {
             it.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
             // Hundreds of full-screen renders in one JVM; the default 512 MB runs out.
             it.maxHeapSize = "2g"
+            // A deadlocked test fails the run instead of hanging CI until the job is killed.
+            it.timeout.set(Duration.ofMinutes(40))
         }
     }
 

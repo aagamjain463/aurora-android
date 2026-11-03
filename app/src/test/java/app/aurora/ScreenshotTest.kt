@@ -73,6 +73,8 @@ import org.robolectric.annotation.GraphicsMode
 import java.time.LocalTime
 import java.time.ZoneOffset
 import java.util.TimeZone
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import app.aurora.progress.RunRecord
 import app.aurora.progress.Outcome
@@ -180,10 +182,19 @@ class ScreenshotTest(private val variant: Variant) {
 
     /** A session 30 minutes into two hours. Runtime is reset before every test. */
     @Test fun focusRunning() {
-        runBlocking {
+        // startFocus waits on the entitlements lock, and the lock's holder may need the main looper to finish.
+        // Blocking the main thread deadlocks, so run it elsewhere and keep the looper turning until it's done.
+        val start = kotlinx.coroutines.CoroutineScope(Dispatchers.Default).async {
             application.startFocus(120, null, null, "Study mathematics")
             application.runtime.update { r -> r.copy(focus = r.focus?.let { it.copy(startElapsed = it.startElapsed - 30 * 60_000L, startWall = it.startWall - 30 * 60_000L) }) }
         }
+        val deadline = System.currentTimeMillis() + 10_000
+        while (!start.isCompleted) {
+            check(System.currentTimeMillis() < deadline) { "startFocus didn't finish" }
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            Thread.sleep(5)
+        }
+        start.getCompletionExceptionOrNull()?.let { throw it }
         capture("focus_running") { FocusScreen(onClose = {}) }
     }
 

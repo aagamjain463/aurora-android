@@ -84,8 +84,8 @@ class NavigationTest {
     }
 
     /**
-     * Start session asks one thing per page: a name (and whether to save it), the Shield, then when. Leaves the
-     * flow on When with Start now chosen, so a test can pick how long and go on to Review.
+     * Start session asks one thing per page: a name (and whether to save it), the Shield, when, then how long.
+     * Leaves the flow on How long with 30 minutes chosen, so a test can go on to Review.
      */
     private fun nextPages(name: String = "Test", save: Boolean = false) {
         awaitText("Name this session")
@@ -95,9 +95,11 @@ class NavigationTest {
         scrollTo("Test Shield").performClick()
         compose.onNodeWithText("Next").performClick()
         scrollTo("Start now").performClick()
+        compose.onNodeWithText("Next").performClick()
+        scrollTo("30m").performClick()
     }
 
-    /** From When to Review, then Start. */
+    /** From How long to Review. */
     private fun review() {
         compose.onNodeWithText("Next").performClick()
         awaitText("Review")
@@ -140,7 +142,7 @@ class NavigationTest {
         compose.onNode(hasText("Use with purpose. Not impulse.") and isHeading()).assertIsDisplayed()
 
         tab("Track").performClick()
-        compose.onNode(hasText("Insights") and isHeading()).assertIsDisplayed()
+        compose.onNode(hasText("See your progress. Own your growth.") and isHeading()).assertIsDisplayed()
         tab("Track").assertIsSelected()
 
         tab("Home").performClick()
@@ -164,7 +166,6 @@ class NavigationTest {
         scrollTo("Start session").performSemanticsAction(SemanticsActions.OnClick)
         // One question per page: name and save, the Shield, when and how long, then Review.
         nextPages("Study", save = true)
-        scrollTo("30m").performClick()
         review()
         compose.onNodeWithText("Start").assertIsEnabled().performClick()
         // Fetching nodes syncs with the main thread, where each step of the activation resumes.

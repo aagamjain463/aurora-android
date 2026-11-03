@@ -38,7 +38,7 @@ jobs:
         run: ./gradlew lintDebug --stacktrace
 
       - name: Build debug and release
-        run: ./gradlew assembleDebug assembleRelease --stacktrace
+        run: ./gradlew assembleDebug assembleRelease -Paurora.skipSignInCheck=true --stacktrace
 
       # The Phase 2A spike lives in the debug source set only. Fail if any of it reaches a release build.
       - name: Release excludes debug-only code
@@ -90,5 +90,5 @@ jobs:
           target: google_apis
           disable-animations: true
           script: |
-            ./gradlew :benchmark:connectedPhoneAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.aurora.benchmark.StartupBenchmark --stacktrace
+            ./gradlew :benchmark:connectedPhoneAndroidTest -Paurora.skipSignInCheck=true -Pandroid.testInstrumentationRunnerArguments.class=app.aurora.benchmark.StartupBenchmark --stacktrace
             python3 scripts/check-startup.py

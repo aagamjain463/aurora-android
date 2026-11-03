@@ -291,6 +291,8 @@ fun HomeScreen(
                                 }
                             }
                         }
+                        // Before any protection has run, say how the zeros fill instead of leaving them bare.
+                        if (a.reclaimed.overallMs == 0L) Text(stringResource(R.string.home_reclaimed_first), Modifier.padding(top = 14.dp), color = colors.textSecondary, style = AuroraType.Secondary)
                     }
                     AwayState.NoUsageAccess -> {
                         Text(stringResource(R.string.today_metric_not_measured), Modifier.padding(vertical = Space.XS), color = colors.textPrimary, style = AuroraType.Headline)

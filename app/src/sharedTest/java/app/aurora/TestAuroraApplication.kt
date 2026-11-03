@@ -12,6 +12,7 @@ import app.aurora.account.TokenResult
 import app.aurora.account.Transport
 import app.aurora.plan.Plan
 import app.aurora.plan.committedFits
+import app.aurora.plan.quotaStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -120,8 +121,12 @@ class FakeServer(private val app: () -> AuroraApplication) {
         val start = maxOf(startAt, now)
         val end = startAt + j.getValue("minutes").jsonPrimitive.long * 60_000
         val zone = ZoneId.of(j.getValue("zone").jsonPrimitive.content)
-        if (denyQuota || !committedFits(Plan.Free, a.runtime.value?.ledger.orEmpty(), start, end, zone)) {
-            return HttpReply(200, """{"allowed":false,"usedMs":7200000,"limitMs":7200000,"remainingMs":0,"resetAt":${now + 3_600_000}}""")
+        val ledger = a.runtime.value?.ledger.orEmpty()
+        if (denyQuota) return HttpReply(200, """{"allowed":false,"usedMs":7200000,"limitMs":7200000,"remainingMs":0,"resetAt":${now + 3_600_000}}""")
+        if (!committedFits(Plan.Free, ledger, start, end, zone)) {
+            // Like the real service: a refusal reports what is actually left today, not zero.
+            val q = quotaStatus(Plan.Free, ledger, now, zone)
+            return HttpReply(200, """{"allowed":false,"usedMs":${q.usedMs},"limitMs":${q.limitMs},"remainingMs":${q.remainingMs},"resetAt":${q.resetAt}}""")
         }
         val payload = """{"type":"reservation","reservationId":"${UUID.randomUUID()}","uid":"${a.account.uid}","installId":"${j.getValue("installId").jsonPrimitive.content}","commitmentId":"${j.getValue("commitmentId").jsonPrimitive.content}","start":$start,"end":$end,"tier":"free","usedMs":0,"limitMs":7200000,"remainingMs":7200000,"resetAt":${now + 3_600_000},"packageName":"${a.packageName}"}"""
         return HttpReply(200, """{"allowed":true,"tier":"free","authorization":${signed(payload)}}""")

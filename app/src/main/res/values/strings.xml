@@ -18,7 +18,6 @@
     <string name="tab_today">Today</string>
     <string name="tab_insights">Insights</string>
     <string name="focus_name">Focus</string>
-    <string name="limits_name">Daily limits</string>
     <string name="groups_name">Groups</string>
     <string name="intent_name">Intentional App Opening</string>
 
@@ -150,6 +149,7 @@
     <string name="reclaimed_today">Today</string>
     <string name="reclaimed_week">This week</string>
     <string name="reclaimed_overall">Overall</string>
+    <string name="home_reclaimed_first">Start your first session. Time you spend away from blocked apps counts here.</string>
     <plurals name="week_dots_spoken">
         <item quantity="one">%d day with progress this week</item>
         <item quantity="other">%d days with progress this week</item>
@@ -160,7 +160,6 @@
 
     <!-- Approved copy retained as a brand contract in CopyTest. -->
     <string name="protect_headline" tools:ignore="UnusedResources">Never get distracted from what matters.</string>
-    <string name="protect_add_apps">Add apps</string>
     <string name="session_ends_at">Ends at %1$s</string>
     <string name="session_turn_off">Turn off protection</string>
     <string name="session_turn_off_title">Turn off protection?</string>
@@ -215,9 +214,6 @@
     <string name="item_task">Task</string>
     <string name="item_intent_on">On · asks before it opens</string>
     <string name="item_intent_off">Off</string>
-    <string name="item_limit_toggle">Daily limit</string>
-    <string name="item_limit_hint">Blocks the app once today\'s measured use reaches the limit.</string>
-    <string name="item_limit_prompt">How much time per day?</string>
     <string name="item_remove">Remove from protected apps</string>
     <string name="item_remove_title">Remove %1$s?</string>
     <string name="item_remove_body">It leaves your protected apps, and any protection you can turn off.</string>
@@ -237,14 +233,7 @@
     <string name="schedule_weekends">Weekends</string>
 
     <!-- Daily limits -->
-    <string name="limits_subtitle">Time per app per day, measured from real use. Resets at midnight.</string>
-    <string name="limits_empty_title">Add an app first</string>
-    <string name="limits_empty_body">Limits apply to your protected apps.</string>
-    <string name="limits_count">Limits on: %1$s</string>
-    <string name="limits_none">No limit</string>
-    <string name="limits_paused">%1$s a day · paused on Aurora Free</string>
     <string name="limits_per_day">%1$s a day</string>
-    <string name="limits_note">Measured from Android\'s usage records, so it needs usage access. Aurora checks again at least once a minute while a limited app is open.</string>
 
     <!-- Groups -->
 
@@ -316,14 +305,11 @@
     <!-- Supporting screens: proposed copy, pending founder review. -->
     <string name="settings_allowed">Allowed</string>
     <string name="settings_aurora_free">Aurora Free</string>
-    <string name="settings_plus">Plus</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_reduce_motion">Reduce motion</string>
     <string name="settings_on_because_animations_are_off_in_android_settings">On, because animations are off in Android settings.</string>
     <string name="settings_no_ambient_movement_or_sliding_transitions">No ambient movement or sliding transitions.</string>
     <string name="settings_preferred_mode_for_new_apps">Preferred mode for new Shields</string>
-    <string name="settings_web_content_shield">Web &amp; content Shield</string>
-    <string name="settings_optional_websites_and_shorts_reels">Optional. Websites and Shorts/Reels.</string>
     <string name="settings_what_aurora_can_see_about_shield_on_this_phone">What Aurora can see about Shield on this phone.</string>
     <string name="settings_permissions">Permissions</string>
     <string name="settings_turned_off_in_android_settings_insights_and_daily_limits_need_it">Turned off in Android Settings. Track needs it.</string>
@@ -406,7 +392,6 @@
     <string name="plus_more_room_for_every_part_of_your_day">More room, for every part of your day.</string>
     <string name="plus_free_protects_just_as_strongly_as_plus_plus_removes_the_limits_s">Free protects just as strongly as Plus. Plus removes the limits, so Aurora can cover everything you care about.</string>
     <string name="plus_free_and_plus">Free and Plus</string>
-    <string name="plus_free">Free</string>
     <string name="plus_unavailable">Plans load from Google Play. They aren\'t available on this device right now.</string>
     <string name="plus_downgrading_never_deletes_anything_items_past_free_s_limits_are">Downgrading never deletes anything. Items past Free\'s limits are saved and paused, and you choose which ones stay on.</string>
     <string name="plus_your_subscription">Your subscription</string>
@@ -571,7 +556,7 @@
     <string name="when_always_desc">Applies until you turn it off.</string>
     <string name="when_always_blocked">Not available with a Strict, Cooldown or Friction Shield. A permanent commitment can\'t be made by accident: choose a finite time or a schedule.</string>
     <string name="cfg_how_long">How long?</string>
-    <string name="cfg_how_long_hint">A custom time can be any length up to 24 hours.</string>
+    <string name="cfg_how_long_hint">A custom time can be any length up to %1$s.</string>
     <string name="later_date">Date</string>
     <string name="later_time">Start time</string>
     <string name="later_today">Today</string>
@@ -647,10 +632,6 @@
     <string name="preset_delete_title">Delete %1$s?</string>
     <string name="preset_delete_body">It\'s removed from your library. Anything running keeps going until it ends.</string>
     <string name="preset_delete_blocked">Used by %1$s. Change or delete those sessions first.</string>
-    <string name="shield_limits_row">Daily limits</string>
-    <string name="shield_limits_row_body">A budget per app, every day</string>
-    <string name="shield_web_row">Web &amp; content</string>
-    <string name="shield_web_row_body">Short videos and reels, experimental</string>
     <string name="shield_name_title">Name your Shield</string>
     <string name="shield_apps_title">Choose apps</string>
     <string name="shield_apps_body">Settings, the phone and Aurora are never blocked.</string>
@@ -1036,6 +1017,5 @@
     <string name="detail_result">Result</string>
     <string name="detail_ended_early">Turned off early</string>
     <string name="detail_bypassed">Shield was switched off outside Aurora</string>
-    <string name="detail_opened">Opened during the session</string>
     <string name="usage_most_used_per_day">Most used · average per day</string>
 </resources>

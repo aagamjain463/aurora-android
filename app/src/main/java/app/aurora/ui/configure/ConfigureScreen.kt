@@ -415,7 +415,7 @@ fun ConfigureScreen(
                 item(key = "duration") {
                     DurationPicker(
                         minutes, { minutes = it }, ProtectionPresets.filter { it <= max }.let { if (whenKind == When.Now) listOf(15, 30, 60, 360).filter { m -> m <= max } else it },
-                        title = stringResource(R.string.cfg_how_long), hint = stringResource(R.string.cfg_how_long_hint),
+                        title = stringResource(R.string.cfg_how_long), hint = stringResource(R.string.cfg_how_long_hint, minutesText(max.coerceAtLeast(1))),
                         max = max.coerceAtLeast(1), endsFromNow = whenKind == When.Now,
                         customInitially = custom,
                     )
