@@ -1,8 +1,43 @@
 package app.aurora.protect
 
+import androidx.annotation.StringRes
+import app.aurora.R
+
 /*
- * Website matching for the Web & content Shield. Pure Kotlin, unit tested (WebTest).
+ * Website and app-part matching for the Web & content Shield. Pure Kotlin, unit tested (WebTest).
  */
+
+const val PartPrefix = "part:"
+const val YouTube = "com.google.android.youtube"
+const val PartShorts = "part:youtube.shorts"
+const val PartReels = "part:instagram.reels"
+const val PartInstagramFeed = "part:instagram.feed"
+const val PartInstagramSearch = "part:instagram.search"
+
+/**
+ * A part of an app that a Shield holds back on its own, like an app or a site, while the rest of [owner]
+ * stays open. Experimental: detection reads view IDs those apps can change at any update.
+ */
+data class AppPart(val key: String, val owner: String, @StringRes val name: Int, @StringRes val body: Int)
+
+val AppParts = listOf(
+    AppPart(PartShorts, YouTube, R.string.part_shorts, R.string.part_shorts_body),
+    AppPart(PartReels, Instagram, R.string.part_reels, R.string.part_reels_body),
+    AppPart(PartInstagramFeed, Instagram, R.string.part_ig_feed, R.string.part_ig_feed_body),
+    AppPart(PartInstagramSearch, Instagram, R.string.part_ig_search, R.string.part_ig_search_body),
+)
+
+fun partOf(key: String): AppPart? = AppParts.find { it.key == key }
+
+/** The old global switches ([Rules.content]) and the parts each one becomes. */
+val LegacyContent = mapOf(
+    "youtube_shorts" to listOf(PartShorts),
+    "instagram_reels" to listOf(PartReels),
+    "instagram_feed" to listOf(PartInstagramFeed, PartInstagramSearch),
+)
+
+/** Websites and parts of apps are only seen once the Web & content Shield is on. */
+fun needsContentShield(keys: Collection<String>): Boolean = keys.any { it.startsWith(WebPrefix) || it.startsWith(PartPrefix) }
 
 /** Where each supported browser shows its address. Only these browsers are covered. */
 val BrowserAddressBars = mapOf(
@@ -40,7 +75,7 @@ fun webKeyFor(host: String, keys: Collection<String>): String? = keys
 
 /** View IDs that mean a short-video feed is open. They change with app updates: experimental. */
 val ContentSurfaces = mapOf(
-    ContentShorts to ("com.google.android.youtube" to listOf(
+    PartShorts to (YouTube to listOf(
         "com.google.android.youtube:id/reel_player_page_container",
         "com.google.android.youtube:id/reel_recycler",
         "com.google.android.youtube:id/reel_watch_player",
@@ -69,25 +104,28 @@ data class InstagramScreen(
 
 sealed interface InstagramVerdict {
     data object Allow : InstagramVerdict
-    /** The Reels tab: go back. */
+    /** The Reels tab: the Shield. */
     data object Leave : InstagramVerdict
-    /** A reel opened from a message or a post: it plays, but moving on to another reel goes back. */
+    /** A reel opened from a message or a post: it plays, but moving on to another reel brings the Shield. */
     data object OneReel : InstagramVerdict
     /** Cover this band of the screen, so posts or Search can't be seen or touched. */
-    data class Cover(val top: Int, val bottom: Int, val search: Boolean) : InstagramVerdict
+    data class Cover(val top: Int, val bottom: Int, val search: Boolean) : InstagramVerdict {
+        val key: String get() = if (search) PartInstagramSearch else PartInstagramFeed
+    }
 }
 
 /**
- * What Aurora does on this Instagram screen. [reels]: the Reels tab is off and other reels play one at a
- * time. [feed]: Home posts and Search are covered; stories, messages and profiles stay.
+ * What Aurora does on this Instagram screen, given the parts a Shield holds back right now. [reels]: the
+ * Reels tab is shielded and other reels play one at a time. [feed]: Home posts are covered. [search]:
+ * Search is covered. Stories, messages and profiles always stay.
  */
-fun instagramVerdict(s: InstagramScreen, reels: Boolean, feed: Boolean, screenBottom: Int): InstagramVerdict {
+fun instagramVerdict(s: InstagramScreen, reels: Boolean, feed: Boolean, search: Boolean, screenBottom: Int): InstagramVerdict {
     val bottom = s.tabBarTop ?: screenBottom
     return when {
         s.storyViewer -> InstagramVerdict.Allow
         reels && s.tab == "clips_tab" -> InstagramVerdict.Leave
         s.reelViewer -> if (reels) InstagramVerdict.OneReel else InstagramVerdict.Allow
-        feed && s.tab == "search_tab" -> InstagramVerdict.Cover(0, bottom, search = true)
+        search && s.tab == "search_tab" -> InstagramVerdict.Cover(0, bottom, search = true)
         // Below the stories row (or the header, once the row has scrolled away), down to the tab bar.
         feed && s.tab == "feed_tab" && s.posts -> maxOf(s.storiesBottom ?: 0, s.headerBottom ?: 0)
             .let { top -> if (top < bottom) InstagramVerdict.Cover(top, bottom, search = false) else InstagramVerdict.Allow }

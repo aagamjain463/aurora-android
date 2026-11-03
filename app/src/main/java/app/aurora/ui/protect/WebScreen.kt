@@ -31,10 +31,7 @@ import app.aurora.data.openAccessSettings
 import app.aurora.plan.Allowance
 import app.aurora.plan.ProtectedItem
 import app.aurora.protect.BrowserNames
-import app.aurora.protect.ContentInstagramFeed
-import app.aurora.protect.ContentReels
 import app.aurora.protect.ContentService
-import app.aurora.protect.ContentShorts
 import app.aurora.protect.key
 import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
@@ -51,8 +48,6 @@ import app.aurora.ui.components.RowGroup
 import app.aurora.ui.components.SectionLabel
 import app.aurora.ui.components.SkeletonRows
 import app.aurora.ui.components.StatusPill
-import app.aurora.ui.components.Tag
-import app.aurora.ui.components.ToggleRow
 import app.aurora.ui.components.allowanceText
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
@@ -82,10 +77,10 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
             val on = access == AccessState.Granted
             Column(
                 Modifier
-                    .padding(horizontal = Space.M)
+                    .padding(horizontal = Space.Gutter)
                     .padding(top = Space.M)
                     .fillMaxWidth()
-                    .glass(colors, Radius.L, tint = if (on && connected) colors.accent else colors.violet)
+                    .glass(colors, Radius.L)
                     .padding(Space.M),
                 verticalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
@@ -115,7 +110,7 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
         val sites = d.list.items.filterIsInstance<ProtectedItem.Website>()
         item(key = "sites") {
             SectionLabel(stringResource(R.string.web_items, allowanceText(d.active.size, d.max(Allowance.ProtectedItems))))
-            Row(Modifier.padding(horizontal = Space.M), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
+            Row(Modifier.padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                 AuroraTextField(
                     domain,
                     { domain = it.take(253); error = null },
@@ -144,30 +139,7 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
                 }
             }
         }
-        item(key = "content") {
-            SectionLabel(stringResource(R.string.web_feeds))
-            RowGroup {
-                for ((i, surface) in listOf(ContentShorts, ContentReels, ContentInstagramFeed).withIndex()) {
-                    if (i > 0) RowDivider()
-                    val on = surface in d.rules.content
-                    val (title, body) = when (surface) {
-                        ContentShorts -> R.string.web_shorts to R.string.web_shorts_body
-                        ContentReels -> R.string.web_reels to R.string.web_reels_body
-                        else -> R.string.web_ig_feed to R.string.web_ig_feed_body
-                    }
-                    ToggleRow(
-                        title = stringResource(title),
-                        subtitle = stringResource(body),
-                        checked = on,
-                        onCheckedChange = { want -> vm.edit { r -> r.copy(content = if (want) r.content + surface else r.content - surface) } },
-                    )
-                }
-            }
-            Row(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S), horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
-                Tag(stringResource(R.string.web_experimental))
-                Text(stringResource(R.string.web_experimental_body), color = colors.textTertiary, style = AuroraType.Caption)
-            }
-        }
+        item(key = "parts") { WebHint(stringResource(R.string.web_parts_moved)) }
     }
 
     if (disclosure) AuroraDialog(

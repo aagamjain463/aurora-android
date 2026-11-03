@@ -1,6 +1,6 @@
 package app.aurora.ui.strict
 
-import app.aurora.ui.components.RollingClock
+import app.aurora.ui.components.FocusDial
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,13 +25,10 @@ import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.auroraViewModel
 import app.aurora.data.formatClock
-import app.aurora.protect.FocusOutcome
 import app.aurora.protect.UninstallGuard
 import app.aurora.protect.lockedUntil
-import app.aurora.reportFocusNow
 import app.aurora.runsNow
 import app.aurora.ui.components.ArtTier
-import app.aurora.ui.components.Sky
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraScreen
 import app.aurora.ui.components.ButtonKind
@@ -49,7 +46,7 @@ import kotlinx.coroutines.launch
 /** Whether a lock works on its own, or needs uninstall protection turned on (docs/CONFIGURATIONS.md "Strict protection"). */
 enum class Capability { Works, Setup }
 
-/** What Always Block, Cooldown and Friction lock while they run. Only Flexible can be undone. */
+/** What Strict, Cooldown and Friction lock while they run. Only Flexible can be undone. */
 val StrictCapabilities = listOf(
     Triple(R.string.strict_cancel, R.string.strict_cancel_body, Capability.Works),
     Triple(R.string.strict_weaker, R.string.strict_weaker_body, Capability.Works),
@@ -65,7 +62,7 @@ fun StrictModeScreen(onBack: () -> Unit) {
     AuroraScreen(title = stringResource(R.string.strict_title), subtitle = stringResource(R.string.strict_body), onBack = onBack) {
         items(StrictCapabilities, key = { it.first }) { (title, body, cap) ->
             Column(
-                Modifier.padding(horizontal = Space.M).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors, warm = cap == Capability.Works).padding(Space.L),
+                Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors, warm = cap == Capability.Works).padding(horizontal = 22.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
@@ -75,7 +72,7 @@ fun StrictModeScreen(onBack: () -> Unit) {
                 Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
             }
         }
-        item(key = "admin") { UninstallProtection(Modifier.padding(horizontal = Space.M)) }
+        item(key = "admin") { UninstallProtection(Modifier.padding(horizontal = Space.Gutter)) }
         item(key = "limits") { Text(stringResource(R.string.strict_limits), Modifier.padding(Space.Gutter), color = colors.textTertiary, style = AuroraType.Caption) }
     }
 }
@@ -98,7 +95,7 @@ fun UninstallProtection(modifier: Modifier = Modifier) {
     // Read so a commitment starting or ending recomposes this.
     app.runtime.state.collectAsStateWithLifecycle().value
     val strictNow = app.policySnapshot(emptySet(), emptyMap())?.lockedUntil(app.now().wall) != null
-    Column(modifier.fillMaxWidth().auroraSurface(colors, warm = active).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+    Column(modifier.fillMaxWidth().auroraSurface(colors, warm = active).padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
         Text(stringResource(R.string.strict_admin_title), color = colors.textPrimary, style = AuroraType.Title)
         Text(stringResource(if (active) R.string.strict_admin_on else R.string.strict_admin_off), color = colors.textSecondary, style = AuroraType.Secondary)
         when {
@@ -118,21 +115,19 @@ fun FocusRunScreen(runId: String, onBack: () -> Unit) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val colors = Aurora.colors
-    val scope = vm.app.scope
     val d = data
     val run = d?.let { vm.app.runsNow(it.time).find { r -> r.id == runId } }
     val focus = run?.focus
-    val progress = if (d != null && run != null && focus != null) {
-        val target = focus.minutes?.let { it * 60_000L } ?: ((run.endAt(d.time) ?: d.time.wall) - run.startAt(d.time))
-        ((d.time.wall - run.startAt(d.time)).toFloat() / target.coerceAtLeast(1)).coerceIn(0f, 1f)
-    } else null
     AuroraScreen(
-        title = focus?.task.orEmpty(), onBack = onBack, art = ArtTier.Immersive, sky = Sky.Alive, arc = progress,
-        // The title sits on the lake, under the thread the time is running along.
+        title = focus?.task.orEmpty(), onBack = onBack, art = ArtTier.Immersive,
+        // Centred and quiet: the session it belongs to, then the task in the serif.
         header = {
-            androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = Space.Gutter).padding(top = 164.dp)) {
-                Text(focus?.task.orEmpty(), color = colors.headlineLead, style = AuroraType.Display)
-                run?.name?.let { Text(it, color = colors.textSecondary, style = AuroraType.Body) }
+            Column(Modifier.fillMaxWidth().padding(horizontal = Space.Gutter).padding(top = Space.M), horizontalAlignment = Alignment.CenterHorizontally) {
+                run?.name?.let { app.aurora.ui.components.Eyebrow(it, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+                Text(
+                    focus?.task.orEmpty(), Modifier.padding(top = Space.XS), color = colors.headlineLead, style = AuroraType.DisplayS,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
             }
         },
     ) {
@@ -142,36 +137,26 @@ fun FocusRunScreen(runId: String, onBack: () -> Unit) {
         val target = focus.minutes?.let { it * 60_000L } ?: ((end ?: d.time.wall) - start)
         val elapsed = (d.time.wall - start).coerceIn(0, target.coerceAtLeast(1))
         item(key = "ring") {
-            Column(Modifier.fillMaxWidth().padding(vertical = Space.L), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                RollingClock(formatClock(target - elapsed), colors.textPrimary, AuroraType.Hero)
-                Text(stringResource(R.string.focusrun_target, minutesText((target / 60_000).toInt())), color = colors.textSecondary, style = AuroraType.Secondary)
-                if (focus.goal.isNotBlank()) Text(focus.goal, color = colors.rose, style = AuroraType.BodyStrong)
-                if (focus.description.isNotBlank()) Text(focus.description, Modifier.padding(horizontal = Space.Gutter), color = colors.textSecondary, style = AuroraType.Body)
-                end?.let { Text(stringResource(R.string.focusrun_protection, clockTime(it)), color = colors.textTertiary, style = AuroraType.Caption) }
+            Column(Modifier.fillMaxWidth().padding(top = Space.L), horizontalAlignment = Alignment.CenterHorizontally) {
+                FocusDial(
+                    elapsed.toFloat() / target.coerceAtLeast(1), formatClock(target - elapsed), Modifier.fillMaxWidth(0.86f),
+                    label = stringResource(R.string.focus_remaining),
+                    caption = stringResource(R.string.focusrun_target, minutesText((target / 60_000).toInt())),
+                    spoken = stringResource(R.string.focus_spoken_remaining, app.aurora.data.spokenDuration(target - elapsed)),
+                )
             }
         }
-        item(key = "report") {
-            SectionLabel(stringResource(R.string.focusrun_report_title))
-            val reported = run.focusOutcome
-            Column(Modifier.padding(horizontal = Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                if (reported != null) Text(stringResource(R.string.focusrun_reported, outcomeLabel(reported)), color = colors.accent, style = AuroraType.BodyStrong)
-                listOf(FocusOutcome.Completed, FocusOutcome.Partial, FocusOutcome.NotCompleted).forEach { o ->
-                    AuroraButton(
-                        outcomeLabel(o), { scope.launch { vm.app.saving { vm.app.reportFocusNow(run.id, o) } } }, Modifier.fillMaxWidth(),
-                        kind = if (reported == o) ButtonKind.Primary else ButtonKind.Secondary,
-                    )
-                }
+        item(key = "words") {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = Space.Gutter).padding(top = Space.XL),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.S),
+            ) {
+                if (focus.goal.isNotBlank()) Text(focus.goal, color = colors.textPrimary, style = AuroraType.BodyStrong, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                if (focus.description.isNotBlank()) Text(focus.description, color = colors.textSecondary, style = AuroraType.Body, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                end?.let { Text(stringResource(R.string.focusrun_protection, clockTime(it)), Modifier.padding(top = Space.XS), color = colors.textTertiary, style = AuroraType.Caption) }
             }
         }
     }
 }
 
-@Composable
-private fun outcomeLabel(o: FocusOutcome): String = stringResource(
-    when (o) {
-        FocusOutcome.Completed -> R.string.focus_completed
-        FocusOutcome.Partial -> R.string.focus_partial
-        FocusOutcome.NotCompleted -> R.string.focus_not_completed
-    },
-)
 

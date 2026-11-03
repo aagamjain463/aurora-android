@@ -68,18 +68,18 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun RollingClock(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier, spoken: String = text) {
-    val semantics = modifier.clearAndSetSemantics { contentDescription = spoken }
-    BoxWithConstraints(contentAlignment = Alignment.Center) {
+    // The caller's size limits go on the box that measures, so the fit below sees them.
+    BoxWithConstraints(modifier.clearAndSetSemantics { contentDescription = spoken }, contentAlignment = Alignment.Center) {
         // A clock this large is already large text, and a day-long one is wide: fit it to the room there is.
         val density = LocalDensity.current
         val em = with(density) { style.fontSize.toDp() }
         val fit = minOf(1f / density.fontScale.coerceAtLeast(1f), maxWidth / (em * text.length * DigitWidth))
         val sized = if (fit < 1f) style.copy(fontSize = style.fontSize * fit, lineHeight = style.lineHeight * fit) else style
         if (Aurora.reducedMotion) {
-            Text(text, semantics, color = color, style = sized)
+            Text(text, color = color, style = sized)
             return@BoxWithConstraints
         }
-        Row(semantics) {
+        Row {
             text.forEach { c ->
                 AnimatedContent(
                     c,
@@ -95,8 +95,8 @@ fun RollingClock(text: String, color: Color, style: TextStyle, modifier: Modifie
     }
 }
 
-/** Average width of a clock's characters, in em, in the Hero cut. */
-private const val DigitWidth = 0.5f
+/** Average width of a clock's characters, in em, in the Hero cut (Geist tabular digits, colons included). */
+private const val DigitWidth = 0.58f
 
 /**
  * A tappable card or row: it sinks a little under the finger and springs back, with the ripple kept
@@ -113,48 +113,6 @@ fun Modifier.pressable(shape: Shape, role: Role = Role.Button, onClickLabel: Str
     graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
         .clickable(interaction, ripple(), role = role, onClickLabel = onClickLabel, onClick = onClick)
 }
-
-/**
- * Every few seconds a knot of brighter light wanders along a primary action, as one does along the ribbon. Put it
- * right after the fill, so it passes behind the label. Still with reduced motion, and where the sky is the painted still.
- */
-fun Modifier.ribbonKnot(): Modifier = composed {
-    if (Aurora.reducedMotion || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@composed this
-    val hot = Aurora.colors.glowHot
-    val cycle = rememberInfiniteTransition(label = "knot").animateFloat(0f, 1f, infiniteRepeatable(tween(KnotMs, easing = LinearEasing)), label = "knot")
-    drawBehind {
-        val p = (cycle.value - KnotRests) / (1f - KnotRests)
-        if (p <= 0f) return@drawBehind
-        val x = size.width * (-0.3f + 1.6f * p)
-        val reach = size.width * 0.28f
-        drawRect(Brush.horizontalGradient(listOf(Color.Transparent, hot.copy(alpha = 0.78f), Color.Transparent), startX = x - reach, endX = x + reach))
-    }
-}
-
-private const val KnotMs = 5500
-private const val KnotRests = 0.45f
-
-/**
- * A knot of light that travels the rim of a card every few seconds. For the one card a screen leads with: it asks
- * for a redraw every frame. Still with reduced motion, and where the sky is the painted still.
- */
-fun Modifier.rimLight(shape: Shape): Modifier = composed {
-    if (Aurora.reducedMotion || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@composed this
-    val colors = Aurora.colors
-    val cycle = rememberInfiniteTransition(label = "rim").animateFloat(0f, 1f, infiniteRepeatable(tween(RimMs, easing = LinearEasing)), label = "rim")
-    drawWithContent {
-        drawContent()
-        val x = size.width * (-0.4f + 1.8f * cycle.value)
-        val reach = size.width * 0.34f
-        drawOutline(
-            shape.createOutline(size, layoutDirection, this),
-            Brush.linearGradient(listOf(Color.Transparent, colors.accent.copy(alpha = 0.95f), Color.Transparent), Offset(x - reach, 0f), Offset(x + reach, size.height)),
-            style = Stroke(1.5.dp.toPx()),
-        )
-    }
-}
-
-private const val RimMs = 6500
 
 /** Set when a tab is chosen: the screen it opens performs its opening again. Coming back from a pushed screen does not. */
 object TabArrival { var fresh = false }

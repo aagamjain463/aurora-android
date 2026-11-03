@@ -10,7 +10,7 @@ import androidx.core.content.edit
 import kotlin.math.abs
 
 /**
- * The wall clock every protection decision reads. While a strict commitment runs (Always Block, Cooldown,
+ * The wall clock every protection decision reads. While a strict commitment runs (Strict, Cooldown,
  * Friction), it counts on Android's monotonic clock from an anchor, so moving the phone's date or time
  * neither ends a session nor finishes a wait. Across a restart only the system clock is left; the offset
  * between the two, saved whenever it moves, carries the correction over, so time while the phone was off

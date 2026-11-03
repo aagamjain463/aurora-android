@@ -1,5 +1,7 @@
 package app.aurora.ui.account
 
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -60,7 +62,6 @@ import app.aurora.account.bindProfile
 import app.aurora.account.decideLocalData
 import app.aurora.account.looksLikeEmail
 import app.aurora.ui.components.ArtTier
-import app.aurora.ui.components.AuroraBackdrop
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.AuroraLogo
@@ -69,7 +70,6 @@ import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ContentMaxWidth
 import app.aurora.ui.components.LoadingSurface
 import app.aurora.ui.components.Notice
-import app.aurora.ui.components.Sky
 import app.aurora.ui.components.TwoToneHeadline
 import app.aurora.ui.onboarding.Welcome
 import app.aurora.ui.theme.Aurora
@@ -124,9 +124,8 @@ fun AccountGate(firstRunOnboarded: Boolean, content: @Composable (onboarded: Boo
 }
 
 @Composable
-private fun GatePage(tier: ArtTier = ArtTier.Immersive, sky: Sky = Sky.Lit, content: @Composable () -> Unit) {
+private fun GatePage(tier: ArtTier = ArtTier.Immersive, content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) {
-        AuroraBackdrop(tier, sky = sky)
         Column(
             Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()
                 .verticalScroll(rememberScrollState()).padding(horizontal = Space.Gutter, vertical = Space.M),
@@ -160,11 +159,18 @@ private fun SignInFlow(showWelcome: Boolean) {
 
 @Composable
 private fun WelcomeStep(onBegin: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Aurora.colors.background)) {
-        AuroraBackdrop(ArtTier.Immersive, sky = Sky.Lit)
+    val colors = Aurora.colors
+    val navInset = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    Box(Modifier.fillMaxSize().background(colors.sky)) {
         Column(Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             Box(Modifier.weight(1f)) { Welcome() }
-            AuroraButton(stringResource(R.string.auth_welcome_begin), onBegin, Modifier.padding(horizontal = Space.Gutter, vertical = Space.M).fillMaxWidth())
+            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = 34.dp, bottom = (58.dp - navInset).coerceAtLeast(Space.M))) {
+                AuroraButton(stringResource(R.string.action_continue), onBegin, Modifier.fillMaxWidth())
+                Text(
+                    stringResource(R.string.onb_welcome_privacy), Modifier.fillMaxWidth().padding(top = 16.dp),
+                    color = colors.textTertiary, style = app.aurora.ui.theme.AuroraType.Caption, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
         }
     }
 }
@@ -256,7 +262,7 @@ private fun EnterEmail(prefill: String?, onBack: () -> Unit) {
             busy = false
         }
     }
-    GatePage(ArtTier.Balanced, Sky.Quiet) {
+    GatePage(ArtTier.Balanced) {
         Spacer(Modifier.heightIn(min = 96.dp))
         Text(stringResource(R.string.auth_email_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
         Text(stringResource(R.string.auth_email_body), color = colors.textSecondary, style = AuroraType.Body)
@@ -287,7 +293,7 @@ private fun EmailFlow(step: EmailStep, onBack: () -> Unit) {
                 }
             }
             val wait = ((step.sentAt + ResendAfterMs - now + 999) / 1000).coerceAtLeast(0).toInt()
-            GatePage(ArtTier.Balanced, Sky.Quiet) {
+            GatePage(ArtTier.Balanced) {
                 Spacer(Modifier.heightIn(min = 96.dp))
                 Text(stringResource(R.string.auth_inbox_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
                 Text(stringResource(R.string.auth_inbox_body, step.email), color = colors.textSecondary, style = AuroraType.Body)
@@ -303,7 +309,7 @@ private fun EmailFlow(step: EmailStep, onBack: () -> Unit) {
         }
         is EmailStep.NeedsAddress -> {
             var address by rememberSaveable { mutableStateOf("") }
-            GatePage(ArtTier.Balanced, Sky.Quiet) {
+            GatePage(ArtTier.Balanced) {
                 Spacer(Modifier.heightIn(min = 96.dp))
                 Text(stringResource(R.string.auth_address_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
                 Text(stringResource(R.string.auth_address_body), color = colors.textSecondary, style = AuroraType.Body)
@@ -311,7 +317,7 @@ private fun EmailFlow(step: EmailStep, onBack: () -> Unit) {
                 AuroraButton(stringResource(R.string.auth_address_continue), { scope.launch { app.account.finishLinkWithAddress(address, step.link) } }, Modifier.fillMaxWidth(), enabled = address.isNotBlank())
             }
         }
-        EmailStep.Completing, EmailStep.Verified -> GatePage(ArtTier.Balanced, Sky.Quiet) {
+        EmailStep.Completing, EmailStep.Verified -> GatePage(ArtTier.Balanced) {
             Spacer(Modifier.heightIn(min = 96.dp))
             Text(
                 stringResource(if (step == EmailStep.Verified) R.string.auth_verified_title else R.string.auth_verifying),
@@ -319,7 +325,7 @@ private fun EmailFlow(step: EmailStep, onBack: () -> Unit) {
             )
             if (step == EmailStep.Verified) Text(stringResource(R.string.auth_verified_body), color = colors.textSecondary, style = AuroraType.Body)
         }
-        is EmailStep.Failed -> GatePage(ArtTier.Balanced, Sky.Quiet) {
+        is EmailStep.Failed -> GatePage(ArtTier.Balanced) {
             Spacer(Modifier.heightIn(min = 96.dp))
             val title = when (step.failure) {
                 AuthFailure.ExpiredLink -> R.string.auth_link_expired_title
@@ -346,7 +352,7 @@ private fun KeepYourSetup(user: AuthUser) {
         busy = true
         app.scope.launch { app.saving { app.decideLocalData(user.uid, keep) }; busy = false }
     }
-    GatePage(ArtTier.Balanced, Sky.Quiet) {
+    GatePage(ArtTier.Balanced) {
         Spacer(Modifier.heightIn(min = 96.dp))
         Text(stringResource(R.string.migrate_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
         Text(stringResource(R.string.migrate_body, user.email.orEmpty()), color = colors.textSecondary, style = AuroraType.Body)
@@ -362,7 +368,7 @@ private fun BindFailed(user: AuthUser) {
     val app = LocalContext.current.applicationContext as AuroraApplication
     val colors = Aurora.colors
     var busy by remember { mutableStateOf(false) }
-    GatePage(ArtTier.Balanced, Sky.Quiet) {
+    GatePage(ArtTier.Balanced) {
         Spacer(Modifier.height(Space.L))
         Text(stringResource(R.string.account_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
         Text(stringResource(R.string.account_bind_failed), color = colors.textSecondary, style = AuroraType.Body)
@@ -397,7 +403,7 @@ private fun DeletionScheduled(requestedAt: Long) {
     val scope = rememberCoroutineScope()
     var failed by remember { mutableStateOf(false) }
     val date = DateFormat.getDateInstance(DateFormat.LONG).format(Date(requestedAt + DeletionGraceMs))
-    GatePage(ArtTier.Balanced, Sky.Quiet) {
+    GatePage(ArtTier.Balanced) {
         Spacer(Modifier.heightIn(min = 96.dp))
         Text(stringResource(R.string.deleting_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
         Text(stringResource(R.string.deleting_body, date), color = colors.textSecondary, style = AuroraType.Body)

@@ -21,7 +21,7 @@ class CopyTest {
             R.string.today_description to "Reclaim your time and own your attention.",
             R.string.today_metric_label to "Time Reclaimed",
             R.string.track_headline to "See your progress. Own your growth.",
-            R.string.home_ready_title to "Custom Sessions",
+            R.string.home_ready_title to "Saved Sessions",
             R.string.shield_library_headline to "Shield yourself from distractions.",
             R.string.intent_tab_title to "Use with purpose. Not impulse.",
             R.string.intent_step_pause_body to "Pause for a moment to decide if you actually want to use the app you opened.",

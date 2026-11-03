@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.imageResource
@@ -88,9 +89,9 @@ internal fun opensWithFirstLight(recreated: Boolean, awayMs: Long?, touchExplori
 internal fun stepOpening(p: Float, dt: Float, ms: Int): Float = (p + dt * 1000f / ms).coerceAtMost(1f)
 
 /**
- * First Light: the approved logo forms along its own ribbons on midnight green, holds, and the night fades off the
+ * First Light: the mark settles in on the page colour, holds, and the night fades off the
  * real page as it rises into place. This is the only place the logo animates: the system splash before it is empty
- * midnight green, so the logo can't form twice. A tap hurries it. With reduced motion the finished logo fades straight
+ * page colour, so the mark can't appear twice. A tap hurries it. With reduced motion the finished logo fades straight
  * away. It only ever draws, so nothing else waits on it.
  */
 @Composable
@@ -132,44 +133,42 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
         }
         Opening.finish()
     }
-    val logo = ImageBitmap.imageResource(R.drawable.logo_full)
-    val reveal = if (!reduced && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) rememberReveal(logo) else null
+    val mark = androidx.compose.ui.res.painterResource(R.drawable.ic_aurora_mark)
+    // The opening is always night, whatever the theme: the mark is lit by the dawn and the sun's glow gathers under it.
+    val dawnColors = app.aurora.ui.theme.DarkColors
     val night = colorResource(R.color.aurora_splash)
     Box(
         modifier.fillMaxSize()
             .pointerInput(Unit) { detectTapGestures { pace = minOf(pace, HurryMs) } }
             .clearAndSetSemantics { }
             .drawWithCache {
-                val k = LogoDpPerMasterPx * density
-                val logoSize = Size(LogoMasterWidth * k, LogoMasterHeight * k)
-                val left = size.width / 2f - LogoCentreX * k
-                val top = size.height / 2f - LogoCentreY * k
-                val centre = Offset(size.width / 2f, size.height / 2f)
-                val radius = HaloDp * density
-                val halo = Brush.radialGradient(listOf(Palette.Aurora500.copy(alpha = 0.07f), Palette.Aurora500.copy(alpha = 0.02f), Color.Transparent), centre, radius)
-                val warm = Brush.radialGradient(listOf(Palette.Gold400.copy(alpha = 0.05f), Color.Transparent), centre + Offset(radius * 0.30f, -radius * 0.04f), radius * 0.6f)
+                val markSize = Size(MarkDp * density, MarkDp * density * mark.intrinsicSize.height / mark.intrinsicSize.width)
+                val left = size.width / 2f - markSize.width / 2f
+                val top = size.height / 2f - markSize.height / 2f
                 val rise = RiseDp * density
-                reveal?.setSize(logoSize)
+                val dawn = androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(dawnColors.light, dawnColors.glowTop, dawnColors.glowHot, dawnColors.glowCool), startY = 0f, endY = markSize.height,
+                )
+                val sun = Offset(size.width / 2f, top + markSize.height * 1.02f)
+                val glowR = 170f * density
+                val glow = androidx.compose.ui.graphics.Brush.radialGradient(
+                    0f to dawnColors.glowHot.copy(alpha = 0.42f), 0.45f to dawnColors.glowCool.copy(alpha = 0.14f), 1f to Color.Transparent,
+                    center = sun, radius = glowR,
+                )
                 onDrawBehind {
                     val v = p
                     val form = (v * TotalMs / FormMs).coerceIn(0f, 1f)
                     val gone = leaving(v)
                     drawRect(night, alpha = 1f - gone)
-                    // The halo arrives with the finished logo and is the last to leave, rising into the page's sky.
-                    val lit = smooth((form - 0.62f) / 0.38f) * (1f - gone * gone)
-                    if (lit > 0f) translate(top = -gone * rise * 3f) {
-                        drawRect(halo, alpha = lit)
-                        drawRect(warm, alpha = lit)
-                    }
-                    translate(left, top - gone * rise) {
-                        if (reveal != null) {
-                            reveal.setProgress(form)
-                            drawRect(reveal.brush, size = logoSize, alpha = 1f - gone)
-                        } else {
-                            // Below Android 13, and with reduced motion: the logo, whole.
-                            val shown = if (reduced) 1f else smooth(form)
-                            drawImage(logo, dstSize = IntSize(logoSize.width.toInt(), logoSize.height.toInt()), alpha = shown * (1f - gone), filterQuality = FilterQuality.High)
-                        }
+                    // The mark rises in from just below like the sun, lit by the dawn, holds, and lifts away with the night.
+                    val shown = if (reduced) 1f else smooth(form)
+                    scale(1.7f, 0.8f, pivot = sun) { drawCircle(glow, glowR, sun, alpha = shown * (1f - gone)) }
+                    translate(left, top + (1f - shown) * rise - gone * rise) {
+                        val layer = androidx.compose.ui.graphics.Paint().apply { alpha = shown * (1f - gone) }
+                        drawContext.canvas.saveLayer(androidx.compose.ui.geometry.Rect(Offset.Zero, markSize), layer)
+                        with(mark) { draw(markSize) }
+                        drawRect(dawn, size = markSize, blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn)
+                        drawContext.canvas.restore()
                     }
                 }
             },
@@ -183,35 +182,8 @@ private fun smooth(v: Float): Float {
     return k * k * (3f - 2f * k)
 }
 
-/** Only ever built on Android 13+, by [rememberReveal]. */
-@SuppressLint("NewApi")
-private class Reveal(private val shader: RuntimeShader) {
-    val brush = ShaderBrush(shader)
-    fun setSize(size: Size) = shader.setFloatUniform("size", size.width, size.height)
-    fun setProgress(p: Float) = shader.setFloatUniform("p", p)
-}
-
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
-@Composable
-private fun rememberReveal(logo: ImageBitmap): Reveal {
-    val map = ImageBitmap.imageResource(R.drawable.first_light_reveal)
-    return remember(logo, map) {
-        val shader = RuntimeShader(UnveilSource)
-        shader.setInputShader("logo", linear(logo))
-        // The map holds times, not colours, so it skips colour management.
-        shader.setInputBuffer("reveal", linear(map))
-        shader.setFloatUniform("logoPx", logo.width.toFloat(), logo.height.toFloat())
-        shader.setFloatUniform("mapPx", map.width.toFloat(), map.height.toFloat())
-        Reveal(shader)
-    }
-}
-
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
-private fun linear(image: ImageBitmap) =
-    BitmapShader(image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { filterMode = BitmapShader.FILTER_MODE_LINEAR }
-
-private const val TotalMs = 5500
-private const val FormMs = 3800
+private const val TotalMs = 2200
+private const val FormMs = 900
 private const val HurryMs = 350
 private const val ReducedMs = 1100
 private const val MaxStep = 1f / 30f
@@ -219,42 +191,15 @@ private const val CalmFrames = 4
 private const val CalmFrameNs = 24_000_000L
 private const val SettleMaxNs = 700_000_000L
 /** The page draws again under the opaque night, while the logo is still, so that frame's cost is never seen. */
-private const val ShowAt = 4250f / TotalMs
+private const val ShowAt = 1500f / TotalMs
 /** The finished logo has held for its moment: the night starts to fade and the page rises. */
-private const val PartAt = 4600f / TotalMs
+private const val PartAt = 1700f / TotalMs
 /** The night is nearly gone: Home's content can start its own entrance. Together they drop frames on a mid-range phone. */
-private const val ContentAt = 5300f / TotalMs
+private const val ContentAt = 2050f / TotalMs
 /** The night has gone: the sky over the page can start to rise. */
-private const val LeaveAt = 5450f / TotalMs
+private const val LeaveAt = 2150f / TotalMs
 private const val RiseDp = 14f
-private const val HaloDp = 230f
 private const val ReopenAfterMs = 5 * 60 * 1000L
 
-// The same size and centre as the still splash icon (brand/tools/final_logo.py).
-private const val LogoDpPerMasterPx = 1f / 5.625f
-private const val LogoMasterWidth = 980f
-private const val LogoMasterHeight = 844f
-private const val LogoCentreX = 485f
-private const val LogoCentreY = 382f
+private const val MarkDp = 72f
 
-/** Times come from brand/tools/first_light.py. At p = 1 this is the raster, untouched. */
-private const val UnveilSource = """
-uniform shader logo;
-uniform shader reveal;
-uniform float2 size;
-uniform float2 logoPx;
-uniform float2 mapPx;
-uniform float p;
-
-half4 main(float2 c) {
-    float2 uv = c / size;
-    half4 l = logo.eval(uv * logoPx);
-    float t = reveal.eval(uv * mapPx).r * 0.75;
-    float a = smoothstep(t, t + 0.12, p);
-    float age = clamp((p - t) / 0.25, 0.0, 1.0);
-    float d = (p - t - 0.03) / 0.04;
-    float front = exp(-d * d) * (1.0 - age);
-    half3 rgb = l.rgb * mix(half3(0.18, 0.78, 0.55), half3(1.0), age) + l.a * front * half3(0.19, 0.35, 0.26);
-    return half4(clamp(rgb, half3(0.0), half3(1.0)), l.a) * a;
-}
-"""

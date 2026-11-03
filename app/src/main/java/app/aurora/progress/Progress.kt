@@ -31,7 +31,7 @@ data class DayStats(
     /** Minutes of Focus sessions that ran to the end. Only these earn XP. */
     val completedFocusMinutes: Int = 0,
     val focusSessions: Int = 0,
-    /** Committed Always Block minutes (Phase 3: Lockdown minutes, migrated unchanged). */
+    /** Committed Strict minutes (Phase 3: Lockdown minutes, migrated unchanged). */
     @JsonNames("lockdownMinutes") val alwaysBlockMinutes: Int = 0,
     /** Friction tasks completed, and wrong answers given. */
     val frictionDone: Int = 0,
@@ -70,7 +70,7 @@ data class History(
     val days: Map<String, DayStats> = emptyMap(),
     /** Newest first. */
     val focus: List<FocusRecord> = emptyList(),
-    /** Starts of Always Block sessions already counted (Phase 3: Lockdowns), so counting is idempotent. */
+    /** Starts of Strict sessions already counted (Phase 3: Lockdowns), so counting is idempotent. */
     @JsonNames("lockdowns") val committed: List<Long> = emptyList(),
     /** Newest last. Kept for [KeepDays]; time away is computed from these. */
     val protection: List<ProtectionRecord> = emptyList(),
@@ -163,7 +163,7 @@ data class History(
 
 /**
  * XP for one day, from verified behaviour only: completed Focus (1 per 5 minutes, at most 24), going back
- * at a Shield or an intentional opening (2 each, at most 5 times), and committed Always Block time
+ * at a Shield or an intentional opening (2 each, at most 5 times), and committed Strict time
  * (1 per 10 minutes, at most 12). Opening aurora,
  * adding apps or tapping around earns nothing. The caps keep XP from becoming the reason to do anything.
  */

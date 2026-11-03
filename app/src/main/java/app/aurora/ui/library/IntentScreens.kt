@@ -56,29 +56,31 @@ import app.aurora.ui.theme.Space
 
 /** The Intent tab: saved Intent presets. Like Shield, it creates; Home starts. */
 @Composable
-fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSettings: () -> Unit) {
+fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSettings: () -> Unit, onOpenGuide: () -> Unit = {}) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     var deleting by remember { mutableStateOf<IntentPreset?>(null) }
+    var viewing by remember { mutableStateOf<IntentPreset?>(null) }
     val d = data
     AuroraScreen(
         title = stringResource(R.string.tab_intent),
         tabBar = true,
         art = ArtTier.Balanced,
-        header = { TabHeader(stringResource(R.string.intent_tab_title), onOpenSettings) },
+        header = { TabHeader(stringResource(R.string.intent_tab_title), onOpenSettings, app.aurora.ui.guide.GuideTopic.Intent, onOpenGuide) },
     ) {
         item(key = "create") {
-            AuroraButton(stringResource(R.string.intent_create), onCreate, Modifier.padding(horizontal = Space.M).padding(bottom = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
+            AuroraButton(stringResource(R.string.intent_create), onCreate, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
         }
         if (d == null) return@AuroraScreen
         val running = vm.app.runsNow(d.time).mapNotNull { it.intent?.id }.toSet()
         val presets = d.rules.intentPresets.sortedByDescending { it.createdAt }
         if (presets.isEmpty()) item(key = "empty") {
-            EmptyState(stringResource(R.string.intent_lib_empty_title), stringResource(R.string.intent_lib_empty_body), icon = AuroraIcons.Intent)
+            EmptyState(stringResource(R.string.intent_lib_empty_title), "", icon = AuroraIcons.Intent)
         }
         items(presets, key = { it.id }) { p ->
             PresetCard(
                 p.name, { Tag(pluralStringResource(R.plurals.count_apps, p.keys.size, p.keys.size), accent = true) }, intentSummary(p.config), p.keys, d, p.id in running,
+                onView = { viewing = p },
                 onEdit = { onEdit(p.id) },
                 onDuplicate = { vm.run { vm.app.saveIntentPreset(p.copy(id = newId(), name = vm.app.getString(R.string.preset_copy_name, p.name), createdAt = System.currentTimeMillis())) } },
                 onDelete = { deleting = p },
@@ -86,38 +88,16 @@ fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSe
                 edge = Aurora.colors.rose,
             )
         }
-        // Explained until the first Intent exists; after that, the person knows.
-        if (presets.isEmpty()) item(key = "how") { IntentHow() }
     }
     deleting?.let { p -> DeletePresetDialog(vm, p.id, p.name) { deleting = null } }
+    val shown = viewing
+    if (shown != null && d != null) DetailsDialog(shown.name, intentRows(shown, d), { viewing = null }) { onEdit(shown.id) }
 }
 
-/** Pause, decide, choose a time, use, follow through: one quiet line each. */
+/** An Intent in full: its pause and what follows, and every app it asks before. */
 @Composable
-private fun IntentHow() {
-    val colors = Aurora.colors
-    val steps = listOf(
-        R.string.intent_step_pause to R.string.intent_step_pause_body,
-        R.string.intent_step_decide to R.string.intent_step_decide_body,
-        R.string.intent_step_time to R.string.intent_step_time_body,
-        R.string.intent_step_use to R.string.intent_step_use_body,
-        R.string.intent_step_follow to R.string.intent_step_follow_body,
-    )
-    Column(Modifier.padding(top = Space.L)) {
-        SectionLabel(stringResource(R.string.intent_name))
-        Column(Modifier.padding(horizontal = Space.M).fillMaxWidth().auroraSurface(colors).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-            steps.forEachIndexed { i, (title, body) ->
-                Row(horizontalArrangement = Arrangement.spacedBy(Space.M)) {
-                    Text("${i + 1}", color = if (i == 4) colors.violetText else colors.accent, style = AuroraType.Label)
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(title), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                        Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
-                    }
-                }
-            }
-        }
-    }
-}
+fun intentRows(p: IntentPreset, d: app.aurora.ui.protect.ProtectData): List<Pair<String, String>> =
+    listOf(stringResource(R.string.detail_intent) to intentSummary(p.config)) + keyRows(p.keys, d)
 
 private enum class IntentStep { Name, Apps, Reflect, Time, Review }
 
@@ -188,12 +168,7 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
         when (step) {
             IntentStep.Name -> {
                 stepTitle(R.string.intent_name_title, null)
-                item(key = "name") { AuroraTextField(name, { name = it.take(40) }, stringResource(R.string.intent_name_placeholder), capitalization = KeyboardCapitalization.Words) }
-                item(key = "ideas") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        listOf("Mindful Social Media", "Intentional YouTube", "Controlled Gaming").forEach { Chip(it, name == it) { name = it } }
-                    }
-                }
+                item(key = "name") { AuroraTextField(name, { name = it.take(40) }, "", capitalization = KeyboardCapitalization.Words) }
             }
             IntentStep.Apps -> {
                 stepTitle(R.string.shield_apps_title, R.string.intent_overview_body)
@@ -265,7 +240,7 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
                 stepTitle(R.string.cfg_review_title, R.string.shield_review_note)
                 item(key = "review") {
                     val data by vm.data.collectAsStateWithLifecycle()
-                    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
                         Tag(pluralStringResource(R.plurals.count_apps, keys.size, keys.size), accent = true)
                         Text(name.trim(), color = colors.textPrimary, style = AuroraType.Headline)
                         Text(intentSummary(config), color = colors.textSecondary, style = AuroraType.Secondary)

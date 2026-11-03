@@ -38,7 +38,12 @@ object AuroraIcons {
         moveTo(18f, 19.5f); verticalLineTo(12f)
         circle(12f, 5.5f, 1.25f)
     }
-    val Protect = icon("protect") {
+    /** A clock face: when something ends. */
+    val Clock = icon("clock") {
+        circle(12f, 12f, 8.5f)
+        moveTo(12f, 7.5f); verticalLineTo(12f); lineTo(15f, 14f)
+    }
+        val Protect = icon("protect") {
         moveTo(12f, 3.5f); lineTo(19f, 6.2f); verticalLineTo(11.5f)
         curveTo(19f, 15.8f, 16f, 19.1f, 12f, 20.5f)
         curveTo(8f, 19.1f, 5f, 15.8f, 5f, 11.5f)
@@ -148,6 +153,12 @@ object AuroraIcons {
         circle(12f, 12f, 8f)
         moveTo(9.75f, 9.75f); arcTo(2.25f, 2.25f, 0f, true, true, 12f, 12f); verticalLineTo(13.25f)
         moveTo(12f, 16.25f); verticalLineTo(16.3f)
+    }
+    /** Info: a point of light over its line, in a circle. */
+    val Info = icon("info") {
+        circle(12f, 12f, 8f)
+        moveTo(12f, 11f); verticalLineTo(16f)
+        moveTo(12f, 8f); verticalLineTo(8.05f)
     }
     val Data = icon("data") {
         moveTo(5f, 6.5f); arcTo(7f, 2.5f, 0f, true, false, 19f, 6.5f); arcTo(7f, 2.5f, 0f, true, false, 5f, 6.5f)

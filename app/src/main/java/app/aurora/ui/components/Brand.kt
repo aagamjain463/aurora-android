@@ -1,11 +1,12 @@
 package app.aurora.ui.components
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -37,16 +39,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Motion
@@ -69,53 +73,64 @@ fun LoadingSurface(modifier: Modifier = Modifier) {
         modifier.fillMaxSize().background(Aurora.colors.background),
         contentAlignment = androidx.compose.ui.Alignment.Center,
     ) {
-        AuroraMark(64.dp, Modifier.graphicsLayer { alpha = shown.value })
+        AuroraMark(64.dp, Modifier.graphicsLayer { alpha = shown.value }, lit = true)
     }
 }
 
-/**
- * The official logo, symbol over wordmark, cut from brand/final/aurora-final-logo.png. It is light lifted off
- * the master's midnight, so it belongs on Aurora's night and nowhere paler.
- */
+/** The logo: the mark over the name, stacked, both in the page's ink. */
 @Composable
 fun AuroraLogo(width: Dp, modifier: Modifier = Modifier) {
-    Image(
-        androidx.compose.ui.res.painterResource(app.aurora.R.drawable.logo_full),
-        androidx.compose.ui.res.stringResource(app.aurora.R.string.app_name),
-        modifier.width(width).aspectRatio(LogoAspect),
-    )
+    val name = androidx.compose.ui.res.stringResource(app.aurora.R.string.app_name)
+    androidx.compose.foundation.layout.Column(
+        modifier.width(width).clearAndSetSemantics { contentDescription = name },
+        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+    ) {
+        AuroraMark(width * 0.42f, lit = true)
+        androidx.compose.foundation.layout.Spacer(Modifier.height(width * 0.08f))
+        Text(name, color = Aurora.colors.textPrimary, style = AuroraType.HeroBold.copy(fontSize = (width.value * 0.3f).sp, lineHeight = (width.value * 0.32f).sp))
+    }
 }
 
-/** The approved wordmark, as drawn in the master. Always beside or below the symbol, never reset in a font. */
+/** The name beside the mark, set in the interface's bold sans, as in the reference. */
 @Composable
 fun Wordmark(modifier: Modifier = Modifier) {
-    val name = androidx.compose.ui.res.stringResource(app.aurora.R.string.app_name)
-    Image(
-        androidx.compose.ui.res.painterResource(app.aurora.R.drawable.logo_wordmark),
-        null,
-        modifier.height(LockupMark * 0.8f).clearAndSetSemantics { semanticsText(androidx.compose.ui.text.AnnotatedString(name)) },
-        alignment = androidx.compose.ui.Alignment.CenterStart,
-        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+    Text(
+        androidx.compose.ui.res.stringResource(app.aurora.R.string.app_name),
+        modifier,
+        color = Aurora.colors.textPrimary,
+        style = AuroraType.HeroBold.copy(fontSize = 27.sp, lineHeight = 30.sp, letterSpacing = (-0.01).em),
+        maxLines = 1,
     )
 }
 
-/** The approved symbol, [size] tall, on Aurora's night. Decorative: the wordmark or the screen says the name. */
+/**
+ * The mark, [size] tall. [lit] fills it with the dawn (pale light at the peak, through gold and ember to rose at the
+ * feet), as on the launcher icon; otherwise it is in the page's ink. Decorative: the name or the screen says what it is.
+ */
 @Composable
-fun AuroraMark(size: Dp, modifier: Modifier = Modifier) {
-    Image(
-        androidx.compose.ui.res.painterResource(if (size <= 40.dp) app.aurora.R.drawable.logo_symbol_small else app.aurora.R.drawable.logo_symbol),
+fun AuroraMark(size: Dp, modifier: Modifier = Modifier, lit: Boolean = false) {
+    val colors = Aurora.colors
+    val dawn = if (colors.isDark) listOf(colors.light, colors.glowTop, colors.glowHot, colors.glowCool) else listOf(colors.glowHot, colors.light, colors.rose)
+    androidx.compose.material3.Icon(
+        androidx.compose.ui.res.painterResource(app.aurora.R.drawable.ic_aurora_mark),
         null,
-        modifier.height(size).aspectRatio(SymbolAspect),
+        modifier.height(size).aspectRatio(MarkAspect).then(
+            if (!lit) Modifier else Modifier
+                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(dawn), blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn)
+                },
+        ),
+        tint = colors.textPrimary,
     )
 }
 
-// The shapes of the cuts in brand/tools/final_logo.py.
-private const val LogoAspect = 980f / 844f
-private const val SymbolAspect = 980f / 672f
+private const val MarkAspect = 20f / 15.6f
 
 /** The symbol beside the wordmark: sized in dp, so it grows with text size to keep the lockup balanced. */
 val LockupMark: androidx.compose.ui.unit.Dp
-    @Composable get() = 30.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceIn(1f, 1.8f)
+    @Composable get() = 20.3.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceIn(1f, 1.8f)
 
 /**
  * The top of every tab screen: the symbol and wordmark at the left, Settings at the right. Aurora has no
@@ -123,25 +138,36 @@ val LockupMark: androidx.compose.ui.unit.Dp
  * the symbol.
  */
 @Composable
-fun AuroraHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = Modifier, title: String? = null) {
+fun AuroraHeader(onOpenSettings: (() -> Unit)?, modifier: Modifier = Modifier, title: String? = null, onInfo: (() -> Unit)? = null) {
     val colors = Aurora.colors
     androidx.compose.foundation.layout.Row(
-        modifier.fillMaxWidth().padding(start = Space.Gutter, end = Space.M, top = Space.XS, bottom = Space.XS),
+        modifier.fillMaxWidth().heightIn(min = 60.dp).padding(start = Space.Gutter, end = Space.Gutter),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        AuroraMark(LockupMark)
+        AuroraMark(LockupMark, lit = true)
         androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
         androidx.compose.foundation.layout.Column(Modifier.weight(1f).semantics(mergeDescendants = true) { }) {
             Wordmark()
             if (title != null) Text(title, color = colors.textSecondary, style = AuroraType.Caption)
         }
+        // What this screen offers, explained: a quiet round button beside Settings.
+        if (onInfo != null) {
+            androidx.compose.foundation.layout.Box(
+                Modifier.size(42.dp).clip(CircleShape).background(colors.elevated)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = androidx.compose.ui.res.stringResource(app.aurora.R.string.guide_open), onClick = onInfo),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
+                androidx.compose.material3.Icon(AuroraIcons.Info, androidx.compose.ui.res.stringResource(app.aurora.R.string.guide_open), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+            }
+            if (onOpenSettings != null) androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+        }
         if (onOpenSettings != null) {
             androidx.compose.foundation.layout.Box(
-                Modifier.size(48.dp).glass(colors, CircleShape)
+                Modifier.size(42.dp).clip(CircleShape).background(colors.elevated)
                     .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = androidx.compose.ui.res.stringResource(app.aurora.R.string.settings_title), onClick = onOpenSettings),
                 contentAlignment = androidx.compose.ui.Alignment.Center,
             ) {
-                androidx.compose.material3.Icon(AuroraIcons.Settings, androidx.compose.ui.res.stringResource(app.aurora.R.string.settings_title), tint = colors.textPrimary, modifier = Modifier.size(22.dp))
+                androidx.compose.material3.Icon(AuroraIcons.Settings, androidx.compose.ui.res.stringResource(app.aurora.R.string.settings_title), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -157,9 +183,39 @@ fun BrandEyebrow(text: String, modifier: Modifier = Modifier) {
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Space.S),
     ) {
         Canvas(Modifier.size(width = 28.dp, height = 12.dp).clearAndSetSemantics { }) {
-            drawLine(Brush.horizontalGradient(listOf(Color.Transparent, colors.accent)), Offset(0f, center.y), Offset(size.width, center.y), strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round)
+            drawLine(colors.textTertiary, Offset(0f, center.y), Offset(size.width, center.y), strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round)
         }
-        Text(text, color = colors.textSecondary, style = AuroraType.Eyebrow)
+        Eyebrow(text, color = colors.textSecondary)
+    }
+}
+
+/**
+ * The reference's greeting: the lead in body size ("Good morning,"), the last [tailWords] words large and bold on
+ * their own line ("Aagam"). The words themselves never change; only the break and the sizes are design.
+ */
+@Composable
+fun GreetingHeadline(text: String, modifier: Modifier = Modifier, tailWords: Int = 2) {
+    val colors = Aurora.colors
+    val words = text.split(" ")
+    val split = (words.size - tailWords).coerceIn(0, words.size)
+    androidx.compose.foundation.layout.Column(modifier.clearAndSetSemantics { heading(); semanticsText(androidx.compose.ui.text.AnnotatedString(text)) }) {
+        if (split > 0) Text(words.take(split).joinToString(" "), color = colors.headlineLead, style = AuroraType.Body.copy(fontSize = 16.sp, lineHeight = 22.sp))
+        Text(words.drop(split).joinToString(" "), color = colors.textPrimary, style = AuroraType.Display.copy(fontSize = 44.sp, lineHeight = 48.sp))
+    }
+}
+
+/**
+ * The hero headline: every word but the last [tailWords] light, then the tail large and bold on its own line
+ * ("Your phone." / "Your rules."). The words never change; only the break and the sizes are design.
+ */
+@Composable
+fun HeroHeadline(text: String, modifier: Modifier = Modifier, tailWords: Int = 2) {
+    val colors = Aurora.colors
+    val words = text.split(" ")
+    val split = (words.size - tailWords).coerceIn(0, words.size)
+    androidx.compose.foundation.layout.Column(modifier.clearAndSetSemantics { heading(); semanticsText(androidx.compose.ui.text.AnnotatedString(text)) }) {
+        if (split > 0) Text(words.take(split).joinToString(" "), color = colors.headlineLead, style = AuroraType.HeroLead)
+        Text(words.drop(split).joinToString(" "), Modifier.padding(top = 2.dp), color = colors.textPrimary, style = AuroraType.HeroBold)
     }
 }
 
@@ -202,130 +258,83 @@ fun TwoToneHeadline(
 }
 
 /**
- * The northern lights along the top of a screen without art, moving with every other sky in the app.
- * Takes no touches. Fills the top of the box it sits in.
+ * The Focus dial, shared by both Focus timers: an instrument, not a decoration. Sixty hairline ticks make a precision
+ * bezel around a single hairline track. The time held is drawn on the track in the dawn (rose where it began, warming
+ * through ember and gold to the light at its head, where a small sun rides) and every tick it has passed is lit the
+ * same way, so a finished session is a full sunrise. Inside: a tracked [label], the light tabular [clock] and one
+ * quiet [caption]. Nothing else. [progress] is 0..1 of the time held.
  */
 @Composable
-fun TopAurora(modifier: Modifier = Modifier) {
-    val colors = Aurora.colors
-    Box(
-        modifier.fillMaxWidth().height(300.dp).background(
-            Brush.verticalGradient(
-                0f to colors.accent.copy(alpha = if (colors.isDark) 0.11f else 0.10f),
-                0.5f to colors.glowTop.copy(alpha = if (colors.isDark) 0.035f else 0.03f),
-                1f to Color.Transparent,
-            ),
-        ),
-    ) { AuroraGlow(Modifier.fillMaxSize()) }
-}
-
-/**
- * The signature atmosphere: light rising from the bottom edge of the box it fills.
- * [intensity] is how much light (0 idle → 1 active); [warmth] shifts it from aurora green toward dawn.
- * Breathes slowly while [breathing], unless motion is reduced. With [horizon] the light is clipped at the
- * bottom edge (a visible horizon line); without it the light fades out softly past the box.
- */
-@Composable
-fun HorizonGlow(
-    intensity: Float,
+fun FocusDial(
+    progress: Float,
+    clock: String,
     modifier: Modifier = Modifier,
-    warmth: Float = 0.4f,
-    breathing: Boolean = false,
-    horizon: Boolean = false,
+    label: String? = null,
+    caption: String? = null,
+    spoken: String = clock,
 ) {
     val colors = Aurora.colors
-    val reduced = Aurora.reducedMotion
-    val level by animateFloatAsState(intensity, if (reduced) snap() else tween(1200, easing = Motion.Ease), label = "glow")
-    val warm by animateFloatAsState(warmth, if (reduced) snap() else tween(1200, easing = Motion.Ease), label = "warmth")
-    val breath: State<Float> = if (breathing && !reduced) {
-        rememberInfiniteTransition(label = "breath").animateFloat(
-            initialValue = 0.82f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(Motion.Breath, easing = Motion.Ease), RepeatMode.Reverse),
-            label = "breath",
-        )
-    } else {
-        remember { mutableFloatStateOf(1f) }
-    }
-    Canvas(modifier.clearAndSetSemantics { }) {
-        // Mist washes light out, so the light theme needs a stronger glow to read the same.
-        val k = level * breath.value * if (colors.isDark) 1f else 1.15f
-        if (k <= 0.001f) return@Canvas
-        val w = size.width
-        val h = size.height
-        val horizonPoint = Offset(w / 2f, h)
-        // Only the bottom edge clips (when [horizon]): light may spread sideways and upward freely.
-        clipRect(left = -w, top = -h, right = 2 * w, bottom = if (horizon) h else 2 * h) {
-            // Wide, low ellipses: the light hugs the horizon instead of forming a spotlight.
-            scale(scaleX = 1.7f, scaleY = 1f, pivot = horizonPoint) {
-                val cool = horizonPoint.copy(x = w * 0.44f)
-                val warmAt = horizonPoint.copy(x = w * 0.58f)
-                drawCircle(
-                    Brush.radialGradient(
-                        0f to colors.glowCool.copy(alpha = 0.30f * k * (1f - 0.6f * warm)),
-                        0.55f to colors.glowCool.copy(alpha = 0.10f * k * (1f - 0.6f * warm)),
-                        1f to Color.Transparent,
-                        center = cool,
-                        radius = h * 0.95f,
-                    ),
-                    radius = h * 0.95f,
-                    center = cool,
-                )
-                drawCircle(
-                    Brush.radialGradient(
-                        0f to colors.glowTop.copy(alpha = 0.32f * k * (0.35f + 0.65f * warm)),
-                        1f to Color.Transparent,
-                        center = warmAt,
-                        radius = h * 0.55f,
-                    ),
-                    radius = h * 0.55f,
-                    center = warmAt,
+    // The ViewModel ticks once a second; a linear 1s glide makes the light move continuously.
+    val fill by rememberFill(progress.coerceIn(0f, 1f), tween(1000, easing = LinearEasing))
+    Box(modifier.widthIn(max = 340.dp).aspectRatio(1f), contentAlignment = androidx.compose.ui.Alignment.Center) {
+        Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
+            val c = center
+            val outer = size.minDimension / 2f - 2.dp.toPx()
+            val major = 11.dp.toPx()
+            val minor = 5.dp.toPx()
+            val track = outer - major - 12.dp.toPx()
+            // Depth: a faint warm well inside the track that deepens as the time is held.
+            drawCircle(
+                androidx.compose.ui.graphics.Brush.radialGradient(
+                    listOf(colors.glowDeep.copy(alpha = (if (colors.isDark) 0.10f else 0.05f) + 0.14f * fill), Color.Transparent),
+                    c, track,
+                ),
+                track, c,
+            )
+            // The bezel: every minute a hairline, every fifth a longer one. Passed ticks take the dawn.
+            for (i in 0 until 60) {
+                val t = i / 60f
+                val isMajor = i % 5 == 0
+                val a = Math.toRadians(i * 6.0 - 90.0)
+                val dx = cos(a).toFloat()
+                val dy = sin(a).toFloat()
+                val inner = outer - if (isMajor) major else minor
+                val lit = fill > 0f && t <= fill
+                val color = if (lit) androidx.compose.ui.graphics.lerp(colors.glowCool, colors.glowTop, (t / fill).coerceIn(0f, 1f))
+                else colors.textTertiary.copy(alpha = if (isMajor) 0.55f else 0.24f)
+                drawLine(
+                    color, Offset(c.x + inner * dx, c.y + inner * dy), Offset(c.x + outer * dx, c.y + outer * dy),
+                    strokeWidth = (if (isMajor) 1.6f else 1f).dp.toPx(), cap = StrokeCap.Round,
                 )
             }
+            val topLeft = Offset(c.x - track, c.y - track)
+            val arcSize = Size(2 * track, 2 * track)
+            drawCircle(colors.hairline, track, c, style = Stroke(1.dp.toPx()))
+            if (fill > 0f) rotate(-90f, c) {
+                val dawn = androidx.compose.ui.graphics.Brush.sweepGradient(
+                    0f to colors.glowCool, (fill * 0.5f) to colors.glowHot, (fill * 0.85f).coerceAtLeast(0.001f) to colors.glowTop,
+                    fill.coerceAtLeast(0.002f) to colors.light, 1f to colors.light,
+                    center = c,
+                )
+                drawArc(dawn, 0f, 360f * fill, false, topLeft, arcSize, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+                val a = Math.toRadians(360.0 * fill)
+                val sun = Offset(c.x + track * cos(a).toFloat(), c.y + track * sin(a).toFloat())
+                drawCircle(
+                    androidx.compose.ui.graphics.Brush.radialGradient(listOf(colors.glowTop.copy(alpha = 0.5f), Color.Transparent), sun, 18.dp.toPx()),
+                    18.dp.toPx(), sun,
+                )
+                drawCircle(colors.background, 6.dp.toPx(), sun)
+                drawCircle(colors.light, 4.dp.toPx(), sun)
+            }
         }
-    }
-}
-
-/**
- * The focus arc: the auroral oval, time travelling from the left horizon over the top to the right. [progress] 0..1. Drawn 2:1; place the readout inside its lower half.
- */
-@Composable
-fun HorizonArc(progress: Float, modifier: Modifier = Modifier, complete: Boolean = false) {
-    val colors = Aurora.colors
-    val reduced = Aurora.reducedMotion
-    // The ViewModel ticks once a second; a linear 1s glide makes the light move continuously.
-    val p by rememberFill(progress.coerceIn(0f, 1f), tween(1000, easing = LinearEasing))
-    val glowAlpha by animateFloatAsState(if (complete) 0.45f else 0.22f, tween(Motion.Gentle), label = "dot")
-    Canvas(modifier.aspectRatio(2f).clearAndSetSemantics { }) {
-        val pad = 14.dp.toPx()
-        val r = min(size.width / 2f, size.height) - pad
-        val center = Offset(size.width / 2f, size.height - 1.dp.toPx())
-        val topLeft = Offset(center.x - r, center.y - r)
-        val arcSize = Size(2 * r, 2 * r)
-
-        // Horizon line, fading out at both ends.
-        drawLine(
-            Brush.horizontalGradient(
-                0f to Color.Transparent, 0.2f to colors.hairline, 0.8f to colors.hairline, 1f to Color.Transparent,
-            ),
-            Offset(0f, center.y), Offset(size.width, center.y), strokeWidth = 1.dp.toPx(),
-        )
-        drawArc(
-            colors.hairline, 180f, 180f, false, topLeft, arcSize,
-            style = Stroke(1.5.dp.toPx(), cap = StrokeCap.Round),
-        )
-        if (p > 0f) {
-            drawArc(
-                Brush.linearGradient(listOf(colors.glowCool, colors.accent), Offset(center.x - r, 0f), Offset(center.x + r, 0f)),
-                180f, 180f * p, false, topLeft, arcSize,
-                style = Stroke(3.dp.toPx(), cap = StrokeCap.Round),
-            )
+        androidx.compose.foundation.layout.Column(
+            Modifier.fillMaxWidth(0.66f),
+            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        ) {
+            label?.let { Eyebrow(it, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+            RollingClock(clock, colors.textPrimary, AuroraType.Hero, Modifier.fillMaxWidth().padding(vertical = 6.dp), spoken = spoken)
+            caption?.let { Text(it, color = colors.textTertiary, style = AuroraType.Caption, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
         }
-        val angle = Math.toRadians(180.0 + 180.0 * p)
-        val dot = Offset(center.x + r * cos(angle).toFloat(), center.y + r * sin(angle).toFloat())
-        val halo = 22.dp.toPx()
-        drawCircle(Brush.radialGradient(listOf(colors.glowCool.copy(alpha = glowAlpha), Color.Transparent), dot, halo), halo, dot)
-        drawCircle(colors.light, 5.dp.toPx(), dot)
     }
 }
 

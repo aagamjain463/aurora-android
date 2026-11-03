@@ -56,21 +56,28 @@ class HomeCustomDurationTest {
         }
     }
 
+    @Test fun homeShowsOnlyStartUntilTapped() {
+        show()
+        rule.onNodeWithContentDescription("hours").assertDoesNotExist()
+        rule.onNodeWithText("Start").assertIsEnabled()
+    }
+
     @Test fun homeStartsWithTheExactCustomTimeAndNoPresets() {
         show()
-        rule.onNodeWithText("30 min").assertDoesNotExist()
-        rule.onNodeWithText("1 h").assertDoesNotExist()
-        rule.onNodeWithText("2 h").assertDoesNotExist()
+        rule.onNodeWithText("Start").performClick()
+        rule.onNodeWithText("30m").assertDoesNotExist()
+        rule.onNodeWithText("1h").assertDoesNotExist()
+        rule.onNodeWithText("2h").assertDoesNotExist()
         rule.onNodeWithText("Custom").assertDoesNotExist()
-        rule.onNodeWithText("Start").assertIsNotEnabled()
+        rule.onNodeWithText("Start session").assertIsNotEnabled()
         rule.onNodeWithContentDescription("hours").performTextReplacement("0")
         rule.onNodeWithContentDescription("minutes").performTextReplacement("0")
-        rule.onNodeWithText("Start").assertIsNotEnabled()
+        rule.onNodeWithText("Start session").assertIsNotEnabled()
         rule.onNodeWithContentDescription("hours").performTextReplacement("25")
-        rule.onNodeWithText("Start").assertIsNotEnabled()
+        rule.onNodeWithText("Start session").assertIsNotEnabled()
         rule.onNodeWithContentDescription("hours").performTextReplacement("1")
         rule.onNodeWithContentDescription("minutes").performTextReplacement("17")
-        rule.onNodeWithText("Start").assertIsEnabled().performClick()
+        rule.onNodeWithText("Start session").assertIsEnabled().performClick()
         rule.waitForIdle()
         rule.waitUntil(5_000) { app.runtime.value?.runs?.size == 1 }
         assertEquals(77 * 60_000L, app.runtime.value!!.runs.single().time!!.durationMs)
@@ -78,8 +85,9 @@ class HomeCustomDurationTest {
 
     @Test fun strictSessionStillRequiresCommitmentForTheChosenTime() {
         show(Mode.Cooldown)
-        rule.onNodeWithContentDescription("minutes").performTextReplacement("7")
         rule.onNodeWithText("Start").performClick()
+        rule.onNodeWithContentDescription("minutes").performTextReplacement("7")
+        rule.onNodeWithText("Start session").performClick()
         rule.waitForIdle()
         assertTrue(app.runtime.value!!.runs.isEmpty())
         rule.onNodeWithText("I'm ready to commit").performClick()

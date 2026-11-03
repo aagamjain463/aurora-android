@@ -1,5 +1,6 @@
 package app.aurora
 
+import app.aurora.protect.sessionRunning
 import androidx.datastore.preferences.core.edit
 import app.aurora.data.dataStore
 import app.aurora.plan.EntitlementPolicy
@@ -25,6 +26,9 @@ import app.aurora.protect.covers
 import app.aurora.protect.key
 import app.aurora.protect.migrated
 import app.aurora.protect.settledIntents
+import app.aurora.protect.granted
+import app.aurora.protect.quietAfter
+import app.aurora.protect.relapsed
 import app.aurora.protect.ActivationProblem
 import app.aurora.protect.Refusal
 import app.aurora.protect.activeTargets
@@ -64,7 +68,7 @@ suspend fun AuroraApplication.protect(item: ProtectedItem): AddResult {
 }
 
 /**
- * Removes [items] from the protected apps. They leave every cancellable session too; an Always Block
+ * Removes [items] from the protected apps. They leave every cancellable session too; a Strict
  * session keeps them until it ends, because removing an app must never end a commitment.
  */
 suspend fun AuroraApplication.unprotect(items: Collection<ProtectedItem>) {
@@ -79,7 +83,7 @@ enum class StartResult { Started, OverAllowance, NeedsConnection, OverTargets, N
 
 /**
  * Starts a [mode] session over [keys] for [minutes]. It must fit the plan's targets and, for Cooldown and
- * Always Block, the day's shared minutes. Its reservation is stored with the session, in one transaction.
+ * Strict, the day's shared minutes. Its reservation is stored with the session, in one transaction.
  */
 suspend fun AuroraApplication.startProtection(
     keys: Set<String>,
@@ -125,7 +129,7 @@ fun AuroraApplication.committedMinutesLeft(): Int? =
     serverAdjustedRemainingMs(runtime.value?.quotaToday(plan, now(), ZoneId.systemDefault())?.remainingMs)?.let { (it / 60_000).toInt() }
 
 /**
- * Turns off a cancellable session. An Always Block session has no in-app early end: this refuses it,
+ * Turns off a cancellable session. A Strict session has no in-app early end: this refuses it,
  * whatever calls it.
  */
 suspend fun AuroraApplication.turnOff(sessionId: String): Boolean {
@@ -143,7 +147,7 @@ suspend fun AuroraApplication.turnOff(sessionId: String): Boolean {
     return done
 }
 
-/** Turns off today's window of a Flexible, Friction or Cooldown schedule. A committed Always Block window can't be. */
+/** Turns off today's window of a Flexible, Friction or Cooldown schedule. A committed Strict window can't be. */
 suspend fun AuroraApplication.skipWindow(scheduleId: String) {
     val schedule = rules.value?.schedules?.find { it.id == scheduleId } ?: return
     if (schedule.mode == Mode.AlwaysBlock && plan == Plan.Plus) return
@@ -155,7 +159,7 @@ suspend fun AuroraApplication.skipWindow(scheduleId: String) {
 }
 
 /**
- * Commits every Always Block schedule window that is running now into an Always Block session, once.
+ * Commits every Strict schedule window that is running now into a Strict session, once.
  * From then on, editing or deleting the schedule can't end that window early. Only for a Phase 3 schedule
  * in the moment before the start-up migration turns it into an activation. A window the day's allowance
  * can't cover isn't committed. Called before any schedule edit, and whenever the snapshot is built.
@@ -197,13 +201,13 @@ suspend fun AuroraApplication.commitScheduleWindows() = entitlements.withLock {
     }
 }
 
-/** Changes the rules, after committing any running Always Block window, so an edit never cancels one. */
+/** Changes the rules, after committing any running Strict window, so an edit never cancels one. */
 suspend fun AuroraApplication.editRules(transform: (Rules) -> Rules): Refusal? {
     commitScheduleWindows()
     return changeRules(transform)
 }
 
-/** Phase 3 → reinvention: a running Lockdown becomes an Always Block session. Idempotent. */
+/** Phase 3 → reinvention: a running Lockdown becomes a Strict session. Idempotent. */
 suspend fun AuroraApplication.migrateRuntime() {
     val r = rules.value ?: return
     val list = protectedList.value ?: return
@@ -216,7 +220,7 @@ suspend fun AuroraApplication.migrateRuntime() {
 /** A Friction task was completed, or a Cooldown wait finished: timed access at [level] for [minutes]. */
 suspend fun AuroraApplication.grantAccess(key: String, minutes: Int, level: Mode) {
     val t = now()
-    runtime.update { r -> r.copy(access = r.access + (key to Grant(t.wall + minutes * 60_000L, level)), cooldownWaits = r.cooldownWaits - key).pruned(t) }
+    runtime.update { r -> r.copy(access = r.access + (key to Grant(t.wall + minutes * 60_000L, level)), cooldownWaits = r.cooldownWaits - key).granted(key, t).pruned(t) }
     record { it.copy(continued = it.continued + 1, grantedMinutes = it.grantedMinutes + minutes) }
 }
 
@@ -246,7 +250,8 @@ suspend fun AuroraApplication.wentBack(intent: Boolean) {
  * Refused (false) while a post-usage cooldown for [key] is running: a new decision can't skip it.
  */
 suspend fun AuroraApplication.startIntent(key: String, minutes: Int, config: IntentConfig): Boolean {
-    val now = now().wall
+    val t = now()
+    val now = t.wall
     var refused = false
     runtime.update { r0 ->
         val r = r0.settledIntents(now)
@@ -254,7 +259,7 @@ suspend fun AuroraApplication.startIntent(key: String, minutes: Int, config: Int
             refused = true
             return@update r
         }
-        r.copy(
+        r.relapsed(key, t).copy(
             intentUses = r.intentUses + (key to IntentUse(minutes * 60_000L, 0, now, config.expiry, config.cooldownMinutes, config.freshEachOpen, now)),
             reflections = r.reflections - key,
         )
@@ -310,7 +315,7 @@ suspend fun AuroraApplication.correctIntentUse(key: String) {
 suspend fun AuroraApplication.endIntent(key: String, within: Boolean) {
     val now = now().wall
     val use = runtime.value?.intentUses?.get(key) ?: return
-    runtime.update { r -> r.copy(intentUses = r.intentUses - key) }
+    runtime.update { r -> r.copy(intentUses = r.intentUses - key).let { if (use.spent(now)) it.quietAfter(key, now) else it } }
     record { it.copy(intentUsedMinutes = it.intentUsedMinutes + (use.used(now) / 60_000).toInt(), intentWithin = it.intentWithin + if (within) 1 else 0) }
 }
 
@@ -340,7 +345,8 @@ suspend fun AuroraApplication.foregroundChanged(pkg: String?) {
             if (leave) ended += key to use
             !leave
         }
-        if (next == r.intentUses) r else r.copy(intentUses = next)
+        if (next == r.intentUses) r
+        else ended.filter { (_, use) -> use.spent(now) }.fold(r.copy(intentUses = next)) { acc, (key, _) -> acc.quietAfter(key, now) }
     }
     if (settled.isNotEmpty()) record { s ->
         settled.fold(s) { acc, use ->
@@ -370,6 +376,7 @@ suspend fun AuroraApplication.startFocus(minutes: Int, profileId: String?, group
     val r = rules.value ?: throw IOException("Rules can't be read")
     val rt = runtime.value ?: throw IOException("Runtime can't be read")
     val keys = r.cover(groupId, protectedList.value?.active(plan)?.map { it.key }?.toSet().orEmpty())
+    if (sessionRunning(r, rt, plan, t, ZoneId.systemDefault())) return@withLock false
     targetsRefusal(plan, activeTargets(r, rt, t, ZoneId.systemDefault(), plan), keys, emptyList())?.let {
         explain(it)
         return@withLock false
@@ -404,7 +411,7 @@ suspend fun AuroraApplication.dismissFocus() {
 
 /**
  * Settings › Delete all data: every preference, protected item, rule, session and history entry on this
- * phone. Running Always Block sessions are kept: deleting data is not a way to end a commitment.
+ * phone. Running Strict sessions are kept: deleting data is not a way to end a commitment.
  * Purchases live with Google Play and come back on the next check.
  */
 suspend fun AuroraApplication.deleteAllData() {

@@ -22,7 +22,7 @@ fun Rules.migratedToConfigurations(items: List<String>, now: Long): Rules {
     val byRule = items.groupBy { rule(it).let { r -> Triple(r.mode, r.friction, r.cooldownWaitMinutes) } }
     byRule.entries.forEachIndexed { i, (setting, keys) ->
         val (mode, friction, wait) = setting
-        val name = if (byRule.size == 1) "Protected apps" else "Protected apps · ${mode.name.replace("AlwaysBlock", "Always Block")}"
+        val name = if (byRule.size == 1) "Protected apps" else "Protected apps · ${mode.name.replace("AlwaysBlock", "Strict")}"
         shields += ShieldPreset("migrated-items-$i", name, keys, mode, friction, wait, now)
     }
     for (g in groups) shields += ShieldPreset("migrated-group-${g.id}", g.name, g.keys, defaultRule.mode, defaultRule.friction, defaultRule.cooldownWaitMinutes, now)
@@ -34,7 +34,7 @@ fun Rules.migratedToConfigurations(items: List<String>, now: Long): Rules {
         val length = ((s.endMinute - s.startMinute) % 1440 + 1440) % 1440
         shields += preset
         configs += UsageConfig("migrated-schedule-${s.id}", s.name, shieldId = preset.id, createdAt = now)
-        // Same id as the schedule: a committed Always Block window already running stays one session.
+        // Same id as the schedule: a committed Strict window already running stays one session.
         activations += Activation(s.id, "migrated-schedule-${s.id}", Timing.Recurring(s.days, s.startMinute, if (length == 0) 1440 else length), s.enabled, createdAt = 0)
     }
 
@@ -59,5 +59,24 @@ fun Rules.migratedToConfigurations(items: List<String>, now: Long): Rules {
         configs = this.configs + configs,
         activations = this.activations + activations,
         schedules = emptyList(),
+    )
+}
+
+/**
+ * Parts of apps used to be global switches ([Rules.content]): always on, "go back", turned off at any time.
+ * They become one Flexible Shield over the same parts with an Always activation, which is that exact
+ * strength, and from then on they're edited like any other Shield. Idempotent: it empties [Rules.content].
+ */
+fun Rules.migratedContent(now: Long): Rules {
+    if (content.isEmpty()) return this
+    val keys = content.flatMap { LegacyContent[it].orEmpty() }.distinct()
+    if (keys.isEmpty()) return copy(content = emptySet())
+    val id = "migrated-content-$now"
+    val name = "Parts of apps"
+    return copy(
+        content = emptySet(),
+        shields = shields + ShieldPreset(id, name, keys, Mode.Flexible, createdAt = now),
+        configs = configs + UsageConfig(id, name, shieldId = id, createdAt = now),
+        activations = activations + Activation(id, id, Timing.Always, true, createdAt = now),
     )
 }

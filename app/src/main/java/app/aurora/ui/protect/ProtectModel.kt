@@ -19,6 +19,8 @@ import app.aurora.protect.ProtectedList
 import app.aurora.protect.Rules
 import app.aurora.protect.Runtime
 import app.aurora.protect.ProtectionSession
+import app.aurora.protect.AppParts
+import app.aurora.protect.PartPrefix
 import app.aurora.protect.WebPrefix
 import app.aurora.protect.exemptPackages
 import app.aurora.protect.key
@@ -64,7 +66,7 @@ data class ProtectData(
     val activeKeys: Set<String> get() = active.map { it.key }.toSet()
     fun max(allowance: Allowance): Int? = limit(plan, allowance)
 
-    /** The app's own name, a site's domain, or "" while the name loads. Never a raw package name. */
+    /** The app's own name, a site's domain, a part's name, or "" while the name loads. Never a raw package name. */
     fun label(key: String): String = when {
         key.startsWith(WebPrefix) -> key.removePrefix(WebPrefix)
         else -> apps[key]?.label ?: labels[key].orEmpty()
@@ -94,7 +96,8 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
 
     val notice: StateFlow<LimitNotice?> = _notice
 
-    private val labels = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Names by key: apps as they load; parts of apps are known up front. */
+    private val labels = MutableStateFlow(AppParts.associate { it.key to app.getString(it.name) })
 
     val data: StateFlow<ProtectData?> = combine(
         combine(app.protectedList, app.rules.state, app.runtime.state) { list, rules, runtime -> Triple(list, rules, runtime) },
@@ -115,7 +118,7 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
                     app.runtime.value?.runs.orEmpty().flatMap { it.shield?.keys.orEmpty() + it.intent?.keys.orEmpty() } +
                     rules?.shields.orEmpty().flatMap { it.keys } + rules?.intentPresets.orEmpty().flatMap { it.keys } +
                     rules?.configs.orEmpty().flatMap { it.shield?.keys.orEmpty() + it.intent?.keys.orEmpty() })
-                    .filterNot { it.startsWith(WebPrefix) }.distinct().filterNot { it in labels.value }
+                    .filterNot { it.startsWith(WebPrefix) || it.startsWith(PartPrefix) }.distinct().filterNot { it in labels.value }
                 if (keys.isNotEmpty()) labels.value = labels.value + keys.associateWith { app.catalog.label(it) ?: "" }
             }
         }
@@ -153,7 +156,7 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
         if (app.protection.resume(item, app.plan) == AddResult.AtLimit) atLimit(Allowance.ProtectedItems)
     }
 
-    /** Changes the rules in one transaction, if the plan allows the result. A running Always Block window is committed first. */
+    /** Changes the rules in one transaction, if the plan allows the result. A running Strict window is committed first. */
     fun edit(transform: (Rules) -> Rules) = write { app.editRules(transform) }
 
     /** Runs an action, handling storage errors like every other write. */

@@ -129,9 +129,15 @@ class OverlayShieldPresenter(
         h.view.invalidate()
     }
 
-    /** The person closed the Shield: to the home screen, or into the app they were just granted. */
+    /**
+     * What leaving the Shield does for a key: the home screen by default. A part of an app goes back
+     * inside the app instead ([ContentService]); null just takes the Shield away.
+     */
+    var leaveAction: (key: String) -> Int? = { AccessibilityService.GLOBAL_ACTION_HOME }
+
+    /** The person closed the Shield: out (see [leaveAction]), or into the app they were just granted. */
     private fun close(home: Boolean) {
-        if (home) service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        if (home) request.value?.let { leaveAction(it.packageName) }?.let(service::performGlobalAction)
         dismiss()
         onClosed(home)
     }

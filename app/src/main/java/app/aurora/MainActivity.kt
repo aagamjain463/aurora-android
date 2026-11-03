@@ -93,8 +93,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val prefs by preferences.preferences.collectAsStateWithLifecycle(initialValue = null)
             val current = prefs
-            DisposableEffect(Unit) {
-                val style = SystemBarStyle.dark(Color.TRANSPARENT)
+            val themeMode = current?.themeMode ?: app.aurora.data.ThemeMode.Dark
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val darkBars = themeMode == app.aurora.data.ThemeMode.Dark || (themeMode == app.aurora.data.ThemeMode.System && systemDark)
+            DisposableEffect(darkBars) {
+                val style = if (darkBars) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                 enableEdgeToEdge(style, style)
                 onDispose { }
             }
@@ -102,7 +105,7 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(still) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) splashScreen.setSplashScreenTheme(if (still) R.style.Theme_Aurora_StillSplash else 0)
             }
-            AuroraTheme(reduceMotion = current?.reduceMotion == true) {
+            AuroraTheme(reduceMotion = current?.reduceMotion == true, themeMode = themeMode) {
                 if (current == null) {
                     // DataStore answers within a frame or two; hold the window colour until it does.
                     if (Opening.playing) Box(Modifier.fillMaxSize().background(colorResource(R.color.aurora_splash)))

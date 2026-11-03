@@ -70,6 +70,8 @@ data class UsageConfig(
     val intent: IntentPreset? = null,
     val focus: FocusPlan? = null,
     val createdAt: Long = 0,
+    /** The person's own words for why this session matters, shown on every Shield it raises. Blank: none. */
+    val note: String = "",
 )
 
 /** When an activation applies. [Now] is only an instruction: it becomes a run at once and isn't stored. */
@@ -123,13 +125,18 @@ data class ConfigRun(
     val start: Long,
     val end: Long? = null,
     val time: Session? = null,
-    /** Only in runs stored by older versions: Always Block was committed until here, then the Shield was Flexible. */
+    /** Only in runs stored by older versions: Strict was committed until here, then the Shield was Flexible. */
     val committedUntil: Long? = null,
-    val focusOutcome: FocusOutcome? = null,
     /** Times the person continued past their chosen time at an Intent reminder. */
     val intentOverruns: Int = 0,
+    /** Times a Friction task or Cooldown wait was used to open one of this run's apps. */
+    val accessGrants: Int = 0,
+    /** Times an Intent app of this run was opened again within [IntentQuietMs] of its time running out. */
+    val intentRelapses: Int = 0,
     /** A commitment made under another account, kept running here with nothing that says what it was. */
     val carried: Boolean = false,
+    /** Frozen copy of [UsageConfig.note]. */
+    val note: String = "",
 ) {
     fun startAt(t: DeviceTime): Long = time?.startedWall(t) ?: start
     fun endAt(t: DeviceTime): Long? = time?.endWall(t) ?: end
@@ -137,8 +144,8 @@ data class ConfigRun(
     fun covers(t: DeviceTime): Boolean = t.wall >= startAt(t) && !isOver(t)
 
     /**
-     * A strict run (Always Block, Cooldown, Friction) can't be turned off in Aurora until it ends, or for
-     * Always Block on Free, until its committed part is over. An Always run (no end) made before strict
+     * A strict run (Strict, Cooldown, Friction) can't be turned off in Aurora until it ends, or for
+     * Strict on Free, until its committed part is over. An Always run (no end) made before strict
      * Cooldown and Friction stays cancellable: a permanent commitment is never made by accident.
      */
     fun cancellable(t: DeviceTime): Boolean = when {
@@ -256,22 +263,6 @@ fun Rules.activeGoalIds(plan: Plan): Set<String> = keepActive(
     listOfNotNull(keep.goalId),
 ).toSet()
 
-/** What a downgrade has paused: saved, not active, and restored at once when Plus returns. */
-data class PlanExcess(val shield: List<String>, val intent: List<String>, val goals: List<String>) {
-    val any: Boolean get() = shield.isNotEmpty() || intent.isNotEmpty() || goals.isNotEmpty()
-}
-
-fun Rules.planExcess(plan: Plan, now: Long, zone: ZoneId): PlanExcess {
-    val shieldKeep = retainedShield(plan, now, zone)
-    val intentKeep = retainedIntent(plan, now, zone)
-    val goalKeep = activeGoalIds(plan)
-    return PlanExcess(
-        requestedShield(now, zone).filter { shieldKeep != null && it !in shieldKeep },
-        requestedIntent(now, zone).filter { intentKeep != null && it !in intentKeep },
-        trackGoals.filter { it.status == app.aurora.progress.GoalStatus.Active && it.id !in goalKeep }.map { it.id },
-    )
-}
-
 /** Records when each Goal stops and starts being measured. Idempotent: called on every sync. */
 fun Rules.goalsReconciled(plan: Plan, now: Long): Rules {
     val active = activeGoalIds(plan)
@@ -291,7 +282,7 @@ fun Rules.runFor(a: Activation, window: Pair<Long, Long>, plan: Plan, now: Long,
     val intent = intentOf(c)?.let { p -> if (intentKeep == null) p else p.copy(keys = p.keys.filter { it in intentKeep }) }?.takeIf { it.keys.isNotEmpty() || intentOf(c)?.keys.isNullOrEmpty() }
     return ConfigRun(
         occurrenceId(a, window.first), c.id, c.name, a.id, c.custom, shield, intent, c.focus,
-        start = window.first, end = window.second.takeIf { it != Long.MAX_VALUE },
+        start = window.first, end = window.second.takeIf { it != Long.MAX_VALUE }, note = c.note,
     )
 }
 
@@ -317,7 +308,7 @@ private fun occurrences(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTim
     val due = rules.activations.filter { it.id in entitled }.flatMap { a ->
         a.windows(t.wall, zone).mapNotNull { w ->
             val id = occurrenceId(a, w.first)
-            // A Phase 3 schedule migrated with its id: its committed Always Block window is already a session.
+            // A Phase 3 schedule migrated with its id: its committed Strict window is already a session.
             val legacy = runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }
             if (id in known || legacy) null else rules.runFor(a, w, plan, t.wall, zone)
         }
@@ -364,6 +355,14 @@ private fun occurrences(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTim
 fun liveRuns(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): List<ConfigRun> =
     runtime.runs.filterNot { it.isOver(t) } + occurrences(rules, runtime, plan, t, zone).first
 
+/**
+ * One session at a time: true while a timed run (started now, scheduled or with Focus) covers [t], or an older
+ * session or Focus still counts down. A run with no end (Always) is standing protection, not a session.
+ */
+fun sessionRunning(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): Boolean =
+    liveRuns(rules, runtime, plan, t, zone).any { it.covers(t) && (it.end != null || it.time != null) } ||
+        runtime.sessions.any { !it.time.isOver(t) } || runtime.focus?.isOver(t) == false
+
 /** Committed occurrences due now that the day's allowance refuses. */
 fun runsRefusedByQuota(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): List<ConfigRun> =
     occurrences(rules, runtime, plan, t, zone).second
@@ -397,6 +396,14 @@ fun authorizationsToRelease(rules: Rules, runtime: Runtime, now: Long): Map<Stri
         auth.start > now && id !in runtime.runs.map { it.id } && rules.activations.none { it.id == auth.activationId && it.enabled }
     }
 
+/** The note of the first run covering [t] that restricts [key] (Shield or Intent), or null. */
+fun sessionNote(runs: List<ConfigRun>, key: String, t: DeviceTime): String? {
+    val k = canonicalKey(key)
+    return runs.firstOrNull { r ->
+        r.note.isNotBlank() && r.covers(t) && (r.shield?.keys.orEmpty() + r.intent?.keys.orEmpty()).any { canonicalKey(it) == k }
+    }?.note
+}
+
 /** For two active Intent presets on one app, the stricter decides: a cooldown, then the longer pause. */
 fun stricter(a: IntentConfig, b: IntentConfig): IntentConfig = listOf(a, b).maxWith(
     compareBy<IntentConfig> { it.expiry == IntentExpiry.Cooldown }.thenBy { it.reflectionSeconds }.thenBy { it.cooldownMinutes },
@@ -417,7 +424,10 @@ fun intentsNow(runs: List<ConfigRun>, t: DeviceTime): Map<String, IntentConfig> 
 enum class ActivationProblem {
     Empty, AlwaysWithAlwaysBlock, InThePast, NoDays, TooShort, OverItems, OverIntentApps, OverCommittedAllowance,
     /** Free's allowance is the server's to give, and it can't be reached. Nothing started; existing commitments are untouched. */
-    NeedsConnection;
+    NeedsConnection,
+
+    /** One session at a time: another is running now. Nothing started; the running one is untouched. */
+    SessionRunning;
 
     val overLimit: Boolean get() = this == OverItems || this == OverIntentApps || this == OverCommittedAllowance
 }
@@ -447,7 +457,7 @@ fun targetsRefusal(plan: Plan, active: ActiveTargets, shield: Collection<String>
 
 /**
  * Checks [timing] for configuration [c]; [this] already holds [c]. Always scheduling isn't offered for a
- * strict Shield (Always Block, Cooldown, Friction): a permanent commitment must never be created by accident.
+ * strict Shield (Strict, Cooldown, Friction): a permanent commitment must never be created by accident.
  *
  * Starting now must fit today's committed allowance. A schedule's executions are checked when each one
  * runs; here it is refused only when one window alone could never fit.
@@ -458,7 +468,10 @@ fun Rules.problem(c: UsageConfig, timing: Timing, plan: Plan, runtime: Runtime, 
     if ((shield == null || shield.keys.isEmpty()) && (intent == null || intent.keys.isEmpty()) && c.focus == null) return Refusal(ActivationProblem.Empty)
     if (timing is Timing.Always && shield?.mode?.strict == true) return Refusal(ActivationProblem.AlwaysWithAlwaysBlock)
     when (timing) {
-        is Timing.Now -> if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
+        is Timing.Now -> {
+            if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
+            if (sessionRunning(this, runtime, plan, t, zone)) return Refusal(ActivationProblem.SessionRunning)
+        }
         is Timing.Later -> {
             if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
             if (timing.start <= t.wall) return Refusal(ActivationProblem.InThePast)

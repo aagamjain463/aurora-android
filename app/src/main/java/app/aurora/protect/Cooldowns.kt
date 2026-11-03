@@ -10,6 +10,13 @@ package app.aurora.protect
  * opening after the person left the app, never a repeat event, a recomposition, a recheck or a reconnect.
  */
 
+/**
+ * After an Intent app's chosen time (and its cooldown) runs out, opening it again within this long means the
+ * intentional use didn't hold: the runs covering it are not achieved.
+ */
+// ponytail: one fixed gap for every app; scale it with the chosen minutes if people ask.
+const val IntentQuietMs = 15 * 60_000L
+
 /** A finished Shield Cooldown wait stays usable this long, so stepping away before choosing a time doesn't mean waiting again. */
 const val ReadyGraceMs = 5 * 60_000L
 
@@ -29,7 +36,7 @@ fun Runtime.attempted(key: String, decision: Decision.Shield, now: Long): Runtim
     ShieldReason.IntentCooldown -> settledIntents(now).let { s ->
         val length = s.intentCooldownLengths[key]
         if (length == null || (s.intentCooldowns[key] ?: 0) <= now) s
-        else s.copy(intentCooldowns = s.intentCooldowns + (key to now + length))
+        else s.copy(intentCooldowns = s.intentCooldowns + (key to now + length), intentQuiet = s.intentQuiet + (key to now + length + IntentQuietMs))
     }
     else -> this
 }
@@ -57,5 +64,24 @@ fun Runtime.settledIntents(now: Long): Runtime {
         intentUses = intentUses - spent.keys,
         intentCooldowns = intentCooldowns + spent.mapValues { (_, u) -> now + u.cooldownMinutes * 60_000L },
         intentCooldownLengths = intentCooldownLengths + spent.mapValues { (_, u) -> u.cooldownMinutes * 60_000L },
+        intentQuiet = intentQuiet + spent.mapValues { (_, u) -> now + u.cooldownMinutes * 60_000L + IntentQuietMs },
     )
 }
+
+/**
+ * The intentional session for [key] ended at [now] with its time used up (no cooldown): reopening the app
+ * within [IntentQuietMs] is a relapse.
+ */
+fun Runtime.quietAfter(key: String, now: Long): Runtime = copy(intentQuiet = intentQuiet + (key to now + IntentQuietMs))
+
+/**
+ * An intentional session for [key] starts at [now]. If it is within the quiet gap after the last one ran
+ * out, every run covering [key] with Intent counts a relapse.
+ */
+fun Runtime.relapsed(key: String, t: DeviceTime): Runtime =
+    if ((intentQuiet[key] ?: 0) <= t.wall) this
+    else copy(runs = runs.map { if (it.covers(t) && key in it.intent?.keys.orEmpty()) it.copy(intentRelapses = it.intentRelapses + 1) else it })
+
+/** A Friction task or Cooldown wait opened [key] at [t]: every run shielding it counts the grant. */
+fun Runtime.granted(key: String, t: DeviceTime): Runtime =
+    copy(runs = runs.map { if (it.covers(t) && key in it.shield?.keys.orEmpty()) it.copy(accessGrants = it.accessGrants + 1) else it })

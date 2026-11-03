@@ -80,9 +80,10 @@ class RulesTest {
         val free = policyState(list, rules, Runtime(), Plan.Free, emptySet(), emptyMap(), t, zone)!!
         // Schedules have no limit of their own on Free; each covers only active items (app7 is paused).
         assertEquals(setOf(setOf("com.app1", "com.app2"), (1..5).map { "com.app$it" }.toSet()), free.restrictions.filter { it.start <= t.wall }.map { it.keys }.toSet())
-        assertEquals(4, free.limits.size)
+        // Daily limits are retired: saved ones never enforce, on either plan.
+        assertEquals(0, free.limits.size)
         val plus = policyState(list, rules, Runtime(), Plan.Plus, emptySet(), emptyMap(), t, zone)!!
-        assertEquals(4, plus.limits.size)
+        assertEquals(0, plus.limits.size)
         assertTrue(plus.restrictions.any { it.keys.size == 7 })
         assertNull(policyState(ProtectedList(readable = false), rules, Runtime(), Plan.Free, emptySet(), emptyMap(), t, zone))
     }
@@ -163,7 +164,7 @@ class RulesTest {
         val small = ProtectedList(listOf("com.a", "com.b").map { ProtectedItem.App.of(it)!! })
         val runtime = Runtime(lockdown = Session.start(t, 30))
         val later = t.copy(wall = t.wall + 10 * min, elapsed = t.elapsed + 10 * min)
-        // Before migration it already enforces as Always Block.
+        // Before migration it already enforces as Strict.
         val before = policyState(small, Rules(), runtime, Plan.Free, emptySet(), emptyMap(), later, zone)!!
         assertEquals(ShieldReason.AlwaysBlock, (decide("com.a", later.wall, before) as Decision.Shield).reason)
         val migrated = runtime.migrated(Rules(), setOf("com.a", "com.b"))

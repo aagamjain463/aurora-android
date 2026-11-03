@@ -126,12 +126,12 @@ fun <T> ChoicePills(
             launch { right.animateTo(spot.right, spring(dampingRatio = 0.86f, stiffness = if (forward) 520f else 260f)) }
         }
     }
-    val lit = colors.accentSoft
-    val edge = colors.accent.copy(alpha = 0.5f)
+    val lit = colors.accent
+    val edge = colors.accent
     Row(
         modifier
             .then(if (fill) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState()))
-            .then(if (segmented) Modifier.glass(colors, Radius.Pill).padding(4.dp) else Modifier)
+            .then(if (segmented) Modifier.clip(Radius.Pill).background(colors.field).border(1.dp, colors.hairline, Radius.Pill).padding(4.dp) else Modifier)
             .selectableGroup()
             .drawBehind {
                 val stroke = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx())
@@ -140,18 +140,18 @@ fun <T> ChoicePills(
                     drawRoundRect(color, Offset(l, 0f), Size(r - l, h), corner)
                     drawRoundRect(line, Offset(l + 0.5f, 0.5f), Size(r - l - 1f, h - 1f), corner, style = stroke)
                 }
-                if (!segmented) spots.values.forEach { pill(it.left, it.right, it.height, colors.surface, colors.hairline) }
+                if (!segmented) spots.values.forEach { pill(it.left, it.right, it.height, Color.Transparent, colors.hairlineStrong) }
                 if (placed && spot != null) pill(left.value, right.value, spot.height, lit, edge)
             },
         horizontalArrangement = Arrangement.spacedBy(if (segmented) 0.dp else Space.XS),
     ) {
         options.forEachIndexed { i, option ->
             val isSelected = option == selected
-            val fg by animateColorAsState(if (isSelected) (if (segmented) colors.textPrimary else colors.accent) else colors.textSecondary, auroraTween(), label = "fg")
+            val fg by animateColorAsState(if (isSelected) colors.onAccent else if (segmented) colors.textTertiary else colors.textSecondary, auroraTween(), label = "fg")
             Box(
                 Modifier
                     .then(if (fill) Modifier.weight(1f) else Modifier)
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = if (segmented) 36.dp else 40.dp)
                     .onPlaced { c ->
                         val at = Rect(c.positionInParent(), Size(c.size.width.toFloat(), c.size.height.toFloat()))
                         if (spots[i] != at) spots[i] = at
@@ -161,14 +161,17 @@ fun <T> ChoicePills(
                         if (!isSelected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
                         onSelect(option)
                     })
-                    .padding(horizontal = if (fill) 4.dp else 20.dp)
+                    .padding(horizontal = if (fill) 4.dp else 16.dp)
                     .semantics { contentDescription = spokenLabel(option) },
                 contentAlignment = Alignment.Center,
             ) {
                 // Large text shrinks to fit a segment instead of breaking a word across two lines.
                 BasicText(
-                    label(option), Modifier.clearAndSetSemantics { }, style = AuroraType.Label.copy(color = fg), maxLines = 1,
-                    autoSize = if (fill) TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = AuroraType.Label.fontSize) else null,
+                    label(option), Modifier.clearAndSetSemantics { },
+                    style = (if (segmented) AuroraType.Choice.copy(fontSize = 14.sp) else AuroraType.Choice)
+                        .copy(color = fg, fontWeight = androidx.compose.ui.text.font.FontWeight(if (isSelected) 600 else 500)),
+                    maxLines = 1,
+                    autoSize = if (fill) TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = if (segmented) 14.sp else AuroraType.Choice.fontSize) else null,
                 )
             }
         }
@@ -178,20 +181,22 @@ fun <T> ChoicePills(
 @Composable
 fun AuroraSwitch(checked: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val colors = Aurora.colors
-    // onCheckedChange = null: the enclosing row is the toggle, so the whole row is one target.
-    Switch(
-        checked = checked,
-        onCheckedChange = null,
-        modifier = modifier,
-        enabled = enabled,
-        colors = SwitchDefaults.colors(
-            checkedThumbColor = colors.onAccent,
-            checkedTrackColor = colors.accent,
-            checkedBorderColor = colors.accent,
-            uncheckedThumbColor = colors.textTertiary,
-            uncheckedTrackColor = colors.background,
-            uncheckedBorderColor = colors.textTertiary.copy(alpha = 0.5f),
-        ),
+    // Decorative: the enclosing row is the toggle (role Switch), so the whole row is one target.
+    val track by animateColorAsState(if (checked) colors.accent else colors.elevated, auroraTween(Motion.Quick), label = "track")
+    val knob by animateColorAsState(if (checked) colors.onAccent else colors.textTertiary, auroraTween(Motion.Quick), label = "knob")
+    val x by animateFloatAsState(if (checked) 1f else 0f, auroraTween(Motion.Standard), label = "x")
+    Box(
+        modifier
+            .size(width = 44.dp, height = 26.dp)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+            .clip(Radius.Pill)
+            .background(track)
+            .border(1.dp, if (checked) Color.Transparent else colors.hairlineStrong, Radius.Pill)
+            .drawBehind {
+                val r = 9.dp.toPx()
+                val inset = 3.dp.toPx() + r
+                drawCircle(knob, r, Offset(inset + (size.width - 2 * inset) * x, size.height / 2f))
+            },
     )
 }
 
@@ -223,13 +228,15 @@ fun AuroraTextField(
         decorationBox = { inner ->
             Row(
                 Modifier
-                    .heightIn(min = 52.dp)
-                    .glass(colors, Radius.Pill)
+                    .heightIn(min = 48.dp)
+                    .clip(Radius.Pill)
+                    .background(colors.field)
+                    .border(1.dp, colors.hairline, Radius.Pill)
                     .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Space.S),
             ) {
-                if (icon != null) Icon(icon, null, tint = colors.textTertiary, modifier = Modifier.size(20.dp))
+                if (icon != null) Icon(icon, null, tint = colors.textTertiary, modifier = Modifier.size(18.dp))
                 Box(Modifier.weight(1f)) {
                     if (value.isEmpty()) Text(placeholder, color = colors.textTertiary, style = AuroraType.Body)
                     inner()

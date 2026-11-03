@@ -83,4 +83,25 @@ class CooldownTest {
         val rt = Runtime(intentCooldowns = mapOf("x" to 5L))
         assertEquals(rt, rt.attempted("x", Decision.Shield("x", ShieldReason.Flexible), 1))
     }
+
+    /** The founder's Intent example: 15 minutes, a 1-minute cooldown, then Instagram again too soon. */
+    @Test
+    fun reopeningAnIntentAppTooSoonAfterItsCooldownIsARelapse() {
+        val t0 = 1_000_000L
+        val run = ConfigRun("run", "c", "Evening", intent = IntentPreset("i", "Insta", listOf("insta")), start = 0, end = Long.MAX_VALUE)
+        val used = Runtime(runs = listOf(run), intentUses = mapOf("insta" to IntentUse(15 * min, 15 * min, null, IntentExpiry.Cooldown, 1, startedAt = t0)))
+        val settled = used.settledIntents(t0)
+        val free = t0 + min
+        // Back 5 minutes after the cooldown ended: within the gap.
+        assertEquals(1, settled.relapsed("insta", DeviceTime(free + 5 * min, 0, -1)).runs.single().intentRelapses)
+        // Back after the full gap: a new, honest decision.
+        assertEquals(0, settled.relapsed("insta", DeviceTime(free + IntentQuietMs, 0, -1)).runs.single().intentRelapses)
+    }
+
+    @Test
+    fun aGrantCountsOnTheRunsShieldingThatApp() {
+        val run = ConfigRun("run", "c", "Work", shield = ShieldPreset("s", "Social", listOf("clock"), Mode.Friction), start = 0, end = Long.MAX_VALUE)
+        val rt = Runtime(runs = listOf(run)).granted("clock", DeviceTime(10, 0, -1)).granted("other", DeviceTime(10, 0, -1))
+        assertEquals(1, rt.runs.single().accessGrants)
+    }
 }

@@ -1,5 +1,7 @@
 package app.aurora.account
 
+import app.aurora.runsNow
+import app.aurora.turnOffRun
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -245,8 +247,10 @@ class AccountFlowTest {
         server.offline = true
         server.requests.clear()
         assertNull(app.activate(blocking(mode = Mode.Flexible), Timing.Now(30)))
+        // One session at a time: Flexible is turned off before Friction starts.
+        assertTrue(app.turnOffRun(app.runtime.value!!.runs.single().id))
         assertNull(app.activate(normalSession("Friction", listOf("com.example.other"), Mode.Friction), Timing.Now(30)))
-        assertEquals(2, app.runtime.value!!.runs.size)
+        assertEquals(1, app.runsNow().size)
     }
 
     @Test

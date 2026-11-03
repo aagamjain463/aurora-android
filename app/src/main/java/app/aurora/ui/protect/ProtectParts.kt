@@ -1,5 +1,7 @@
 package app.aurora.ui.protect
 
+import app.aurora.protect.partOf
+import app.aurora.ui.components.Eyebrow
 import app.aurora.ui.components.glass
 import app.aurora.ui.components.RollingClock
 import androidx.compose.foundation.Image
@@ -48,24 +50,22 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 
-/** Each mode's colour: quiet mist for Flexible, sun for Friction, glacier for Cooldown, aurora for Always Block. */
+/** Each mode's tone, from quiet (Flexible) to full ink (Strict). */
 @Composable
 fun modeColor(mode: Mode): Color {
-    val dark = Aurora.colors.isDark
+    // Monochrome: modes differ by name and glyph; the strongest mode carries the most ink.
     return when (mode) {
-        // Flexible is the calm default; the others each carry one First Light hue (brand bible: Modes).
-        Mode.Flexible -> Aurora.colors.textSecondary
-        Mode.Friction -> Aurora.colors.rose
-        Mode.Cooldown -> if (dark) app.aurora.ui.theme.Palette.Glacier400 else app.aurora.ui.theme.Palette.Glacier400
+        Mode.Flexible -> Aurora.colors.textTertiary
+        Mode.Friction, Mode.Cooldown -> Aurora.colors.textSecondary
         Mode.AlwaysBlock -> Aurora.colors.accent
     }
 }
 
 /** Each mode's glyph, used on chips, tiles and the Shield. */
 fun modeIcon(mode: Mode): androidx.compose.ui.graphics.vector.ImageVector = when (mode) {
-    Mode.Flexible -> AuroraIcons.Hourglass
-    Mode.Friction -> AuroraIcons.Target
-    Mode.Cooldown -> AuroraIcons.Focus
+    Mode.Flexible -> AuroraIcons.Clock
+    Mode.Friction -> AuroraIcons.Spark
+    Mode.Cooldown -> AuroraIcons.Hourglass
     Mode.AlwaysBlock -> AuroraIcons.Lock
 }
 
@@ -123,7 +123,7 @@ fun taskDescription(task: FrictionTask): String = stringResource(
     },
 )
 
-/** An app's real icon, or a site's globe, at a consistent size and corner. */
+/** An app's real icon (a part of an app shows its app's), or a site's globe, at a consistent size and corner. */
 @Composable
 fun ItemIcon(key: String, data: ProtectData?, modifier: Modifier = Modifier, size: Dp = 40.dp) {
     val colors = Aurora.colors
@@ -135,8 +135,9 @@ fun ItemIcon(key: String, data: ProtectData?, modifier: Modifier = Modifier, siz
         }
         return
     }
-    val icon by produceState<ImageBitmap?>(data?.apps?.get(key)?.icon, key, data?.apps?.containsKey(key)) {
-        if (value == null) value = app.catalog.app(key)?.icon
+    val pkg = partOf(key)?.owner ?: key
+    val icon by produceState<ImageBitmap?>(data?.apps?.get(pkg)?.icon, pkg, data?.apps?.containsKey(pkg)) {
+        if (value == null) value = app.catalog.app(pkg)?.icon
     }
     val bitmap = icon
     if (bitmap != null) Image(bitmap, null, modifier.size(size).clip(shape))
@@ -159,7 +160,7 @@ fun IconStack(keys: List<String>, data: ProtectData?, max: Int = 5, size: Dp = 3
 
 /**
  * A running protection session: its mode, its apps, the time left in large type, and the one action
- * the mode allows. Flexible, Friction and Cooldown can be turned off; Always Block says it ends on its own.
+ * the mode allows. Flexible, Friction and Cooldown can be turned off; Strict says it ends on its own.
  */
 @Composable
 fun SessionCard(session: ProtectionSession, data: ProtectData, onTurnOff: () -> Unit, modifier: Modifier = Modifier) {
@@ -169,15 +170,15 @@ fun SessionCard(session: ProtectionSession, data: ProtectData, onTurnOff: () -> 
     val names = session.keys.map { data.label(it) }.filter { it.isNotBlank() }
     Column(
         modifier
-            .padding(horizontal = Space.M)
+            .padding(horizontal = Space.Gutter)
             .fillMaxWidth()
-            .glass(colors, Radius.L, tint = tint)
+            .glass(colors, Radius.L)
             .padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
             ModeGlyph(tint, size = 14)
-            Text(modeName(session.mode), color = tint, style = AuroraType.Eyebrow)
+            Eyebrow(modeName(session.mode), color = tint)
             Box(Modifier.weight(1f))
             IconStack(session.keys.toList(), data)
         }

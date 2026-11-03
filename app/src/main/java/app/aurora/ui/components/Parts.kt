@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
@@ -58,16 +59,20 @@ fun <T> ChipFlow(
     FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
         options.forEach { option ->
             val on = option in selected
-            val fg by animateColorAsState(if (on) colors.accent else colors.textSecondary, auroraTween(), label = "chipText")
+            // Same pill as [Chip]: outlined when off, the one filled tone when on.
+            val fg by animateColorAsState(if (on) colors.onAccent else colors.textSecondary, auroraTween(), label = "chipText")
+            val bg by animateColorAsState(if (on) colors.accent else Color.Transparent, auroraTween(), label = "chipFill")
             Box(
                 Modifier
-                    .heightIn(min = 44.dp)
-                    .glass(colors, Radius.Pill, tint = if (on) colors.accent else null)
+                    .heightIn(min = 40.dp)
+                    .clip(Radius.Pill)
+                    .background(bg)
+                    .then(if (on) Modifier else Modifier.border(1.dp, colors.hairlineStrong, Radius.Pill))
                     .toggleable(on, role = Role.Checkbox, onValueChange = { onToggle(option) })
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
                     .semantics { contentDescription = spokenLabel(option) },
                 contentAlignment = Alignment.Center,
-            ) { Text(label(option), color = fg, style = AuroraType.Label) }
+            ) { Text(label(option), color = fg, style = if (on) AuroraType.Choice.copy(fontWeight = FontWeight(600)) else AuroraType.Choice) }
         }
     }
 }
@@ -178,7 +183,7 @@ fun LitBadge(icon: ImageVector, modifier: Modifier = Modifier, lit: Boolean = tr
     val ring = if (lit) tint.copy(alpha = 0.55f) else colors.hairline
     Box(
         modifier.size(size.dp).clip(Radius.Pill)
-            .background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(tint.copy(alpha = if (lit) 0.20f else 0.08f), tint.copy(alpha = 0.03f))))
+            .background(if (lit) tint.copy(alpha = 0.10f) else colors.field)
             .border(1.dp, ring, Radius.Pill),
         contentAlignment = Alignment.Center,
     ) {

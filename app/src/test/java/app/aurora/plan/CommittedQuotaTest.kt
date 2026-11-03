@@ -40,7 +40,7 @@ class CommittedQuotaTest {
 
     @Test
     fun overlapsCountOnce() {
-        // Cooldown 10:00-11:00 and Always Block 10:30-11:30 cover 90 minutes, not 120.
+        // Cooldown 10:00-11:00 and Strict 10:30-11:30 cover 90 minutes, not 120.
         val ledger = listOf(entry(at(10), 60), entry(at(10, 30), 60))
         assertEquals(90, used(ledger, at(12)))
         assertTrue(fits(ledger, at(12), 30))

@@ -1,5 +1,7 @@
 package app.aurora.ui.components
 
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,22 +32,41 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
 import app.aurora.data.InstalledApp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 
-/** Sentence-case, tracked section label. Marked as a heading for screen readers. */
+/** Small-capital, tracked section label ("MOST USED"). Screen readers hear the words as written, as a heading. */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.replaceFirstChar { it.uppercase() },
+        text.uppercase(),
         modifier
-            .padding(start = Space.Gutter, end = Space.Gutter, top = Space.XL, bottom = Space.S)
-            .semantics { heading() },
-        color = Aurora.colors.textSecondary,
+            .padding(start = Space.Gutter + 4.dp, end = Space.Gutter, top = Space.L, bottom = 10.dp)
+            .clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
+        color = Aurora.colors.textTertiary,
         style = AuroraType.Eyebrow,
+    )
+}
+
+/** Small-capital, tracked label inside a card or beside a control. Read aloud as written, not letter by letter. */
+@Composable
+fun Eyebrow(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: androidx.compose.ui.graphics.Color = Aurora.colors.textTertiary,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+) {
+    Text(
+        text.uppercase(),
+        modifier.semantics { contentDescription = text },
+        color = color,
+        style = AuroraType.Eyebrow,
+        textAlign = textAlign,
     )
 }
 
@@ -54,7 +75,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 fun RowGroup(modifier: Modifier = Modifier, edge: androidx.compose.ui.graphics.Color? = null, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier
-            .padding(horizontal = Space.M)
+            .padding(horizontal = Space.Gutter)
             .fillMaxWidth()
             .auroraSurface(Aurora.colors, edge = edge),
         content = content,
@@ -62,7 +83,7 @@ fun RowGroup(modifier: Modifier = Modifier, edge: androidx.compose.ui.graphics.C
 }
 
 @Composable
-fun RowDivider(inset: Dp = Space.M) {
+fun RowDivider(inset: Dp = 0.dp) {
     Box(
         Modifier
             .padding(start = inset)
@@ -90,19 +111,19 @@ fun AuroraRow(
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
+            .heightIn(min = 62.dp)
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(horizontal = Space.M, vertical = Space.S),
+            .padding(horizontal = 18.dp, vertical = Space.S),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Space.M),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         when {
             leading != null -> leading()
-            icon != null -> Icon(icon, null, tint = colors.textSecondary, modifier = Modifier.size(24.dp))
+            icon != null -> Icon(icon, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong)
-            if (subtitle != null) Text(subtitle, color = colors.textSecondary, style = AuroraType.Secondary)
+            if (subtitle != null) Text(subtitle, color = colors.textTertiary, style = AuroraType.Secondary.copy(fontSize = 12.5.sp, lineHeight = 17.sp))
         }
         trailing?.invoke(this)
     }
@@ -110,7 +131,7 @@ fun AuroraRow(
 
 @Composable
 fun Chevron() {
-    Icon(AuroraIcons.Chevron, null, tint = Aurora.colors.textTertiary, modifier = Modifier.size(20.dp))
+    Icon(AuroraIcons.Chevron, null, tint = Aurora.colors.textTertiary, modifier = Modifier.size(16.dp))
 }
 
 /** Settings row with a switch; the whole row toggles. */
@@ -133,7 +154,7 @@ fun ToggleRow(
 
 /** An installed app's icon at a consistent size and shape. */
 @Composable
-fun AppIcon(app: InstalledApp, modifier: Modifier = Modifier, size: Dp = 40.dp) {
+fun AppIcon(app: InstalledApp, modifier: Modifier = Modifier, size: Dp = 38.dp) {
     Image(app.icon, contentDescription = null, modifier = modifier.size(size).clip(RoundedCornerShape(size * 0.28f)))
 }
 

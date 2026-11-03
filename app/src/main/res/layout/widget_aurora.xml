@@ -31,7 +31,7 @@
                 android:layout_width="18dp"
                 android:layout_height="18dp"
                 android:importantForAccessibility="no"
-                android:src="@drawable/ic_mark" />
+                android:src="@drawable/ic_aurora_mark" />
 
             <TextView
                 android:id="@+id/widget_eyebrow"
@@ -52,8 +52,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:ellipsize="end"
-            android:fontFamily="@font/cormorant"
-            android:fontVariationSettings="'wght' 500"
+            android:fontFamily="@font/geist"
+            android:fontVariationSettings="'wght' 700"
             android:maxLines="1"
             android:textColor="@color/widget_text"
             android:textSize="20sp" />

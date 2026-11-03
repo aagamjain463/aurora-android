@@ -120,10 +120,17 @@ or holding a weaker access grant cannot bypass that cooldown.
 `progress/Runs.kt` records evidence for each finished configuration run. Service
 heartbeat spans establish verified protection time; overlapping spans count once.
 Protection succeeds at 90% coverage, is partial at 50%, and is unverified below
-50%. Turning a timed run off early does not count as success. Intent needs at least
-50% service coverage; continuing past a reminder makes it partial. Focus depends
-on the person's report, not the timer reaching zero. The combined result uses the
-weakest part; absent evidence never creates a success.
+50%. Aurora never asks the person how it went: the outcome comes only from evidence.
+A run is not achieved when it was turned off early; when Accessibility was turned
+off and not back within 2 minutes; when a Shield app was used for over 15 s while
+the service was down (safe mode, force stop; needs usage access); when a Friction
+task or Cooldown wait opened a Shield app; or, for Intent, when the person continued
+past a reminder or opened the app again within 15 minutes of its time (and cooldown)
+running out. Intent otherwise needs at least 50% service coverage. Focus follows the
+run: completed when every part succeeded, not completed when any part broke. The
+combined result uses the weakest part; absent evidence never creates a success.
+Time Reclaimed counts protection only while the service was bound. Uninstalling
+Aurora deletes its data (backup is off), so a run ended that way leaves no record.
 
 ## Goals
 

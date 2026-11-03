@@ -12,10 +12,10 @@ import java.io.File
 
 /** brand/tokens/aurora.tokens.json is the design source of truth; the Kotlin palette must match it. */
 class DesignTokensTest {
-    /** Text on filled actions must remain AA-readable throughout both gradients. */
+    /** Text on filled actions must remain AA-readable in both themes. */
     @Test
     fun primaryActionContrast() {
-        for (colors in listOf(DarkColors)) {
+        for (colors in listOf(DarkColors, app.aurora.ui.theme.LightColors)) {
             val text = colors.onAccent.luminance()
             colors.cta.forEach { fill ->
                 val background = fill.luminance()

@@ -93,8 +93,10 @@ fun EmptyState(
             Spacer(Modifier.height(Space.L))
         }
         Text(title, color = colors.textPrimary, style = AuroraType.Title, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(Space.XS))
-        Text(body, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+        if (body.isNotEmpty()) {
+            Spacer(Modifier.height(Space.XS))
+            Text(body, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+        }
         if (action != null) {
             Spacer(Modifier.height(Space.L))
             action()
@@ -112,14 +114,12 @@ fun Notice(eyebrow: String, body: String, modifier: Modifier = Modifier, action:
     Column(
         modifier
             .fillMaxWidth()
-            .clip(Radius.L)
-            .background(colors.surface)
-            .glass(colors, Radius.L, tint = colors.violet)
-            .padding(Space.L),
+            .glass(colors, Radius.L)
+            .padding(horizontal = 22.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.M),
     ) {
         Column(Modifier.semantics(mergeDescendants = true) { }, verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-            Text(eyebrow, Modifier.semantics { heading() }, color = colors.violetText, style = AuroraType.Title)
+            Text(eyebrow, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
             Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
         }
         action?.invoke()
@@ -135,7 +135,7 @@ fun SkeletonRows(count: Int = 6) {
     ).value
     Column(
         Modifier
-            .padding(horizontal = Space.M)
+            .padding(horizontal = Space.Gutter)
             .graphicsLayer { this.alpha = alpha }
             .semantics { paneTitle = "Loading" },
     ) {
@@ -162,11 +162,15 @@ fun AuroraDialog(
     onConfirm: () -> Unit,
     body: String? = null,
     dismissLabel: String? = null,
+    confirmEnabled: Boolean = true,
+    scrollContent: Boolean = true,
     content: (@Composable () -> Unit)? = null,
 ) {
     val colors = Aurora.colors
     val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() } - Space.XXL
-    BasicAlertDialog(onDismissRequest = onDismiss) {
+    // The window spans the screen and the card sets its own margins: with the platform's wrap-content width a
+    // weighted row of text fields (the duration boxes) made the dialog window re-layout every frame.
+    BasicAlertDialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         // Native window blur, where the phone allows it: the page frosts behind the dialog.
         val view = androidx.compose.ui.platform.LocalView.current
         val blur = with(androidx.compose.ui.platform.LocalDensity.current) { 40.dp.roundToPx() }
@@ -180,6 +184,7 @@ fun AuroraDialog(
         }
         Column(
             Modifier
+                .padding(horizontal = Space.L)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight.coerceAtLeast(0.dp))
                 // Keep the message readable even when window blur is unavailable.
@@ -196,17 +201,20 @@ fun AuroraDialog(
                     Spacer(Modifier.height(Space.S))
                     Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
                 }
-                if (content != null) {
+                if (content != null && scrollContent) {
                     Spacer(Modifier.height(Space.L))
                     content()
                 }
             }
+            // Controls that hold a weighted row (the duration boxes) sit outside the scroll: inside a bounded scroll
+            // that row never settles its measure in a dialog window.
+            if (content != null && !scrollContent) Column(Modifier.padding(horizontal = Space.L).padding(top = Space.S)) { content() }
             if (confirmLabel.isNotEmpty() || dismissLabel != null) {
                 Column(
                     Modifier.padding(horizontal = Space.L).padding(top = Space.S, bottom = Space.L),
                     verticalArrangement = Arrangement.spacedBy(Space.XS),
                 ) {
-                    if (confirmLabel.isNotEmpty()) AuroraButton(confirmLabel, onConfirm, Modifier.fillMaxWidth())
+                    if (confirmLabel.isNotEmpty()) AuroraButton(confirmLabel, onConfirm, Modifier.fillMaxWidth(), enabled = confirmEnabled)
                     if (dismissLabel != null) AuroraButton(dismissLabel, onDismiss, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                 }
             }

@@ -1,112 +1,152 @@
 {
-  "$description": "Aurora design tokens, Northern Lights system",
+  "$description": "Aurora design tokens: First Light (2026-11-02; orbit Horizon 2026-11-03). Aurora is the dawn: a night sky (dark, the default) or warm paper (light), and one colour, the light rising over the horizon. Serif for what a screen is about, Geist for everything read or tapped.",
   "color": {
     "palette": {
       "night-1000": {
         "$type": "color",
-        "$value": "#050609"
+        "$value": "#06050A"
       },
       "night-950": {
         "$type": "color",
-        "$value": "#080A0F"
+        "$value": "#0A090F"
       },
       "night-900": {
         "$type": "color",
-        "$value": "#0F1416"
+        "$value": "#131119"
       },
       "night-850": {
         "$type": "color",
-        "$value": "#15201C"
+        "$value": "#1B1822"
       },
       "night-800": {
         "$type": "color",
-        "$value": "#1E2F27"
+        "$value": "#25212D"
+      },
+      "night-700": {
+        "$type": "color",
+        "$value": "#383340"
+      },
+      "mist-700": {
+        "$type": "color",
+        "$value": "#6E6874"
+      },
+      "mist-500": {
+        "$type": "color",
+        "$value": "#9B94A0"
       },
       "mist-300": {
         "$type": "color",
-        "$value": "#BFD0C4"
+        "$value": "#C9C1C6"
       },
-      "mist-400": {
+      "ivory": {
         "$type": "color",
-        "$value": "#8FA697"
+        "$value": "#F6F0E8"
       },
-      "frost": {
+      "plum-700": {
         "$type": "color",
-        "$value": "#F2F9F1"
+        "$value": "#3B1E3A"
       },
-      "aurora-300": {
+      "rose-500": {
         "$type": "color",
-        "$value": "#C9FFB4"
+        "$value": "#D0607A"
       },
-      "aurora-400": {
+      "rose-400": {
         "$type": "color",
-        "$value": "#4BEA55"
+        "$value": "#E8899A"
       },
-      "aurora-500": {
+      "ember-400": {
         "$type": "color",
-        "$value": "#19C48A"
+        "$value": "#F59164"
       },
-      "aurora-600": {
+      "gold-300": {
         "$type": "color",
-        "$value": "#17A850"
+        "$value": "#FFD39A"
       },
-      "aurora-700": {
+      "peach-200": {
         "$type": "color",
-        "$value": "#0B5A2A"
+        "$value": "#FFD7B5"
       },
-      "violet-300": {
+      "dawn-100": {
         "$type": "color",
-        "$value": "#D0BCFF"
+        "$value": "#FFF1E0"
       },
-      "violet-400": {
+      "day-25": {
         "$type": "color",
-        "$value": "#A78BFA"
+        "$value": "#FFFDFA"
       },
-      "indigo-500": {
+      "day-50": {
         "$type": "color",
-        "$value": "#3D3A9E"
+        "$value": "#FBF7F2"
       },
-      "rose-300": {
+      "day-100": {
         "$type": "color",
-        "$value": "#F58BD0"
+        "$value": "#F4EEE7"
       },
-      "mint-100": {
+      "day-150": {
         "$type": "color",
-        "$value": "#DDF9D4"
+        "$value": "#F1EAE2"
       },
-      "glacier-400": {
+      "day-200": {
         "$type": "color",
-        "$value": "#7FB8E6"
+        "$value": "#EAE1D7"
       },
-      "gold-400": {
+      "day-300": {
         "$type": "color",
-        "$value": "#F2C46D"
+        "$value": "#DDD2C6"
       },
-      "starlight": {
+      "umber-400": {
         "$type": "color",
-        "$value": "#F4FFF0"
+        "$value": "#ADA196"
+      },
+      "umber-600": {
+        "$type": "color",
+        "$value": "#6F655C"
+      },
+      "umber-700": {
+        "$type": "color",
+        "$value": "#4A423B"
+      },
+      "ink": {
+        "$type": "color",
+        "$value": "#16131A"
+      },
+      "ink-800": {
+        "$type": "color",
+        "$value": "#2A2430"
+      },
+      "blush-200": {
+        "$type": "color",
+        "$value": "#F3D3C6"
+      },
+      "clay-400": {
+        "$type": "color",
+        "$value": "#E59A76"
+      },
+      "ember-700": {
+        "$type": "color",
+        "$value": "#B8532C"
+      },
+      "rose-700": {
+        "$type": "color",
+        "$value": "#A9445A"
       },
       "coral-400": {
         "$type": "color",
-        "$value": "#F48FA1"
+        "$value": "#F08A80"
       },
-      "ctastart": {
+      "coral-700": {
         "$type": "color",
-        "$value": "#8BF27A"
-      },
-      "ctamid": {
-        "$type": "color",
-        "$value": "#4BEA55"
-      },
-      "ctaend": {
-        "$type": "color",
-        "$value": "#1FC46A"
+        "$value": "#B3261E"
       }
     },
     "dark": {
       "background": {
         "$type": "color",
         "$value": "{color.palette.night-950}"
+      },
+      "sky": {
+        "$type": "color",
+        "$value": "{color.palette.night-1000}"
       },
       "surface": {
         "$type": "color",
@@ -118,32 +158,20 @@
       },
       "hairline": {
         "$type": "color",
-        "$value": "#24C9FFB4",
-        "$description": "aurora-300 at 14%: a green-tinted border"
+        "$value": "#0FFFFFFF"
       },
-      "glass-base": {
+      "hairline-strong": {
         "$type": "color",
-        "$value": "#610F1416",
-        "$description": "night-900 at 38%: under every glass surface, so text reads"
+        "$value": "#1CFFFFFF"
       },
-      "glass-top": {
+      "card-rim": {
         "$type": "color",
-        "$value": "#2BF2F9F1",
-        "$description": "frost at 17%: where glass catches the light, top left"
-      },
-      "glass-bottom": {
-        "$type": "color",
-        "$value": "#09F2F9F1",
-        "$description": "frost at 3.5%"
-      },
-      "glass-rim": {
-        "$type": "color",
-        "$value": "#99F2F9F1",
-        "$description": "frost at 60%: the bright edge of glass, fading across the border"
+        "$value": "#1AFFFFFF",
+        "$description": "Top of a card's lit edge, fading to hairline."
       },
       "text-primary": {
         "$type": "color",
-        "$value": "{color.palette.frost}"
+        "$value": "{color.palette.ivory}"
       },
       "text-secondary": {
         "$type": "color",
@@ -151,122 +179,322 @@
       },
       "text-tertiary": {
         "$type": "color",
-        "$value": "{color.palette.mist-400}"
+        "$value": "{color.palette.mist-500}"
       },
       "accent": {
         "$type": "color",
-        "$value": "{color.palette.aurora-400}"
+        "$value": "{color.palette.peach-200}"
       },
-      "sun": {
+      "on-accent": {
         "$type": "color",
-        "$value": "{color.palette.rose-300}"
+        "$value": "{color.palette.night-1000}"
       },
-      "headline-lead": {
-        "$type": "color",
-        "$value": "{color.palette.mint-100}"
-      }
-    },
-    "gradient": {
-      "cta": {
+      "action": {
         "$type": "gradient",
         "$value": [
-          "#8BF27A",
-          "#4BEA55",
-          "#1FC46A"
+          "{color.palette.dawn-100}",
+          "{color.palette.peach-200}"
         ],
-        "$description": "Primary action: the ribbon, hot core to emerald edge."
+        "$description": "The one filled action, top to bottom: sunlit."
+      },
+      "dawn": {
+        "$type": "gradient",
+        "$value": [
+          "{color.palette.gold-300}",
+          "{color.palette.ember-400}",
+          "{color.palette.rose-500}",
+          "{color.palette.plum-700}"
+        ],
+        "$description": "The Horizon's bloom, crest outward."
+      },
+      "horizon-rim": {
+        "$type": "color",
+        "$value": "{color.palette.dawn-100}"
+      },
+      "earth": {
+        "$type": "color",
+        "$value": "{color.palette.night-1000}"
+      },
+      "danger": {
+        "$type": "color",
+        "$value": "{color.palette.coral-400}"
+      },
+      "dock": {
+        "$type": "color",
+        "$value": "{color.palette.night-900}"
+      },
+      "dock-well": {
+        "$type": "color",
+        "$value": "{color.palette.night-700}"
+      },
+      "field": {
+        "$type": "color",
+        "$value": "{color.palette.night-850}"
+      }
+    },
+    "light": {
+      "background": {
+        "$type": "color",
+        "$value": "{color.palette.day-50}"
+      },
+      "sky": {
+        "$type": "color",
+        "$value": "{color.palette.day-100}"
+      },
+      "surface": {
+        "$type": "color",
+        "$value": "{color.palette.day-25}"
+      },
+      "elevated": {
+        "$type": "color",
+        "$value": "{color.palette.day-200}"
+      },
+      "hairline": {
+        "$type": "color",
+        "$value": "#12000000"
+      },
+      "hairline-strong": {
+        "$type": "color",
+        "$value": "#1A000000"
+      },
+      "text-primary": {
+        "$type": "color",
+        "$value": "{color.palette.ink}"
+      },
+      "text-secondary": {
+        "$type": "color",
+        "$value": "{color.palette.umber-700}"
+      },
+      "text-tertiary": {
+        "$type": "color",
+        "$value": "{color.palette.umber-600}"
+      },
+      "accent": {
+        "$type": "color",
+        "$value": "{color.palette.ink}"
+      },
+      "on-accent": {
+        "$type": "color",
+        "$value": "{color.palette.day-50}"
+      },
+      "action": {
+        "$type": "gradient",
+        "$value": [
+          "{color.palette.ink-800}",
+          "{color.palette.ink}"
+        ]
+      },
+      "dawn": {
+        "$type": "gradient",
+        "$value": [
+          "{color.palette.gold-300}",
+          "{color.palette.clay-400}",
+          "{color.palette.rose-400}",
+          "{color.palette.blush-200}"
+        ]
+      },
+      "horizon-rim": {
+        "$type": "color",
+        "$value": "{color.palette.ember-700}"
+      },
+      "earth": {
+        "$type": "color",
+        "$value": "{color.palette.day-100}"
+      },
+      "danger": {
+        "$type": "color",
+        "$value": "{color.palette.coral-700}"
+      },
+      "dock": {
+        "$type": "color",
+        "$value": "{color.palette.day-25}"
+      },
+      "dock-well": {
+        "$type": "color",
+        "$value": "{color.palette.day-200}"
+      },
+      "field": {
+        "$type": "color",
+        "$value": "{color.palette.day-150}"
       }
     },
     "mode": {
+      "$description": "Modes differ by name and glyph; tone rises from Flexible to Strict.",
       "flexible": {
         "$type": "color",
-        "$value": "{color.palette.aurora-400}"
+        "$value": "{color.dark.text-tertiary}"
       },
       "friction": {
         "$type": "color",
-        "$value": "{color.palette.rose-300}"
+        "$value": "{color.dark.text-secondary}"
       },
       "cooldown": {
         "$type": "color",
-        "$value": "{color.palette.glacier-400}"
+        "$value": "{color.dark.text-secondary}"
       },
       "always-block": {
         "$type": "color",
-        "$value": "{color.palette.aurora-500}"
+        "$value": "{color.dark.accent}"
       }
     }
   },
   "font": {
+    "display": {
+      "$type": "fontFamily",
+      "$value": "Instrument Serif",
+      "$description": "Headlines, the promise, the wordmark. SIL OFL, res/font/instrument_serif.ttf and instrument_serif_italic.ttf. One weight, never synthesised bold."
+    },
     "family": {
       "$type": "fontFamily",
       "$value": "Geist",
-      "$description": "Controls, body text and small numbers. SIL OFL, bundled variable font res/font/geist.ttf"
-    },
-    "display-family": {
-      "$type": "fontFamily",
-      "$value": "Cormorant Garamond",
-      "$description": "Headlines, the wordmark and big numbers. Weight 500, numbers 400. SIL OFL, res/font/cormorant.ttf"
+      "$description": "Everything read or tapped, and numbers. SIL OFL, variable font res/font/geist.ttf"
     }
   },
   "typography": {
     "hero-timer": {
       "$type": "typography",
-      "$value": { "fontSize": "92sp", "lineHeight": "94sp", "fontWeight": 400, "letterSpacing": "-0.02em", "fontFeature": "lnum tnum", "fontFamily": "Cormorant Garamond" }
+      "$value": {
+        "fontFamily": "Geist",
+        "fontSize": "72sp",
+        "lineHeight": "76sp",
+        "fontWeight": 300,
+        "letterSpacing": "-0.045em",
+        "fontFeature": "lnum tnum"
+      }
     },
     "metric": {
       "$type": "typography",
-      "$value": { "fontSize": "66sp", "lineHeight": "68sp", "fontWeight": 400, "letterSpacing": "-0.015em", "fontFeature": "lnum tnum", "fontFamily": "Cormorant Garamond" }
+      "$value": {
+        "fontFamily": "Geist",
+        "fontSize": "48sp",
+        "lineHeight": "52sp",
+        "fontWeight": 380,
+        "letterSpacing": "-0.04em",
+        "fontFeature": "lnum tnum"
+      }
     },
     "display-xl": {
       "$type": "typography",
-      "$value": { "fontSize": "68sp", "lineHeight": "70sp", "fontWeight": 500, "letterSpacing": "-0.02em", "fontFamily": "Cormorant Garamond" },
-      "$description": "One-word screen titles"
+      "$value": {
+        "fontFamily": "Instrument Serif",
+        "fontSize": "40sp",
+        "lineHeight": "44sp",
+        "fontWeight": 400,
+        "letterSpacing": "-0.015em"
+      }
     },
     "display": {
       "$type": "typography",
-      "$value": { "fontSize": "50sp", "lineHeight": "52sp", "fontWeight": 500, "letterSpacing": "-0.018em", "fontFamily": "Cormorant Garamond" },
-      "$description": "Hero headlines, two-tone"
+      "$value": {
+        "fontFamily": "Instrument Serif",
+        "fontSize": "38sp",
+        "lineHeight": "42sp",
+        "fontWeight": 400,
+        "letterSpacing": "-0.012em"
+      }
     },
     "display-s": {
       "$type": "typography",
-      "$value": { "fontSize": "36sp", "lineHeight": "40sp", "fontWeight": 500, "letterSpacing": "-0.012em", "fontFamily": "Cormorant Garamond" },
-      "$description": "Step titles in setup flows. The smallest Cormorant ever goes, except the wordmark"
+      "$value": {
+        "fontFamily": "Instrument Serif",
+        "fontSize": "32sp",
+        "lineHeight": "36sp",
+        "fontWeight": 400,
+        "letterSpacing": "-0.01em"
+      }
     },
     "headline": {
       "$type": "typography",
-      "$value": { "fontSize": "24sp", "lineHeight": "30sp", "fontWeight": 560, "letterSpacing": "-0.022em" }
+      "$value": {
+        "fontSize": "20sp",
+        "lineHeight": "26sp",
+        "fontWeight": 650,
+        "letterSpacing": "-0.022em"
+      }
     },
     "title": {
       "$type": "typography",
-      "$value": { "fontSize": "18sp", "lineHeight": "24sp", "fontWeight": 560, "letterSpacing": "-0.014em" }
+      "$value": {
+        "fontSize": "16sp",
+        "lineHeight": "22sp",
+        "fontWeight": 600,
+        "letterSpacing": "-0.014em"
+      }
     },
     "body": {
       "$type": "typography",
-      "$value": { "fontSize": "16sp", "lineHeight": "24sp", "fontWeight": 420, "letterSpacing": "-0.004em" }
+      "$value": {
+        "fontSize": "15sp",
+        "lineHeight": "22sp",
+        "fontWeight": 420,
+        "letterSpacing": "-0.006em"
+      }
     },
     "body-strong": {
       "$type": "typography",
-      "$value": { "fontSize": "16sp", "lineHeight": "22sp", "fontWeight": 560, "letterSpacing": "-0.008em" }
+      "$value": {
+        "fontSize": "15sp",
+        "lineHeight": "20sp",
+        "fontWeight": 560,
+        "letterSpacing": "-0.008em"
+      }
     },
     "secondary": {
       "$type": "typography",
-      "$value": { "fontSize": "15sp", "lineHeight": "21sp", "fontWeight": 420, "letterSpacing": "-0.002em" }
+      "$value": {
+        "fontSize": "13sp",
+        "lineHeight": "18sp",
+        "fontWeight": 420,
+        "letterSpacing": "-0.002em"
+      }
     },
     "label": {
       "$type": "typography",
-      "$value": { "fontSize": "16sp", "lineHeight": "20sp", "fontWeight": 560, "letterSpacing": "-0.008em" }
+      "$value": {
+        "fontSize": "15sp",
+        "lineHeight": "20sp",
+        "fontWeight": 600,
+        "letterSpacing": "-0.008em"
+      }
     },
     "caption": {
       "$type": "typography",
-      "$value": { "fontSize": "13sp", "lineHeight": "18sp", "fontWeight": 500, "letterSpacing": "0.002em", "fontFeature": "tnum" }
+      "$value": {
+        "fontSize": "13sp",
+        "lineHeight": "17sp",
+        "fontWeight": 500,
+        "letterSpacing": "0.0em",
+        "fontFeature": "tnum"
+      }
     },
     "eyebrow": {
       "$type": "typography",
-      "$value": { "fontSize": "13sp", "lineHeight": "16sp", "fontWeight": 560, "letterSpacing": "0.018em" }
+      "$value": {
+        "fontSize": "13sp",
+        "lineHeight": "16sp",
+        "fontWeight": 560,
+        "letterSpacing": "0.01em"
+      }
     },
-    "wordmark": {
+    "hero": {
       "$type": "typography",
-      "$value": { "fontSize": "31sp", "lineHeight": "32sp", "fontWeight": 500, "letterSpacing": "-0.01em", "fontFamily": "Cormorant Garamond" }
+      "$value": {
+        "fontFamily": "Instrument Serif",
+        "fontSize": "64sp",
+        "lineHeight": "64sp",
+        "fontWeight": 400,
+        "letterSpacing": "-0.025em"
+      }
+    },
+    "hero-lead": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Geist",
+        "fontSize": "19sp",
+        "lineHeight": "26sp",
+        "fontWeight": 420,
+        "letterSpacing": "-0.01em"
+      }
     }
   },
   "space": {
@@ -362,28 +590,6 @@
     "breath": {
       "$type": "duration",
       "$value": "4200ms"
-    }
-  },
-  "art": {
-    "stage": {
-      "$type": "other",
-      "$value": { "asset": "aurora_night + live AuroraSky", "height": "560dp", "alignment": "bias 0, -0.2" },
-      "$description": "Focus, Shield and Intent"
-    },
-    "immersive": {
-      "$type": "other",
-      "$value": { "asset": "aurora_night + live AuroraSky", "height": "480dp", "alignment": "bias 0, -0.2" },
-      "$description": "Home"
-    },
-    "balanced": {
-      "$type": "other",
-      "$value": { "asset": "aurora_night + live AuroraSky", "height": "380dp", "alignment": "bias 0, 0" },
-      "$description": "The other tabs"
-    },
-    "restrained": {
-      "$type": "other",
-      "$value": { "asset": "none: palette, hairlines and mark only" },
-      "$description": "Settings, schedules, pickers, forms"
     }
   }
 }

@@ -68,7 +68,7 @@ class ShieldService : AccessibilityService() {
         this.interceptor = interceptor
         scope?.cancel()
         scope = MainScope().apply {
-            // A rule that starts while an app is open (Always Block, Focus, a new limit) applies to it at once.
+            // A rule that starts while an app is open (Strict, Focus, a new limit) applies to it at once.
             launch { combine(app.rules.state, app.runtime.state, app.protectedList) { _, _, _ -> }.collect { interceptor.recheck() } }
         }
         screenReceiver = object : BroadcastReceiver() {
@@ -120,7 +120,7 @@ class ShieldService : AccessibilityService() {
             runCatching { app.settleIntent(key) }
             interceptor?.recheck()
         }
-        val limited = app.rules.value?.limits?.filter { it.enabled }?.map { it.key }?.toSet().orEmpty()
+        val limited = app.rules.value?.activeLimits()?.map { it.key }?.toSet().orEmpty()
         if (limited.isEmpty() || key != null && key !in limited) return
         scope?.launch {
             usedToday = app.screenTime.today().filterKeys { it in limited }

@@ -37,7 +37,7 @@ data class FocusSession(val startedAt: Long, val durationMs: Long, val intention
 
 data class UserPreferences(
     val onboarded: Boolean = false,
-    val themeMode: ThemeMode = ThemeMode.System,
+    val themeMode: ThemeMode = ThemeMode.Dark,
     val reduceMotion: Boolean = false,
     val defaultFocusMinutes: Int = 25,
     val session: FocusSession? = null,
@@ -90,7 +90,7 @@ class PreferencesRepository(context: Context) {
             val duration = this[SessionDuration]
             return UserPreferences(
                 onboarded = this[Onboarded] ?: false,
-                themeMode = ThemeMode.entries.find { it.name == this[Theme] } ?: ThemeMode.System,
+                themeMode = ThemeMode.entries.find { it.name == this[Theme] } ?: ThemeMode.Dark,
                 reduceMotion = this[ReduceMotion] ?: false,
                 defaultFocusMinutes = this[FocusMinutes] ?: 25,
                 onboardingStep = this[OnboardingStep] ?: 0,

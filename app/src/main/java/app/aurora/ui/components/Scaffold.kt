@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -57,19 +58,18 @@ import app.aurora.ui.theme.Space
 import app.aurora.ui.theme.auroraTween
 import androidx.compose.foundation.layout.widthIn
 
-private val TopBarHeight = 56.dp
+private val TopBarHeight = 60.dp
 
 /** Content never grows wider than a comfortable reading column; on tablets the art spans, the cards don't. */
 val ContentMaxWidth = 640.dp
 
-/** Dock plus its margins. Text scaling adds label height to both the dock and content clearance. */
+/** Dock plus its margins. The dock holds icons only, so text scaling leaves it as it is. */
 val TabBarHeight
-    @Composable @ReadOnlyComposable get() = 96.dp + with(LocalDensity.current) {
-        (AuroraType.Caption.lineHeight.toDp() - 18.dp).coerceAtLeast(0.dp)
-    }
+    @Composable @ReadOnlyComposable get() = 92.dp
 
 /**
- * Standard aurora screen: a large title that scrolls away into a compact top bar.
+ * Standard aurora screen. A screen you go back from carries its title centred in the top bar beside the back arrow,
+ * its [subtitle] centred beneath; a root screen opens with a large title that scrolls away into the bar.
  * Set [tabBar] on tab destinations so content clears the floating [AuroraNavBar].
  */
 @Composable
@@ -85,33 +85,25 @@ fun AuroraScreen(
     header: (@Composable () -> Unit)? = null,
     /** First Light behind the top of the screen. Null for configuration screens. */
     art: ArtTier? = null,
-    /** The aurora over [art]: lit while protection runs ([Sky]). */
-    sky: Sky = Sky.Quiet,
-    /** Time passing along the art's ring, 0 to 1 ([DawnRing]). */
-    arc: Float? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val colors = Aurora.colors
     val threshold = with(LocalDensity.current) { 48.dp.toPx() }
+    val pinned = onBack != null && header == null
     val collapsed by remember {
         derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > threshold }
     }
     // A tab screen over the sky opens with its own header (the mark), so no bar height is reserved.
-    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (art != null && onBack == null) 0.dp else TopBarHeight
+    // A root screen's large title sits in the bar's own row, beside the bar's actions.
+    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (onBack == null && header == null) 0.dp else if (art != null && onBack == null) 0.dp else TopBarHeight
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
         (if (tabBar) TabBarHeight else 0.dp) + Space.XXL
 
     // Hero screens over the sky open like Home: each block settles in from the top of the page down.
     // Plain screens do the same, quicker: they have no art to wait for.
-    val glass = rememberGlassSource()
     ProvideIntro(if (art != null) 900 else QuickIntroMs) {
     Box(modifier.fillMaxSize().background(colors.background)) {
-        Box(Modifier.fillMaxSize().glassSource(glass)) {
-        if (art != null) {
-            val tall = with(LocalDensity.current) { art.height.roundToPx() * 2 }
-            AuroraBackdrop(art, sky = sky, arc = arc, scroll = { if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else tall })
-        }
-        PageGlow()
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize(),
@@ -119,9 +111,19 @@ fun AuroraScreen(
         ) {
             val list = RisingScope(this)
             if (header != null) list.item(key = "title", contentType = "header") { header() }
+            else if (pinned) {
+                if (subtitle != null) list.item(key = "title", contentType = "title") {
+                    Text(
+                        subtitle, Modifier.fillMaxWidth().padding(horizontal = Space.XL).padding(top = Space.XS, bottom = Space.S),
+                        color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center,
+                    )
+                }
+            }
             else list.item(key = "title", contentType = "title") {
-                Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS, bottom = Space.S)) {
-                    Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
+                Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S)) {
+                    Box(Modifier.height(TopBarHeight), contentAlignment = Alignment.CenterStart) {
+                        Text(title, Modifier.semantics { heading() }.padding(end = 56.dp), color = colors.textPrimary, style = AuroraType.DisplayXL)
+                    }
                     if (subtitle != null) {
                         Spacer(Modifier.height(Space.XS))
                         Text(subtitle, color = colors.textSecondary, style = AuroraType.Body)
@@ -131,8 +133,7 @@ fun AuroraScreen(
             list.content()
         }
         }
-        TopBar(title, collapsed, onBack, actions, overArt = art != null, glass = glass)
-        if (art == null) TopAurora(Modifier.align(Alignment.TopCenter))
+        TopBar(title, collapsed, onBack, actions, overArt = art != null || (onBack == null && header == null), pinned = pinned)
     }
     }
 }
@@ -147,115 +148,84 @@ private class RisingScope(private val base: LazyListScope) : LazyListScope {
 }
 
 @Composable
-private fun TopBar(title: String, collapsed: Boolean, onBack: (() -> Unit)?, actions: @Composable RowScope.() -> Unit, overArt: Boolean = false, glass: GlassSource? = null) {
+private fun TopBar(title: String, collapsed: Boolean, onBack: (() -> Unit)?, actions: @Composable RowScope.() -> Unit, overArt: Boolean = false, pinned: Boolean = false) {
     val colors = Aurora.colors
-    val titleAlpha by animateFloatAsState(if (collapsed) 1f else 0f, auroraTween(), label = "title")
-    // Over the sky the bar is clear until the title collapses into it; then the page frosts behind it.
+    val titleAlpha by animateFloatAsState(if (collapsed || pinned) 1f else 0f, auroraTween(), label = "title")
+    val lineAlpha by animateFloatAsState(if (collapsed) 1f else 0f, auroraTween(), label = "line")
+    // On a tab screen the bar is clear until the title collapses into it.
     val shown = if (overArt) titleAlpha else 1f
-    Column(Modifier.fillMaxWidth().frosted(glass, androidx.compose.ui.graphics.RectangleShape) { shown }.background(colors.background.copy(alpha = shown * if (glass != null) 0.60f else 1f)).statusBarsPadding()) {
+    Column(Modifier.fillMaxWidth().background(colors.background.copy(alpha = shown)).statusBarsPadding()) {
         Row(
-            Modifier.fillMaxWidth().height(TopBarHeight).padding(horizontal = Space.XS),
+            Modifier.fillMaxWidth().height(TopBarHeight).padding(start = Space.XS + 2.dp, end = Space.Gutter - 3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) AuroraIconButton(AuroraIcons.Back, androidx.compose.ui.res.stringResource(app.aurora.R.string.action_back), onBack) else Spacer(Modifier.size(48.dp))
             Text(
                 title,
-                Modifier.weight(1f).graphicsLayer { alpha = titleAlpha },
+                Modifier.weight(1f).graphicsLayer { alpha = titleAlpha }.then(if (pinned) Modifier.semantics { heading() } else Modifier),
                 color = colors.textPrimary,
-                style = AuroraType.BodyStrong,
+                style = AuroraType.Bar,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
-            Row(Modifier.size(width = 48.dp, height = 48.dp), horizontalArrangement = Arrangement.End, content = actions)
+            Row(Modifier.size(width = 48.dp, height = 48.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, content = actions)
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).graphicsLayer { alpha = titleAlpha }.background(colors.hairline))
+        Box(Modifier.fillMaxWidth().height(1.dp).graphicsLayer { alpha = lineAlpha }.background(colors.hairline))
     }
 }
 
 data class NavItem(val route: String, @androidx.annotation.StringRes val label: Int, val icon: ImageVector)
 
 /**
- * A floating dock, inset from the page. A ribbon of aurora light marks the chosen tab: its leading edge
- * races ahead and its tail follows on a softer spring, so it stretches across the dock like a curtain of
- * light and gathers as it lands. The chosen icon pops in, with a light tick.
+ * The dock: a calm bar of icons along the bottom. The chosen tab sits in a soft round well; each icon carries its
+ * tab's name as its text, for screen readers and tests. Choosing a tab gives a light tick.
  */
 @Composable
-fun AuroraNavBar(items: List<NavItem>, current: String?, glass: GlassSource? = null, onSelect: (String) -> Unit) {
+fun AuroraNavBar(items: List<NavItem>, current: String?, onSelect: (String) -> Unit) {
     val colors = Aurora.colors
-    val reduced = Aurora.reducedMotion
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val dockHeight = TabBarHeight - Space.L
-    val index = items.indexOfFirst { it.route == current }
-    val target = index.coerceAtLeast(0).toFloat()
-    val lead by animateFloatAsState(target, if (reduced) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.68f, stiffness = 900f), label = "lead")
-    val tail by animateFloatAsState(target, if (reduced) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.82f, stiffness = 220f), label = "tail")
-    val shown by animateFloatAsState(if (index >= 0) 1f else 0f, auroraTween(), label = "shown")
-    val label = AuroraType.Caption.lineHeight
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Box(
         Modifier.fillMaxWidth()
-            // The page dims beneath the dock, so the gesture area stays calm, but still shows through the glass.
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, colors.background.copy(alpha = 0.55f), colors.background.copy(alpha = 0.80f))))
-            .navigationBarsPadding().padding(start = Space.M, end = Space.M, bottom = Space.S, top = Space.L),
+            // Content scrolling under the dock fades into the page instead of showing below it.
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(0f to androidx.compose.ui.graphics.Color.Transparent, 0.35f to colors.background.copy(alpha = 0.92f), 1f to colors.background))
+            .padding(start = Space.Gutter, end = Space.Gutter, top = Space.M, bottom = maxOf(26.dp, navInset + 10.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Row(
             Modifier
                 .widthIn(max = ContentMaxWidth)
                 .fillMaxWidth()
-                .shadow(12.dp, Radius.Dialog, ambientColor = colors.sky, spotColor = colors.sky)
-                .then(if (glass != null) Modifier.frosted(glass, Radius.Dialog) else Modifier.background(colors.surface, Radius.Dialog))
-                .auroraSurface(colors, Radius.Dialog)
-                .height(dockHeight)
-                .drawBehind {
-                    // Same geometry as each tab's column: icon pill, 4dp, label, 3dp, point.
-                    val content = 30.dp.toPx() + 4.dp.toPx() + label.toPx() + 6.dp.toPx()
-                    val top = (size.height - content) / 2f
-                    val slot = size.width / items.size
-                    val pill = androidx.compose.ui.geometry.Size(52.dp.toPx(), 30.dp.toPx())
-                    val left = slot * (minOf(lead, tail) + 0.5f) - pill.width / 2f
-                    val right = slot * (maxOf(lead, tail) + 0.5f) + pill.width / 2f
-                    // The stretch thins the ribbon a little, as light does when it travels.
-                    val stretch = ((right - left - pill.width) / slot).coerceIn(0f, 1f)
-                    val h = pill.height * (1f - 0.18f * stretch)
-                    val y = top + (pill.height - h) / 2f
-                    val ribbon = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                        listOf(colors.accent.copy(alpha = 0.30f * shown), colors.glowCool.copy(alpha = 0.18f * shown), colors.glowTop.copy(alpha = 0.16f * shown)),
-                        startX = left, endX = right,
-                    )
-                    // A soft bloom behind the ribbon, then the ribbon and its lit upper rim.
-                    val bloom = 6.dp.toPx()
-                    drawRoundRect(colors.accent.copy(alpha = 0.07f * shown), androidx.compose.ui.geometry.Offset(left - bloom, y - bloom), androidx.compose.ui.geometry.Size(right - left + 2 * bloom, h + 2 * bloom), androidx.compose.ui.geometry.CornerRadius(h / 2f + bloom))
-                    drawRoundRect(ribbon, androidx.compose.ui.geometry.Offset(left, y), androidx.compose.ui.geometry.Size(right - left, h), androidx.compose.ui.geometry.CornerRadius(h / 2f))
-                    drawRoundRect(colors.accent.copy(alpha = 0.35f * shown), androidx.compose.ui.geometry.Offset(left, y), androidx.compose.ui.geometry.Size(right - left, h), androidx.compose.ui.geometry.CornerRadius(h / 2f), style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
-                }
+                .height(64.dp)
+                .glass(colors, Radius.Pill)
+                .padding(horizontal = Space.XS)
                 .selectableGroup(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             items.forEach { item ->
                 val selected = item.route == current
-                val tint by animateColorAsState(if (selected) colors.accent else colors.textTertiary, auroraTween(), label = "tint")
-                val lift = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(1f) }
-                androidx.compose.runtime.LaunchedEffect(selected) {
-                    if (selected && !reduced) {
-                        lift.snapTo(0.86f)
-                        lift.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 500f))
-                    }
-                }
-                Column(
+                val tint by animateColorAsState(if (selected) colors.textPrimary else colors.textTertiary, auroraTween(), label = "tint")
+                val dot by androidx.compose.animation.core.animateFloatAsState(if (selected) 1f else 0f, auroraTween(), label = "dot")
+                val label = androidx.compose.ui.res.stringResource(item.label)
+                Box(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .selectable(selected, role = Role.Tab, onClick = {
                             if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
                             onSelect(item.route)
-                        }),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                        })
+                        .semantics { text = androidx.compose.ui.text.AnnotatedString(label) },
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(Modifier.size(width = 52.dp, height = 30.dp), contentAlignment = Alignment.Center) {
-                        Icon(item.icon, null, tint = tint, modifier = Modifier.size(22.dp).graphicsLayer { scaleX = lift.value; scaleY = lift.value })
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text(androidx.compose.ui.res.stringResource(item.label), color = if (selected) colors.textPrimary else colors.textTertiary, style = AuroraType.Caption)
-                    Spacer(Modifier.height(6.dp))
+                    // The chosen tab is marked by a point of first light under its icon.
+                    Icon(item.icon, null, tint = tint, modifier = Modifier.size(22.dp))
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 9.dp).size(4.dp)
+                            .graphicsLayer { alpha = dot; scaleX = dot; scaleY = dot }
+                            .clip(androidx.compose.foundation.shape.CircleShape).background(if (colors.isDark) colors.glowTop else colors.light),
+                    )
                 }
             }
         }

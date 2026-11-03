@@ -28,13 +28,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import app.aurora.ui.components.rememberGlassSource
-import app.aurora.ui.components.glassSource
 import app.aurora.AuroraApplication
 import app.aurora.adoptOnboarding
 import app.aurora.ui.account.AccountScreen
 import app.aurora.ui.account.ConfirmingDialog
-import app.aurora.ui.plus.KeepScreen
 import app.aurora.ui.plus.LimitPromptDialog
 import app.aurora.R
 import app.aurora.ui.components.AuroraIcons
@@ -42,16 +39,15 @@ import app.aurora.ui.components.AuroraNavBar
 import app.aurora.ui.components.NavItem
 import app.aurora.ui.components.TabArrival
 import app.aurora.ui.focus.FocusScreen
+import app.aurora.ui.guide.GuideScreen
 import app.aurora.ui.home.HomeScreen
 import app.aurora.ui.onboarding.OnboardingScreen
 import android.net.Uri
 import app.aurora.ui.plus.PlusScreen
 import app.aurora.ui.protect.AppPickerScreen
 import app.aurora.ui.protect.ItemScreen
-import app.aurora.ui.protect.LimitsScreen
 import app.aurora.ui.protect.ProtectRoutes
 import app.aurora.ui.configure.ConfigureScreen
-import app.aurora.ui.configure.QuickSessionScreen
 import app.aurora.ui.components.AuroraDialog
 import androidx.compose.ui.res.stringResource
 import app.aurora.ui.library.IntentEditorScreen
@@ -61,6 +57,7 @@ import app.aurora.ui.library.ShieldLibraryScreen
 import app.aurora.ui.strict.FocusRunScreen
 import app.aurora.ui.strict.StrictModeScreen
 import app.aurora.ui.track.GoalEditorScreen
+import app.aurora.ui.track.SessionHistoryScreen
 import app.aurora.ui.track.TrackScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.ui.protect.WebScreen
@@ -78,13 +75,14 @@ object Routes {
     const val Settings = "settings"
     const val Focus = "focus"
     const val Configure = "configure"
-    const val Quick = "quick"
     const val ShieldEdit = "shield-edit"
     const val IntentEdit = "intent-edit"
     const val GoalEdit = "goal-edit"
     const val Strict = "strict"
     const val FocusRun = "focus-run"
     const val Account = "account"
+    const val History = "history"
+    const val Guide = "guide"
 }
 
 /** Four pillars: activate (Home), create (Shield), configure (Intent), improve (Track). */
@@ -124,14 +122,13 @@ fun AuroraNavHost(startOnboarded: Boolean) {
     fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch() =
         initialState.destination.route in TabRoutes && targetState.destination.route in TabRoutes
 
-    val glass = rememberGlassSource()
     val push = tween<Float>(Motion.Gentle, easing = Motion.Ease)
     val slide = tween<androidx.compose.ui.unit.IntOffset>(Motion.Gentle, easing = Motion.Ease)
     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) {
         NavHost(
             navController = nav,
             startDestination = if (startOnboarded) Routes.Home else Routes.Onboarding,
-            modifier = Modifier.fillMaxSize().glassSource(glass),
+            modifier = Modifier.fillMaxSize(),
             // Tabs share one sky: the new one fades in over the old, so the light never dips, while the
             // new page's blocks climb in over it ([rise]).
             // Screens pushed on top slide in from the right while the one below sinks back, so depth
@@ -177,42 +174,32 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             val back: () -> Unit = { nav.popBackStack() }
             val plus: () -> Unit = { nav.navigate(ProtectRoutes.Plus) }
             val settings: () -> Unit = { nav.navigate(Routes.Settings) }
+            val guide: () -> Unit = { nav.navigate(Routes.Guide) }
             val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
             composable(Routes.Home) {
                 HomeScreen(
-                    onNormalUse = { nav.navigate(Routes.Quick) },
-                    onCustom = { nav.navigate("${Routes.Configure}?custom=true") },
+                    onStart = { nav.navigate("${Routes.Configure}?custom=false") },
                     onOpenFocus = { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") },
                     onOpenLegacyFocus = { nav.navigate(Routes.Focus) },
                     onOpenSettings = settings,
-                    onKeep = { nav.navigate(ProtectRoutes.Keep) },
-                )
-            }
-            composable(ProtectRoutes.Keep) { KeepScreen(back, plus) }
-            composable(Routes.Quick) {
-                QuickSessionScreen(
-                    onBack = back,
-                    onDone = { nav.popBackStack(Routes.Home, inclusive = false) },
-                    onMore = { nav.navigate("${Routes.Configure}?custom=false") },
-                    onStrict = { nav.navigate(Routes.Strict) },
-                    onPlus = plus,
-                    onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
+                    // Saved without starting: the goal flow is Configure's edit-and-save path.
+                    onEditSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&goal=true") },
+                    onOpenGuide = guide,
                 )
             }
             composable(Routes.Shield) {
                 ShieldLibraryScreen(
                     onCreate = { nav.navigate(Routes.ShieldEdit) },
                     onEdit = { id -> nav.navigate("${Routes.ShieldEdit}?id=$id") },
-                    onOpenLimits = { nav.navigate(ProtectRoutes.Limits) },
-                    onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
                     onOpenSettings = settings,
+                    onOpenGuide = guide,
                 )
             }
             composable("${Routes.ShieldEdit}?id={id}") { e ->
                 ShieldEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdShield", id) }, onPlus = plus)
             }
             composable(Routes.Intent) {
-                IntentLibraryScreen(onCreate = { nav.navigate(Routes.IntentEdit) }, onEdit = { id -> nav.navigate("${Routes.IntentEdit}?id=$id") }, onOpenSettings = settings)
+                IntentLibraryScreen(onCreate = { nav.navigate(Routes.IntentEdit) }, onEdit = { id -> nav.navigate("${Routes.IntentEdit}?id=$id") }, onOpenSettings = settings, onOpenGuide = guide)
             }
             composable("${Routes.IntentEdit}?id={id}") { e ->
                 IntentEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdIntent", id) }, onPlus = plus)
@@ -238,7 +225,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 )
             }
             composable(Routes.Track) {
-                TrackScreen(onPlus = plus, onOpenSettings = settings, onCreateGoal = { nav.navigate(Routes.GoalEdit) })
+                TrackScreen(onPlus = plus, onOpenSettings = settings, onCreateGoal = { nav.navigate(Routes.GoalEdit) }, onOpenHistory = { nav.navigate(Routes.History) }, onOpenGuide = guide)
             }
             composable(Routes.GoalEdit) { e ->
                 val createdConfig by e.savedStateHandle.getStateFlow<String?>("createdConfig", null).collectAsStateWithLifecycle()
@@ -250,10 +237,11 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             composable("${ProtectRoutes.Item}/{key}") { entry ->
                 ItemScreen(Uri.decode(entry.arguments?.getString("key").orEmpty()), back, onStart = { nav.selectTab(Routes.Home) }, onIntent = { nav.selectTab(Routes.Intent) }, onPlus = plus)
             }
-            composable(ProtectRoutes.Limits) { LimitsScreen(back, openItem) { nav.navigate(ProtectRoutes.Apps) } }
             composable(ProtectRoutes.Web) { WebScreen(back, openItem, plus) }
             composable(ProtectRoutes.Plus) { PlusScreen(back) }
             composable(Routes.Account) { AccountScreen(back, plus) }
+            composable(Routes.History) { SessionHistoryScreen(back) }
+            composable(Routes.Guide) { GuideScreen(back) }
             composable(Routes.Settings) {
                 SettingsScreen(
                     onBack = back,
@@ -265,6 +253,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onPlus = plus,
                     onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
                     onOpenStrict = { nav.navigate(Routes.Strict) },
+                    onOpenGuide = guide,
                 )
             }
             composable(
@@ -296,7 +285,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             enter = fadeIn(tween(Motion.Standard)) + if (reduced) EnterTransition.None else slideInVertically(tween(Motion.Gentle, easing = Motion.Ease)) { it },
             exit = fadeOut(tween(Motion.Quick)) + if (reduced) ExitTransition.None else slideOutVertically(tween(Motion.Standard, easing = Motion.Ease)) { it },
         ) {
-            AuroraNavBar(Tabs, route, glass) { nav.selectTab(it) }
+            AuroraNavBar(Tabs, route) { nav.selectTab(it) }
         }
     }
 }

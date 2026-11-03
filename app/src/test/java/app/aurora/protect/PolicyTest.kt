@@ -116,7 +116,7 @@ class PolicyTest {
         assertEquals(Decision.Allow, decide(ig, 30 * min, s))
     }
 
-    // ---- Always Block: strongest, nothing lifts it ----
+    // ---- Strict: strongest, nothing lifts it ----
 
     @Test
     fun alwaysBlockOverridesEverything() {
@@ -191,7 +191,7 @@ class PolicyTest {
         assertTrue(decide(ig, min, s.copy(access = mapOf(ig to Grant(10 * min, Mode.Friction)))) is Decision.TemporarilyAllowed)
     }
 
-    /** Scenario 4: an Intent session with a reminder, then Always Block starts while the app is open. */
+    /** Scenario 4: an Intent session with a reminder, then Strict starts while the app is open. */
     @Test
     fun scenario4AlwaysBlockStartingMidSessionWinsAtOnce() {
         val s = state(r(ShieldReason.AlwaysBlock, 5 * min, 35 * min)).copy(

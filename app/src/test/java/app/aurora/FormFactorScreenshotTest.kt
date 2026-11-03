@@ -69,7 +69,7 @@ class FormFactorScreenshotTest {
     }
 
     @Composable
-    private fun Home() = HomeScreen(onNormalUse = {}, onCustom = {}, onOpenFocus = {}, onOpenLegacyFocus = {}, onOpenSettings = {})
+    private fun Home() = HomeScreen(onStart = {}, onOpenFocus = {}, onOpenLegacyFocus = {}, onOpenSettings = {})
 
     private val intent = ShieldRequest(
         "com.example.photos", ShieldReason.Intent, null, 0, 0, 0, fresh = false,

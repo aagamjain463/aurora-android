@@ -97,19 +97,36 @@ class PlanFlowTest {
     @Test
     fun aSixthTargetIsRefusedAndNothingIsStored() = flow {
         loaded()
-        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Now(30)))
+        // One session runs at a time, so standing protection holds the five slots.
+        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Always))
+        val runs = app.runtime.value!!.runs
         val refusal = app.activate(session(apps(6)), Timing.Now(30))
         assertEquals(ActivationProblem.OverItems, refusal?.problem)
         assertEquals(LimitReason.ShieldTargets, refusal?.decision?.reason)
-        assertEquals(1, app.runtime.value!!.runs.size)
+        assertEquals(runs, app.runtime.value!!.runs)
         // And the app's root has been told to explain it.
         assertEquals(LimitReason.ShieldTargets, app.limitPrompt.value?.decision?.reason)
     }
 
     @Test
+    fun oneSessionRunsAtATime() = flow {
+        loaded()
+        assertNull(app.activate(session(apps(1)), Timing.Now(30)))
+        // A second session, or Focus, waits: nothing is stored and the first is untouched.
+        assertEquals(ActivationProblem.SessionRunning, app.activate(session(apps(2)), Timing.Now(30))?.problem)
+        assertFalse(app.startFocus(25, "focus", null, "write"))
+        assertEquals(1, app.runtime.value!!.runs.size)
+        // Scheduling for later is still fine.
+        assertNull(app.activate(session(apps(2)), Timing.Later(app.now().wall + 3_600_000L, 30)))
+        // Once the first is turned off, the next one starts.
+        assertTrue(app.turnOffRun(app.runtime.value!!.runs.single().id))
+        assertNull(app.activate(session(apps(2)), Timing.Now(30)))
+    }
+
+    @Test
     fun anAlreadyProtectedTargetCanBeUsedAgain() = flow {
         loaded()
-        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Now(30)))
+        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Always))
         assertNull(app.activate(session(apps(1, 5)), Timing.Now(30)))
     }
 
@@ -151,7 +168,7 @@ class PlanFlowTest {
     @Test
     fun theSameSiteWrittenTwoWaysIsOneTarget() = flow {
         loaded()
-        assertNull(app.activate(session(apps(1, 2, 3, 4) + "web:www.Example.com"), Timing.Now(10)))
+        assertNull(app.activate(session(apps(1, 2, 3, 4) + "web:www.Example.com"), Timing.Always))
         assertNull(app.activate(session(listOf("web:example.com")), Timing.Now(10)))
     }
 
@@ -159,24 +176,13 @@ class PlanFlowTest {
     fun focusCannotBypassTheTargetLimit() = flow {
         loaded()
         // Five different targets are active, and Focus would add more from the protected list.
-        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Now(30)))
+        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Always))
         ProtectedItem.App.of("com.example.app6")?.let { app.protect(it) }
         assertFalse(app.startFocus(25, "focus", null, "write"))
         assertNull(app.runtime.value!!.focus)
         // Focus itself is free and unlimited: with room, or over the same targets, it starts.
         ProtectedItem.App.of("com.example.app6")?.let { app.unprotect(listOf(it)) }
         assertTrue(app.startFocus(25, "focus", null, "write"))
-    }
-
-    @Test
-    fun aDailyLimitCountsItsTargetButHasNoLimitOfItsOwn() = flow {
-        loaded()
-        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Now(30)))
-        // A limit on one of the five is fine, however many there are.
-        assertNull(app.editRules { r -> r.copy(limits = apps(1, 2, 3, 4, 5).map { DailyLimit(it, 30) }) })
-        // A limit on a sixth target would activate it, and is refused.
-        assertEquals(ActivationProblem.OverItems, app.editRules { r -> r.copy(limits = r.limits + DailyLimit("com.example.app6", 30)) }?.problem)
-        assertEquals(5, app.rules.value!!.limits.size)
     }
 
     @Test
@@ -265,18 +271,21 @@ class PlanFlowTest {
     fun cooldownAndAlwaysBlockShareTheDay() = flow {
         loaded()
         assertNull(app.activate(session(apps(1), Mode.Cooldown, "a"), Timing.Now(60)))
-        assertNull(app.activate(session(apps(2), Mode.AlwaysBlock, "b"), Timing.Now(60)))
-        // Started at the same moment, they overlap: an hour of coverage so far. Past 120 of coverage is refused.
-        val refused = app.activate(session(apps(3), Mode.AlwaysBlock, "c"), Timing.Now(121))
+        // One session at a time: the next starts once the first has ended, and they share the day's 120.
+        ShadowSystemClock.advanceBy(Duration.ofMinutes(61))
+        val refused = app.activate(session(apps(2), Mode.AlwaysBlock, "b"), Timing.Now(61))
         assertEquals(ActivationProblem.OverCommittedAllowance, refused?.problem)
         assertEquals(LimitReason.CommittedProtection, refused?.decision?.reason)
-        assertEquals(2, app.runtime.value!!.runs.size)
+        assertNull(app.activate(session(apps(2), Mode.AlwaysBlock, "c"), Timing.Now(60)))
+        assertEquals(2, app.runtime.value!!.ledger.size)
     }
 
     @Test
     fun flexibleAndFrictionNeverTouchTheMinutes() = flow {
         loaded()
         assertNull(app.activate(session(apps(1), Mode.Flexible, "a"), Timing.Now(600)))
+        // One session at a time: Flexible can be turned off, and then Friction starts.
+        assertTrue(app.turnOffRun(app.runtime.value!!.runs.single().id))
         assertNull(app.activate(session(apps(1), Mode.Friction, "b"), Timing.Now(600)))
         assertTrue(app.runtime.value!!.ledger.isEmpty())
         assertEquals(120, app.committedMinutesLeft())
@@ -285,15 +294,15 @@ class PlanFlowTest {
     @Test
     fun simultaneousStartsCannotOversubscribe() = flow {
         loaded()
-        // Started together, in whatever order they run: only what fits is reserved, and what is reserved is stored.
+        // Started together, in whatever order they run: one session wins, only if it fits, and only it is stored.
         val lengths = listOf(100, 110, 119, 121, 130, 140)
         val results = lengths.mapIndexed { i, minutes ->
             app.scope.async { app.activate(session(apps(i), Mode.AlwaysBlock, "$i"), Timing.Now(minutes)) }
         }.awaitAll()
-        assertEquals(3, results.count { it == null })
-        assertEquals(3, results.count { it?.problem == ActivationProblem.OverCommittedAllowance })
-        assertEquals(3, app.runtime.value!!.ledger.size)
-        assertEquals(3, app.runtime.value!!.runs.size)
+        assertEquals(1, results.count { it == null })
+        assertTrue(results.filterNotNull().all { it.problem == ActivationProblem.SessionRunning || it.problem == ActivationProblem.OverCommittedAllowance })
+        assertEquals(1, app.runtime.value!!.ledger.size)
+        assertEquals(1, app.runtime.value!!.runs.size)
         assertTrue(usedToday() <= 120)
     }
 
@@ -331,9 +340,11 @@ class PlanFlowTest {
         // Delete all data is no way back to a fresh allowance.
         app.deleteAllData()
         assertEquals(0, app.committedMinutesLeft())
-        assertEquals(ActivationProblem.OverCommittedAllowance, app.activate(session(apps(2), Mode.AlwaysBlock, "b"), Timing.Now(121))?.problem)
-        // A session wholly inside coverage already reserved costs nothing, and starts.
-        assertNull(app.activate(session(apps(2), Mode.AlwaysBlock, "c"), Timing.Now(1)))
+        // The commitment is still running, so nothing else starts.
+        assertEquals(ActivationProblem.SessionRunning, app.activate(session(apps(2), Mode.AlwaysBlock, "b"), Timing.Now(1))?.problem)
+        // Once it has ended, the spent minutes still count.
+        ShadowSystemClock.advanceBy(Duration.ofMinutes(121))
+        assertEquals(ActivationProblem.OverCommittedAllowance, app.activate(session(apps(2), Mode.AlwaysBlock, "c"), Timing.Now(1))?.problem)
     }
 
     @Test

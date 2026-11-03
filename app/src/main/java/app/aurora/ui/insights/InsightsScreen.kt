@@ -1,5 +1,7 @@
 package app.aurora.ui.insights
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.sp
 import app.aurora.ui.components.auroraSurface
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.Canvas
@@ -58,6 +60,7 @@ import app.aurora.ui.theme.Palette
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -87,24 +90,35 @@ data class InsightsState(
 class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
     private val _state = MutableStateFlow(InsightsState(access = app.access.isGranted(Access.Usage)))
     val state: StateFlow<InsightsState> = _state
+    private var refreshJob: Job? = null
 
     fun select(period: Period) {
-        _state.value = _state.value.copy(period = period)
+        _state.value = _state.value.copy(period = period, loading = true)
         refresh()
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             val period = _state.value.period
             val access = app.access.isGranted(Access.Usage)
             val protectedKeys = app.protectedList.filterNotNull().first().active(app.plan).map { it.key }.toSet()
             val today = LocalDate.now()
-            val days = (period.days - 1 downTo 0).map { back ->
+            val perDay = (period.days - 1 downTo 0).map { back ->
                 val date = today.minusDays(back.toLong())
-                val usage = if (access) app.screenTime.day(date) else null
-                DayUsage(date, usage?.values?.sum(), usage?.filterKeys { it in protectedKeys }?.values?.sum())
+                date to if (access) app.screenTime.day(date) else null
             }
-            val rows = if (!access || period != Period.Today) emptyList() else appRows(app.screenTime.today(), protectedKeys)
+            val days = perDay.map { (date, usage) -> DayUsage(date, usage?.values?.sum(), usage?.filterKeys { it in protectedKeys }?.values?.sum()) }
+            val rows = when {
+                !access -> emptyList()
+                period == Period.Today -> appRows(app.screenTime.today(), protectedKeys)
+                // Each app's average over the days Android has records for, so a missing day doesn't pull it down.
+                else -> perDay.mapNotNull { it.second }.let { known ->
+                    val totals = mutableMapOf<String, Long>()
+                    known.forEach { day -> day.forEach { (pkg, ms) -> totals[pkg] = (totals[pkg] ?: 0L) + ms } }
+                    if (known.isEmpty()) emptyList() else appRows(totals.mapValues { it.value / known.size }, protectedKeys)
+                }
+            }
             _state.value = InsightsState(access, loading = false, period = period, rows = rows, days = days, plan = app.plan)
         }
     }
@@ -134,7 +148,7 @@ fun LazyListScope.usageSection(state: InsightsState, vm: InsightsViewModel, onMo
             Period.entries, state.period,
             { p -> if (p == Period.Month && !EntitlementPolicy.canAccessAdvancedAnalytics(state.plan).allowed) onMonthLocked() else vm.select(p) },
             label = { resources.getString(it.label) }, fill = true, segmented = true,
-            modifier = Modifier.padding(horizontal = Space.M),
+            modifier = Modifier.padding(horizontal = Space.Gutter),
         )
     }
     if (state.loading) {
@@ -152,38 +166,37 @@ fun LazyListScope.usageSection(state: InsightsState, vm: InsightsViewModel, onMo
     } else item(key = "total") {
         val colors = Aurora.colors
         val known = state.days.mapNotNull { it.total }
-        Column(Modifier.padding(horizontal = Space.M).padding(top = Space.M).fillMaxWidth().auroraSurface(colors).padding(Space.L)) {
+        Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.M).fillMaxWidth().auroraSurface(colors).padding(horizontal = 22.dp, vertical = 20.dp)) {
+            val metric = AuroraType.Metric.copy(fontSize = 40.sp, lineHeight = 46.sp)
             if (state.period == Period.Today) {
-                Text(if (known.isEmpty()) "—" else formatDuration(known.sum()), color = colors.textPrimary, style = AuroraType.Metric)
-                Text(stringResource(R.string.insights_screen_time_since_midnight), color = colors.textSecondary, style = AuroraType.Secondary)
+                Text(stringResource(R.string.insights_screen_time_since_midnight), color = colors.textTertiary, style = AuroraType.Caption)
+                Text(if (known.isEmpty()) "—" else formatDuration(known.sum()), color = colors.textPrimary, style = metric)
             } else {
-                Text(if (known.isEmpty()) "—" else formatDuration(known.sum() / known.size), color = colors.textPrimary, style = AuroraType.Metric)
-                Text(stringResource(R.string.insights_average_days , known.size, state.days.size), color = colors.textSecondary, style = AuroraType.Secondary)
-                Spacer(Modifier.height(Space.L))
+                Text(stringResource(R.string.insights_average_days , known.size, state.days.size), color = colors.textTertiary, style = AuroraType.Caption)
+                Text(if (known.isEmpty()) "—" else formatDuration(known.sum() / known.size), color = colors.textPrimary, style = metric)
+                Spacer(Modifier.height(16.dp))
                 DayBars(state.days)
             }
         }
     }
 
-    if (state.access && state.period == Period.Today) {
+    if (state.access) {
         if (state.days.none { it.total != null }) item(key = "unavailable") {
             EmptyState(icon = AuroraIcons.Insights, title = stringResource(R.string.usage_records_unavailable_title), body = stringResource(R.string.usage_records_unavailable_body))
-        } else if (state.rows.isEmpty()) item(key = "quiet") {
+        } else if (state.rows.isEmpty() && state.period == Period.Today) item(key = "quiet") {
             EmptyState(icon = AuroraIcons.Today, title = stringResource(R.string.insights_a_quiet_day_so_far), body = stringResource(R.string.insights_there_s_no_screen_time_to_show_since_midnight_yet))
-        } else {
-            item(key = "label") { SectionLabel(stringResource(R.string.insights_most_used)) }
-            val max = state.rows.maxOfOrNull { it.ms } ?: 1L
-            items(state.rows, key = { it.packageName }) { row -> UsageBar(row, row.ms.toFloat() / max) }
+        } else if (state.rows.isNotEmpty()) {
+            item(key = "label") { SectionLabel(stringResource(if (state.period == Period.Today) R.string.insights_most_used else R.string.usage_most_used_per_day)) }
+            item(key = "most-used") {
+                val max = state.rows.maxOfOrNull { it.ms } ?: 1L
+                Column(Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(Aurora.colors)) {
+                    state.rows.forEachIndexed { i, row ->
+                        if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(Aurora.colors.hairline))
+                        UsageBar(row, row.ms.toFloat() / max)
+                    }
+                }
+            }
         }
-    }
-
-    item(key = "footnote") {
-        Text(
-            stringResource(R.string.insights_screen_time_is_calculated_on_this_phone_from_android_s_usage_rec),
-            Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L),
-            color = Aurora.colors.textTertiary,
-            style = AuroraType.Caption,
-        )
     }
 }
 
@@ -196,31 +209,29 @@ private fun DayBars(days: List<DayUsage>) {
     val noData = stringResource(R.string.insights_no_data)
     val spoken = days.joinToString(", ") { d -> "${d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale)} ${d.total?.let(::formatDuration) ?: noData}" }
     Column(Modifier.semantics(mergeDescendants = true) { contentDescription = "Screen time by day: $spoken" }) {
-        Canvas(Modifier.fillMaxWidth().height(140.dp)) {
-            val slot = size.width / days.size
-            val bar = (slot * 0.56f).coerceAtMost(28.dp.toPx())
+        Canvas(Modifier.fillMaxWidth().height(90.dp)) {
+            val gap = if (days.size <= 7) 12.dp.toPx() else 3.dp.toPx()
+            val bar = (size.width - gap * (days.size - 1)) / days.size
             days.forEachIndexed { i, d ->
-                val x = slot * i + (slot - bar) / 2
+                val x = (bar + gap) * i
                 val total = d.total
                 if (total == null) {
                     drawRoundRect(colors.hairline, Offset(x, size.height - 3.dp.toPx()), Size(bar, 3.dp.toPx()), CornerRadius(2.dp.toPx()))
                 } else {
-                    val h = (size.height * total / max).coerceAtLeast(3.dp.toPx())
-                    val last = i == days.lastIndex
-                    // Today is lit with First Light; earlier days are the same bar, quieter.
-                    val brush = if (last) Brush.verticalGradient(listOf(colors.glowCool, colors.accent, Palette.Aurora300), size.height - h, size.height)
-                    else Brush.verticalGradient(listOf(colors.accent.copy(alpha = 0.42f), colors.accent.copy(alpha = 0.14f)), size.height - h, size.height)
-                    drawRoundRect(brush, Offset(x, size.height - h), Size(bar, h), CornerRadius(bar / 2.5f))
+                    val h = (size.height * total / max).coerceAtLeast(6.dp.toPx())
+                    // Today in full ink; earlier days are the same bar, quieter. Flat, never a gradient.
+                    drawRoundRect(if (i == days.lastIndex) colors.textPrimary else colors.elevated, Offset(x, size.height - h), Size(bar, h), CornerRadius(minOf(7.dp.toPx(), bar / 2)))
                 }
             }
         }
-        if (days.size <= 7) Row(Modifier.fillMaxWidth().padding(top = Space.XS)) {
-            days.forEach { d ->
+        if (days.size <= 7) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            days.forEachIndexed { i, d ->
+                val today = i == days.lastIndex
                 Text(
                     d.date.dayOfWeek.getDisplayName(TextStyle.NARROW, locale),
                     Modifier.weight(1f),
-                    color = colors.textTertiary,
-                    style = AuroraType.Caption,
+                    color = if (today) colors.textPrimary else colors.textTertiary,
+                    style = AuroraType.Caption.copy(fontSize = 11.5.sp, fontWeight = androidx.compose.ui.text.font.FontWeight(if (today) 600 else 400)),
                     textAlign = TextAlign.Center,
                 )
             }
@@ -235,31 +246,30 @@ private fun UsageBar(row: UsageRow, fraction: Float) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = Space.Gutter, vertical = Space.S)
+            .heightIn(min = 58.dp)
+            .padding(horizontal = 18.dp, vertical = 10.dp)
             .semantics(mergeDescendants = true) {
                 contentDescription = "${row.label}, ${formatDuration(row.ms)}" + if (row.onList) protectedSuffix else ""
             },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Space.M),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         if (row.icon != null) {
-            Image(row.icon, null, Modifier.size(36.dp))
+            Image(row.icon, null, Modifier.size(32.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp)))
         } else {
-            Box(Modifier.size(36.dp).clip(Radius.S).background(colors.hairline))
+            Box(Modifier.size(32.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp)).background(colors.elevated))
         }
         Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     row.label, Modifier.weight(1f),
-                    color = colors.textPrimary, style = AuroraType.Body, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = colors.textPrimary, style = AuroraType.BodyStrong.copy(fontSize = 14.5.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                Text(formatDuration(row.ms), color = colors.textSecondary, style = AuroraType.Secondary)
+                if (row.onList) Text(stringResource(R.string.insights_protected), color = colors.textTertiary, style = AuroraType.Caption)
+                Text(formatDuration(row.ms), color = colors.textPrimary, style = AuroraType.Title.copy(fontSize = 14.sp, fontFeatureSettings = "tnum"))
             }
-            Spacer(Modifier.height(6.dp))
-            ProgressLine(fraction.coerceIn(0.02f, 1f), warm = row.onList)
-            if (row.onList) {
-                Spacer(Modifier.height(4.dp))
-                Text(stringResource(R.string.insights_protected), color = colors.violetText, style = AuroraType.Caption)
+            Box(Modifier.padding(top = 7.dp).fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.elevated)) {
+                Box(Modifier.fillMaxWidth(fraction.coerceIn(0.02f, 1f)).height(4.dp).clip(Radius.Pill).background(colors.textSecondary))
             }
         }
     }

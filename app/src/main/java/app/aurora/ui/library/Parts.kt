@@ -1,6 +1,11 @@
 package app.aurora.ui.library
 
-import app.aurora.ui.components.PageGlow
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import app.aurora.ui.components.AuroraSwitch
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.lazy.itemsIndexed
 import app.aurora.ui.components.glass
 import app.aurora.ui.components.pressable
 import androidx.activity.compose.BackHandler
@@ -92,7 +97,6 @@ fun StepFlow(
     val colors = Aurora.colors
     BackHandler(onBack = onBack)
     Box(Modifier.fillMaxSize().background(colors.background), contentAlignment = Alignment.TopCenter) {
-    PageGlow()
     Column(Modifier.widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = Space.XS, vertical = Space.XS), verticalAlignment = Alignment.CenterVertically) {
             AuroraIconButton(AuroraIcons.Back, stringResource(R.string.action_back), onBack)
@@ -132,7 +136,6 @@ fun StepFlow(
             AuroraButton(primary, onPrimary, Modifier.fillMaxWidth(), enabled = primaryEnabled)
         }
     }
-    app.aurora.ui.components.TopAurora()
     }
 }
 
@@ -169,28 +172,39 @@ fun LazyListScope.appChecklist(
     val visible = apps.filter { it.packageName !in exempt || it.packageName in selected }.filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) }
     item(key = "count") {
         Column {
+        val count = if (q.isEmpty()) stringResource(R.string.picker_count, visible.size, selected.count { !it.startsWith(WebPrefix) }) else stringResource(R.string.picker_matches, visible.size)
         Text(
-            if (q.isEmpty()) stringResource(R.string.picker_count, visible.size, selected.count { !it.startsWith(WebPrefix) }) else stringResource(R.string.picker_matches, visible.size),
-            color = Aurora.colors.textSecondary, style = AuroraType.Caption,
+            count.uppercase(),
+            Modifier.padding(start = 4.dp, top = Space.S, bottom = 2.dp).clearAndSetSemantics { this.text = androidx.compose.ui.text.AnnotatedString(count) },
+            color = Aurora.colors.textTertiary, style = AuroraType.Eyebrow,
         )
         if (cap != null) Text(androidx.compose.ui.res.pluralStringResource(R.plurals.picker_cap, cap, cap), color = Aurora.colors.textTertiary, style = AuroraType.Caption)
         }
     }
-    items(visible, key = { "app-" + it.packageName }, contentType = { "app" }) { app ->
+    // One card of rows, each with its switch: the first and last rows carry the card's corners.
+    itemsIndexed(visible, key = { _, it -> "app-" + it.packageName }, contentType = { _, _ -> "app" }) { i, app ->
         val on = app.packageName in selected
         val colors = Aurora.colors
         val state = stringResource(if (on) R.string.picker_selected else R.string.picker_not_selected)
-        Row(
-            Modifier.fillMaxWidth().clip(Radius.M).then(if (on) Modifier.glass(colors, Radius.M, tint = colors.accent) else Modifier)
-                .clickable(role = Role.Checkbox) { onToggle(app.packageName) }
-                .semantics(mergeDescendants = true) { stateDescription = state }
-                .padding(horizontal = Space.XS, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Space.M),
-        ) {
-            AppIcon(app, size = 42.dp)
-            Text(app.label, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            SelectionMark(on)
+        val r = 26.dp
+        val shape = androidx.compose.foundation.shape.RoundedCornerShape(
+            topStart = if (i == 0) r else 0.dp, topEnd = if (i == 0) r else 0.dp,
+            bottomStart = if (i == visible.lastIndex) r else 0.dp, bottomEnd = if (i == visible.lastIndex) r else 0.dp,
+        )
+        Column(Modifier.fillMaxWidth().clip(shape).background(colors.surface)) {
+            if (i > 0) androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().height(1.dp).background(colors.hairline))
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 62.dp)
+                    .toggleable(on, role = Role.Switch) { onToggle(app.packageName) }
+                    .semantics(mergeDescendants = true) { stateDescription = state }
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                AppIcon(app)
+                Text(app.label, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                AuroraSwitch(on)
+            }
         }
     }
 }
@@ -233,10 +247,12 @@ fun LazyListScope.siteEditor(sites: List<String>, onChange: (List<String>) -> Un
 
 /** A tab's opening over First Light: the mark and one confident line. */
 @Composable
-fun TabHeader(title: String, onOpenSettings: (() -> Unit)?) {
+fun TabHeader(title: String, onOpenSettings: (() -> Unit)?, topic: app.aurora.ui.guide.GuideTopic? = null, onOpenGuide: (() -> Unit)? = null) {
     val colors = Aurora.colors
+    var info by rememberSaveable { mutableStateOf(false) }
+    if (info && topic != null) app.aurora.ui.guide.GuideDialog(topic, { info = false }, onOpenGuide)
     Column {
-        AuroraHeader(onOpenSettings)
+        AuroraHeader(onOpenSettings, onInfo = topic?.let { { info = true } })
         Spacer(Modifier.height(64.dp))
         Text(title, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.L).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
     }
@@ -254,6 +270,7 @@ fun PresetCard(
     keys: List<String>,
     data: ProtectData?,
     running: Boolean,
+    onView: () -> Unit,
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
@@ -262,17 +279,12 @@ fun PresetCard(
 ) {
     val colors = Aurora.colors
     Column(
-        modifier.padding(horizontal = Space.M).fillMaxWidth().pressable(Radius.L, onClick = onEdit).auroraSurface(colors, edge = edge).padding(Space.L),
+        modifier.padding(horizontal = Space.Gutter).fillMaxWidth().pressable(Radius.L, onClick = onEdit).auroraSurface(colors, edge = edge).padding(horizontal = 22.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
+        // Laid out like every Aurora tile: name and its control on top, then what it is, then its mode and apps.
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-            kind()
-            Box(Modifier.weight(1f))
-            if (running) Text(
-                stringResource(R.string.preset_in_use),
-                Modifier.clip(Radius.Pill).background(colors.accentSoft).padding(horizontal = 10.dp, vertical = 4.dp),
-                color = colors.accent, style = AuroraType.Caption,
-            )
+            Text(name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
             // The card itself edits; the rarer actions wait behind one quiet control.
             Box {
                 var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -283,20 +295,70 @@ fun PresetCard(
                     containerColor = colors.elevated,
                     border = androidx.compose.foundation.BorderStroke(1.dp, colors.hairline),
                 ) {
-                    MenuItem(stringResource(R.string.preset_edit), AuroraIcons.Edit) { open = false; onEdit() }
-                    MenuItem(stringResource(R.string.preset_duplicate), AuroraIcons.Copy) { open = false; onDuplicate() }
-                    MenuItem(stringResource(R.string.preset_delete), AuroraIcons.Trash, danger = true) { open = false; onDelete() }
+                    ItemMenuItems({ open = false }, onView, onEdit, onDuplicate, onDelete)
                 }
             }
         }
-        Text(name, color = colors.textPrimary, style = AuroraType.Title)
         Text(detail, color = colors.textSecondary, style = AuroraType.Secondary)
-        if (keys.isNotEmpty()) Box(Modifier.padding(start = 8.dp, top = 4.dp)) { IconStack(keys, data, max = 6) }
+        Row(Modifier.padding(top = Space.XS), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
+            kind()
+            if (running) Text(
+                stringResource(R.string.preset_in_use),
+                Modifier.clip(Radius.Pill).background(colors.accentSoft).padding(horizontal = 10.dp, vertical = 4.dp),
+                color = colors.accent, style = AuroraType.Caption,
+            )
+            Box(Modifier.weight(1f))
+            if (keys.isNotEmpty()) IconStack(keys, data, max = 4, size = 28.dp)
+        }
     }
 }
 
+/** The same four actions behind every saved item's ⋯: view, edit, duplicate, delete. */
 @Composable
-private fun MenuItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean = false, onClick: () -> Unit) {
+fun ItemMenuItems(close: () -> Unit, onView: () -> Unit, onEdit: () -> Unit, onDuplicate: () -> Unit, onDelete: () -> Unit) {
+    MenuItem(stringResource(R.string.preset_view), AuroraIcons.Info) { close(); onView() }
+    MenuItem(stringResource(R.string.preset_edit), AuroraIcons.Edit) { close(); onEdit() }
+    MenuItem(stringResource(R.string.preset_duplicate), AuroraIcons.Copy) { close(); onDuplicate() }
+    MenuItem(stringResource(R.string.preset_delete), AuroraIcons.Trash, danger = true) { close(); onDelete() }
+}
+
+/** A saved item's or a finished session's details: label over value, one per line. [onEdit] adds Edit. */
+@Composable
+fun DetailsDialog(title: String, rows: List<Pair<String, String>>, onDismiss: () -> Unit, onEdit: (() -> Unit)? = null) {
+    val colors = Aurora.colors
+    app.aurora.ui.components.AuroraDialog(
+        title, onDismiss,
+        stringResource(if (onEdit != null) R.string.preset_edit else R.string.action_close),
+        { onDismiss(); onEdit?.invoke() },
+        dismissLabel = if (onEdit != null) stringResource(R.string.action_close) else null,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.M)) {
+            rows.filter { it.second.isNotBlank() }.forEach { (label, value) ->
+                Column(Modifier.semantics(mergeDescendants = true) { }) {
+                    Text(label, color = colors.textTertiary, style = AuroraType.Caption)
+                    Text(value, Modifier.padding(top = 2.dp), color = colors.textPrimary, style = AuroraType.Body)
+                }
+            }
+        }
+    }
+}
+
+/** Apps, websites and parts of apps in [keys], each named, for [DetailsDialog]. */
+@Composable
+fun keyRows(keys: Collection<String>, data: ProtectData): List<Pair<String, String>> {
+    val sites = keys.filter { it.startsWith(WebPrefix) }
+    val parts = keys.filter { it.startsWith(app.aurora.protect.PartPrefix) }
+    val apps = keys - sites.toSet() - parts.toSet()
+    fun names(list: Collection<String>) = list.map { data.label(it) }.filter { it.isNotBlank() }.joinToString(", ")
+    return listOf(
+        stringResource(R.string.detail_apps) to names(apps).ifEmpty { stringResource(R.string.detail_none) },
+        stringResource(R.string.detail_sites) to names(sites),
+        stringResource(R.string.detail_parts) to names(parts),
+    )
+}
+
+@Composable
+fun MenuItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean = false, onClick: () -> Unit) {
     val colors = Aurora.colors
     val tint = if (danger) colors.danger else colors.textPrimary
     androidx.compose.material3.DropdownMenuItem(

@@ -62,6 +62,17 @@ fun minutesText(minutes: Int): String {
     }
 }
 
+/** A length on a chip, as short as it reads: "5m", "1h", "1h 30m". Screen readers hear [minutesSpoken]. */
+fun chipText(minutes: Int): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return when {
+        h == 0 -> "${m}m"
+        m == 0 -> "${h}h"
+        else -> "${h}h ${m}m"
+    }
+}
+
 /** Screen-reader form of [minutesText]. */
 fun minutesSpoken(minutes: Int): String {
     val h = minutes / 60
@@ -155,7 +166,7 @@ fun DurationPicker(
         if (hint != null) Text(hint, color = colors.textSecondary, style = AuroraType.Secondary)
         if (presets.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
             presets.forEach { p ->
-                Chip(minutesText(p), selected = !custom && value == p, spoken = minutesSpoken(p)) {
+                Chip(chipText(p), selected = !custom && value == p, spoken = minutesSpoken(p)) {
                     custom = false
                     onChange(p)
                 }
@@ -194,8 +205,10 @@ private fun NumberBox(text: String, onChange: (String) -> Unit, unit: String, mo
     val colors = Aurora.colors
     Column(
         modifier
-            .glass(colors, Radius.M)
-            .padding(horizontal = Space.M, vertical = Space.S),
+            .clip(Radius.M)
+            .background(colors.field)
+            .border(1.dp, colors.hairline, Radius.M)
+            .padding(horizontal = 18.dp, vertical = Space.S),
     ) {
         BasicTextField(
             text,
@@ -220,20 +233,21 @@ private fun NumberBox(text: String, onChange: (String) -> Unit, unit: String, mo
 @Composable
 fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, spoken: String = text, onClick: () -> Unit) {
     val colors = Aurora.colors
-    val bg by animateColorAsState(if (selected) colors.accent else colors.elevated, auroraTween(), label = "chip")
-    val fg by animateColorAsState(if (selected) colors.onAccent else colors.textPrimary, auroraTween(), label = "chipText")
-    Text(
-        text,
+    val fg by animateColorAsState(if (selected) colors.onAccent else colors.textSecondary, auroraTween(), label = "chipText")
+    val bg by animateColorAsState(if (selected) colors.accent else Color.Transparent, auroraTween(), label = "chipFill")
+    Box(
         modifier
-            .heightIn(min = 44.dp)
+            .heightIn(min = 40.dp)
             .clip(Radius.Pill)
-            .then(if (selected) Modifier.background(bg).gloss(Radius.Pill) else Modifier.glass(colors, Radius.Pill))
+            .background(bg)
+            .then(if (selected) Modifier else Modifier.border(1.dp, colors.hairlineStrong, Radius.Pill))
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics { this.selected = selected; contentDescription = spoken }
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        color = fg,
-        style = AuroraType.Label,
-    )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = fg, style = if (selected) AuroraType.Choice.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(600)) else AuroraType.Choice)
+    }
 }
 
 /** The large opening of a screen: an eyebrow, a confident headline, and one supporting line. */
@@ -241,10 +255,30 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, spoken:
 fun ScreenIntro(title: String, modifier: Modifier = Modifier, eyebrow: String? = null, body: String? = null) {
     val colors = Aurora.colors
     Column(modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        if (eyebrow != null) Text(eyebrow, color = colors.accent, style = AuroraType.Eyebrow)
+        if (eyebrow != null) Text(eyebrow.uppercase(), color = colors.textTertiary, style = AuroraType.Eyebrow)
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
         if (body != null) Text(body, color = colors.textSecondary, style = AuroraType.Body)
     }
+}
+
+/** A mode's or an option's glyph in a round tile, as the mode cards show it. */
+@Composable
+fun GlyphTile(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 38.dp) {
+    val colors = Aurora.colors
+    Box(
+        modifier.size(size).clip(RoundedCornerShape(50)).background(colors.elevated).border(1.dp, colors.hairline, RoundedCornerShape(50)),
+        contentAlignment = Alignment.Center,
+    ) { androidx.compose.material3.Icon(icon, null, tint = colors.textPrimary, modifier = Modifier.size(18.dp)) }
+}
+
+/** The single-choice mark of the mode cards: a ring, filled with a dot when chosen. Decorative: the card owns the semantics. */
+@Composable
+fun RadioMark(selected: Boolean, modifier: Modifier = Modifier) {
+    val colors = Aurora.colors
+    Box(
+        modifier.size(22.dp).border(1.5.dp, if (selected) colors.textPrimary else colors.hairlineStrong, RoundedCornerShape(50)),
+        contentAlignment = Alignment.Center,
+    ) { if (selected) Box(Modifier.size(11.dp).clip(RoundedCornerShape(50)).background(colors.textPrimary)) }
 }
 
 /**
@@ -260,6 +294,7 @@ fun ChoiceCard(
     modifier: Modifier = Modifier,
     swatch: Color? = null,
     badge: String? = null,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
     val colors = Aurora.colors
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -270,32 +305,35 @@ fun ChoiceCard(
                 if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
                 onClick()
             }
-            .glass(colors, Radius.L, tint = if (selected) colors.accent else null)
+            .clip(Radius.L)
+            .background(colors.surface)
+            .border(if (selected) 1.5.dp else 1.dp, if (selected) colors.textPrimary else colors.hairline, Radius.L)
             .semantics(mergeDescendants = true) { this.selected = selected }
-            .padding(Space.M),
-        horizontalArrangement = Arrangement.spacedBy(Space.M),
+            .padding(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        if (swatch != null) ModeGlyph(swatch, Modifier.padding(top = 2.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (icon != null) GlyphTile(icon) else if (swatch != null) ModeGlyph(swatch, Modifier.padding(top = 2.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                 Text(title, color = colors.textPrimary, style = AuroraType.Title)
                 if (badge != null) Tag(badge, accent = true)
             }
             Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
         }
-        SelectionMark(selected, Modifier.padding(top = 2.dp))
+        RadioMark(selected, Modifier.padding(top = 8.dp))
     }
 }
 
-/** A small luminous disc that marks a mode or a state in its colour. */
+/** A small ring that marks a mode or a state in its tone. */
 @Composable
 fun ModeGlyph(color: Color, modifier: Modifier = Modifier, size: Int = 28) {
     Box(
         modifier
             .size(size.dp)
             .clip(RoundedCornerShape(50))
-            .background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(color, color.copy(alpha = 0.35f)))),
+            .background(color.copy(alpha = 0.14f))
+            .border(1.5.dp, color, RoundedCornerShape(50)),
     )
 }
 
@@ -304,7 +342,7 @@ fun ModeGlyph(color: Color, modifier: Modifier = Modifier, size: Int = 28) {
 fun BigMetric(value: String, label: String, modifier: Modifier = Modifier, note: String? = null, spoken: String? = null) {
     val colors = Aurora.colors
     Column(modifier.semantics(mergeDescendants = true) { if (spoken != null) contentDescription = "$label: $spoken" }) {
-        Text(label, color = colors.textSecondary, style = AuroraType.BodyStrong)
+        Text(label, color = colors.textTertiary, style = AuroraType.Secondary)
         CountUpText(value, colors.textPrimary, AuroraType.Metric)
         if (note != null) Text(note, color = colors.textTertiary, style = AuroraType.Caption)
     }
@@ -316,11 +354,11 @@ fun Card(modifier: Modifier = Modifier, tint: Color? = null, content: @Composabl
     val colors = Aurora.colors
     Box(
         modifier
-            .padding(horizontal = Space.M)
+            .padding(horizontal = Space.Gutter)
             .fillMaxWidth()
             .glass(colors, Radius.L)
             .then(if (tint != null) Modifier.background(tint) else Modifier)
-            .padding(Space.L),
+            .padding(horizontal = 22.dp, vertical = 20.dp),
     ) { content() }
 }
 

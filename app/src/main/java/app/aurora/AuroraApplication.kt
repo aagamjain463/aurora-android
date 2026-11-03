@@ -165,8 +165,8 @@ open class AuroraApplication : Application() {
             }
         }
         scope.launch {
-            // Once everything is loaded: a Phase 3 Lockdown becomes Always Block, and a scheduled
-            // Always Block window already running is committed.
+            // Once everything is loaded: a Phase 3 Lockdown becomes Strict, and a scheduled
+            // Strict window already running is committed.
             protectedList.first { it != null }
             rules.state.first { it != null }
             runtime.state.first { it != null }

@@ -95,7 +95,7 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
     val good = status == ProtectionStatus.Active || status == ProtectionStatus.Off
     Column(
         Modifier
-            .padding(horizontal = Space.M)
+            .padding(horizontal = Space.Gutter)
             .fillMaxWidth()
             .auroraSurface(colors, warm = !good)
             .padding(Space.L),
@@ -105,9 +105,9 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = if (good) AuroraType.Title else AuroraType.Headline)
         Text(body, color = if (good) colors.textSecondary else colors.textPrimary, style = if (good) AuroraType.Secondary else AuroraType.Body)
         when (status) {
-            ProtectionStatus.NeedsPermission -> AuroraButton(stringResource(R.string.status_turn_on), onTurnOn, Modifier.padding(top = Space.XS).fillMaxWidth())
+            ProtectionStatus.NeedsPermission -> AuroraButton(stringResource(R.string.status_turn_on), onTurnOn, Modifier.padding(top = Space.XS).fillMaxWidth(), kind = ButtonKind.Secondary)
             ProtectionStatus.NotRunning -> {
-                AuroraButton(stringResource(R.string.status_open_accessibility), onOpenSettings, Modifier.padding(top = Space.XS).fillMaxWidth())
+                AuroraButton(stringResource(R.string.status_open_accessibility), onOpenSettings, Modifier.padding(top = Space.XS).fillMaxWidth(), kind = ButtonKind.Secondary)
                 if (isXiaomi) AuroraButton(stringResource(R.string.keep_running_autostart), { openAutostart(context) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
             }
             else -> Unit
@@ -146,7 +146,7 @@ fun ShieldGate(hasSites: Boolean, onOpenWeb: () -> Unit) {
 @Composable
 private fun GateCard(title: Int, body: Int, action: Int, primary: Boolean = false, onAction: () -> Unit) {
     val colors = Aurora.colors
-    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
         Text(stringResource(title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
         Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
         AuroraButton(stringResource(action), onAction, Modifier.padding(top = Space.XS).fillMaxWidth(), kind = if (primary) ButtonKind.Primary else ButtonKind.Secondary, compact = true)

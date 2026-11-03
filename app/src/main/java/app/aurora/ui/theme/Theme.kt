@@ -6,7 +6,9 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import app.aurora.data.ThemeMode
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
@@ -29,12 +31,13 @@ object Space {
     val Gutter = 24.dp
 }
 
-/** Corner radii. Interactive pills are fully round; containers are soft but not bubbly. */
+/** Corner radii (tokens: radius). Interactive pills are fully round; cards are 26dp. */
 object Radius {
     val S = RoundedCornerShape(12.dp)
-    val M = RoundedCornerShape(16.dp)
-    val L = RoundedCornerShape(22.dp)
-    val Dialog = RoundedCornerShape(28.dp)
+    val M = RoundedCornerShape(18.dp)
+    /** Cards. */
+    val L = RoundedCornerShape(26.dp)
+    val Dialog = RoundedCornerShape(30.dp)
     val Pill = RoundedCornerShape(percent = 50)
 }
 
@@ -71,9 +74,14 @@ fun systemAnimationsOff(context: Context): Boolean =
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 
 @Composable
-fun AuroraTheme(reduceMotion: Boolean, content: @Composable () -> Unit) {
-    // The northern lights only exist at night, so Aurora has one theme.
-    val colors = DarkColors
+fun AuroraTheme(reduceMotion: Boolean, themeMode: ThemeMode = ThemeMode.Dark, content: @Composable () -> Unit) {
+    // Dark is the default; Light and System are the person's choice in Settings.
+    val dark = when (themeMode) {
+        ThemeMode.Dark -> true
+        ThemeMode.Light -> false
+        ThemeMode.System -> isSystemInDarkTheme()
+    }
+    val colors = if (dark) DarkColors else LightColors
     val context = LocalContext.current
     // Android Go phones hold still too: every moving light is a redraw they can't spare.
     val systemReduced = remember(context) { systemAnimationsOff(context) || context.getSystemService(android.app.ActivityManager::class.java).isLowRamDevice }

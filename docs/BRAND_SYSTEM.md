@@ -1,5 +1,6 @@
-> Current specification: [Aurora Brand Bible](design-studio/AURORA_BRAND_BIBLE.md). This earlier
-> reinvention reference is historical where typography, logo or components differ.
+> Current specification: [design-studio/DESIGN_SYSTEM.md](design-studio/DESIGN_SYSTEM.md) (warm monochrome, 2026-11-02).
+> This earlier reinvention reference, and the [Aurora Brand Bible](design-studio/AURORA_BRAND_BIBLE.md), are
+> historical where colour, typography, logo or components differ.
 
 # aurora brand system
 

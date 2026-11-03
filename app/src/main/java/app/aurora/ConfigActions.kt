@@ -36,7 +36,6 @@ import app.aurora.protect.usesQuota
 import app.aurora.protect.ConfigRun
 import app.aurora.protect.Decision
 import app.aurora.protect.DeviceTime
-import app.aurora.protect.FocusOutcome
 import app.aurora.protect.IntentPreset
 import app.aurora.protect.FrictionSettings
 import app.aurora.protect.Mode
@@ -53,6 +52,7 @@ import app.aurora.protect.intentOf
 import app.aurora.protect.key
 import app.aurora.protect.liveRuns
 import app.aurora.protect.lockedUntil
+import app.aurora.protect.migratedContent
 import app.aurora.protect.migratedToConfigurations
 import app.aurora.protect.problem
 import app.aurora.protect.runsToMaterialize
@@ -77,8 +77,9 @@ private fun dayOf(wall: Long): LocalDate = Instant.ofEpochMilli(wall).atZone(zon
 /** Version 0 → 1, once, when everything has loaded. Idempotent. */
 suspend fun AuroraApplication.migrateConfigurations() {
     val list = protectedList.value ?: return
-    if ((rules.value ?: return).version >= 1) return
-    rules.update { it.migratedToConfigurations(list.items.map { i -> i.key }, System.currentTimeMillis()) }
+    val r = rules.value ?: return
+    if (r.version < 1) rules.update { it.migratedToConfigurations(list.items.map { i -> i.key }, System.currentTimeMillis()) }
+    if (r.content.isNotEmpty()) rules.update { it.migratedContent(System.currentTimeMillis()) }
 }
 
 /**
@@ -262,7 +263,7 @@ suspend fun AuroraApplication.activate(c: UsageConfig, timing: Timing): Refusal?
     }
     val run = ConfigRun(
         runId, c.id, c.name, null, c.custom, shield, withConfig.intentOf(c), c.focus,
-        start = t.wall, end = t.wall + timing.minutes * 60_000L, time = Session.start(t, timing.minutes),
+        start = t.wall, end = t.wall + timing.minutes * 60_000L, time = Session.start(t, timing.minutes), note = c.note.trim(),
     )
     runtime.update { rt ->
         val base = rt.pruned(t)
@@ -406,8 +407,9 @@ private suspend fun AuroraApplication.syncLocked() {
     if (started.isNotEmpty()) history.update { h -> started.fold(h) { acc, run -> acc.withStarted(run) } }
     if (ended.isNotEmpty()) {
         val spans = history.value?.service.orEmpty()
+        val usage = usageSince(ended.minOf { it.startAt(t) }, t.wall)
         // A carried commitment was another account's: it ends here, and isn't this one's history.
-        history.update { h -> ended.filterNot { it.carried }.fold(h) { acc, run -> acc.withRun(recordOf(run, run.endAt(t) ?: t.wall, turnedOff = false, spans)) } }
+        history.update { h -> ended.filterNot { it.carried }.fold(h) { acc, run -> acc.withRun(recordOf(run, run.endAt(t) ?: t.wall, turnedOff = false, spans, usage)) } }
     }
     // Occurrences that came and went without being stored (the phone untouched all window long) still
     // get a record, judged on the same evidence. Only since this version began recording evidence.
@@ -422,7 +424,8 @@ private suspend fun AuroraApplication.syncLocked() {
             }
         }
         // Screen-off time counts as away, so a window slept through is protected time like any other.
-        if (missed.isNotEmpty()) history.update { x -> missed.fold(x) { acc, run -> acc.withStarted(run).withRun(recordOf(run, run.end ?: t.wall, turnedOff = false, x.service)) } }
+        val usage = if (missed.isEmpty()) null else usageSince(missed.minOf { it.start }, t.wall)
+        if (missed.isNotEmpty()) history.update { x -> missed.fold(x) { acc, run -> acc.withStarted(run).withRun(recordOf(run, run.end ?: t.wall, turnedOff = false, x.service, usage)) } }
     }
     // No strict commitment running: the clock follows the system clock again (TrustedClock.kt).
     policySnapshot(emptySet(), emptyMap())?.takeIf { it.lockedUntil(t.wall) == null }?.let { app.aurora.protect.TrustedClock.relax() }
@@ -434,22 +437,27 @@ private suspend fun AuroraApplication.syncLocked() {
     }
 }
 
-/** A run has begun: its protection span, and for a scheduled Always Block what one started by hand earns, its committed minutes. */
+/** A run has begun: its protection span, and for a scheduled Strict what one started by hand earns, its committed minutes. */
 private fun app.aurora.progress.History.withStarted(run: ConfigRun): app.aurora.progress.History {
     val recorded = withProtection(ProtectionRecord(run.id, run.start, run.end ?: Long.MAX_VALUE, run.shield?.keys.orEmpty().toSet()))
     val until = run.committedUntil ?: run.end
     return if (run.shield?.mode == Mode.AlwaysBlock && until != null) recorded.withAlwaysBlock(dayOf(run.start), run.start, ((until - run.start) / 60_000).toInt()) else recorded
 }
 
-private fun recordOf(run: ConfigRun, end: Long, turnedOff: Boolean, spans: List<app.aurora.progress.ServiceSpan>) = record(
+/** Android's usage records from [from] to [to] for judging runs, or null without usage access. */
+private suspend fun AuroraApplication.usageSince(from: Long, to: Long) = runCatching { screenTime.intervals(from, to) }.getOrNull()
+
+private fun recordOf(run: ConfigRun, end: Long, turnedOff: Boolean, spans: List<app.aurora.progress.ServiceSpan>, usage: List<app.aurora.data.UsageInterval>?) = record(
     run.id, run.configId, run.name, run.custom,
     run.shield?.name, run.shield?.mode, run.intent?.name, run.shield?.keys.orEmpty().toSet() + run.intent?.keys.orEmpty(),
     run.time?.startWall ?: run.start, run.end ?: run.time?.let { it.startWall + it.durationMs }, end, spans.reaching(end, app.aurora.protect.ShieldService.connected.value), turnedOff,
-    run.focus?.task, run.focus?.minutes?.let { it * 60_000L } ?: ((run.end ?: end) - run.start), run.focusOutcome, run.intentOverruns,
+    run.focus?.task, run.focus?.minutes?.let { it * 60_000L } ?: ((run.end ?: end) - run.start), run.intentOverruns,
+    // Intent apps are meant to be used: only the Shield's apps say anything when used while the service was down.
+    run.accessGrants, run.intentRelapses, usage?.filter { it.packageName in run.shield?.keys.orEmpty() },
 )
 
 /**
- * Turns off a running occurrence. Always Block refuses until its committed part is over, whatever calls
+ * Turns off a running occurrence. Strict refuses until its committed part is over, whatever calls
  * this. Turning off Always ends it (its activation is switched off); a Later ends; a recurring schedule
  * skips only this occurrence.
  */
@@ -483,7 +491,7 @@ suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
         }
     }
     val spans = history.value?.service.orEmpty()
-    history.update { it.endProtection(run.id, t.wall).withRun(recordOf(run, t.wall, turnedOff = true, spans)) }
+    history.update { it.endProtection(run.id, t.wall).withRun(recordOf(run, t.wall, turnedOff = true, spans, usage = null)) }
     return true
 }
 
@@ -503,35 +511,13 @@ suspend fun AuroraApplication.setActivationEnabled(id: String, enabled: Boolean)
     return refusal
 }
 
-/**
- * After a downgrade: which targets and Goal stay active on Free. Nothing else changes, nothing is deleted, and
- * it can be changed at any time. Choosing more than the plan's limit keeps the first ones.
- */
-suspend fun AuroraApplication.chooseKept(shield: Set<String>, intent: Set<String>, goalId: String?) {
-    entitlements.withLock {
-        val t = now().wall
-        rules.update { r -> r.copy(keep = FreeKeep(shield, intent, goalId)).goalsReconciled(plan, t) }
-        syncLocked()
-    }
-}
-
-/** Removes a schedule. Its occurrence already running (frozen) continues: Always Block can't be ended this way. */
+/** Removes a schedule. Its occurrence already running (frozen) continues: Strict can't be ended this way. */
 suspend fun AuroraApplication.deleteActivation(id: String) {
     syncRuns()
     rules.update { r ->
         val activations = r.activations.filterNot { it.id == id }
         r.copy(activations = activations, configs = r.configs.filter { c -> c.custom || activations.any { it.configId == c.id } })
     }
-}
-
-/** The person says how the Focus task went while the run is still going (finished early, or done). */
-suspend fun AuroraApplication.reportFocusNow(runId: String, outcome: FocusOutcome) {
-    runtime.update { rt -> rt.copy(runs = rt.runs.map { if (it.id == runId) it.copy(focusOutcome = outcome) else it }) }
-}
-
-/** The person says how the Focus task of a finished run went. */
-suspend fun AuroraApplication.reportFocus(recordId: String, outcome: FocusOutcome) {
-    history.update { h -> h.runs.find { it.id == recordId }?.let { h.withRun(it.copy(focus = outcome)) } ?: h }
 }
 
 // ---- At the Shield ---------------------------------------------------------------------------------

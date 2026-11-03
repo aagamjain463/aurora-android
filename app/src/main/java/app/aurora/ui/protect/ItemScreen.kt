@@ -91,9 +91,9 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
 
         item(key = "mode-label") { SectionLabel(stringResource(R.string.item_preferred_mode)) }
         item(key = "mode") {
-            Column(Modifier.padding(horizontal = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+            Column(Modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.S)) {
                 Text(stringResource(R.string.item_preferred_mode_hint), color = colors.textSecondary, style = AuroraType.Secondary)
-                Mode.entries.forEach { m -> ChoiceCard(modeName(m), modeDescription(m), rule.mode == m, { save { it.copy(mode = m) } }, swatch = modeColor(m)) }
+                Mode.entries.forEach { m -> ChoiceCard(modeName(m), modeDescription(m), rule.mode == m, { save { it.copy(mode = m) } }, icon = modeIcon(m)) }
                 when (rule.mode) {
                     Mode.Friction -> {
                         Text(stringResource(R.string.item_task), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title)
@@ -129,25 +129,6 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
                             trailing = { Chevron() },
                         )
                     }
-                }
-            }
-            item(key = "limit-label") { SectionLabel(stringResource(R.string.limits_name)) }
-            item(key = "limit") {
-                val limit = d.rules.limits.find { it.key == key }
-                val on = limit?.enabled == true
-                Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                    RowGroup {
-                        ToggleRow(stringResource(R.string.item_limit_toggle), stringResource(R.string.item_limit_hint), on, { enable ->
-                            if (!enable) vm.edit { r -> r.copy(limits = r.limits.map { if (it.key == key) it.copy(enabled = false) else it }) }
-                            else vm.edit { r ->
-                                r.copy(limits = r.limits.filterNot { it.key == key } + (limit?.copy(enabled = true) ?: DailyLimit(key, 30)))
-                            }
-                        })
-                    }
-                    if (on) DurationPicker(
-                        limit!!.minutes, { m -> if (m != null) vm.edit { r -> r.copy(limits = r.limits.map { if (it.key == key) it.copy(minutes = m) else it }) } },
-                        LimitPresets, Modifier.padding(horizontal = Space.Gutter), title = stringResource(R.string.item_limit_prompt), max = 23 * 60,
-                    )
                 }
             }
         }

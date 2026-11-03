@@ -66,28 +66,29 @@ fun AuroraButton(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed && !Aurora.reducedMotion) 0.94f else 1f,
+        if (pressed && !Aurora.reducedMotion) 0.97f else 1f,
         if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.5f, stiffness = 700f),
         label = "press",
     )
     // The suggested next step answers with a light tick under the finger.
     val haptics = LocalHapticFeedback.current
     val (container, content) = when (kind) {
-        ButtonKind.Primary -> if (enabled) colors.cta.first() to colors.onAccent else Color.Transparent to colors.textTertiary
+        ButtonKind.Primary -> if (enabled) colors.accent to colors.onAccent else colors.field to colors.textTertiary
         ButtonKind.Secondary -> Color.Transparent to colors.textPrimary
-        ButtonKind.Quiet -> Color.Transparent to colors.textPrimary
+        ButtonKind.Quiet -> Color.Transparent to colors.textSecondary
         ButtonKind.Danger -> Color.Transparent to colors.danger
     }
-    val fill = if (kind == ButtonKind.Primary && enabled) androidx.compose.ui.graphics.Brush.horizontalGradient(colors.cta) else SolidColor(container)
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled || kind == ButtonKind.Primary) 1f else 0.4f }
-            .heightIn(min = if (kind == ButtonKind.Quiet || compact) 48.dp else 56.dp)
+            .heightIn(min = when { kind == ButtonKind.Quiet || compact -> 48.dp; kind == ButtonKind.Primary -> 58.dp; else -> 54.dp })
             .clip(Radius.Pill)
-            .background(fill)
+            // The one filled action is sunlit: pale dawn on top, warming to peach underneath (ink on paper by day).
+            .then(if (kind == ButtonKind.Primary && enabled) Modifier.sunlit(colors) else Modifier.background(container))
             .then(
                 when (kind) {
-                    ButtonKind.Primary -> if (enabled) Modifier.ribbonKnot().gloss(Radius.Pill) else Modifier.glass(colors, Radius.Pill)
+                    // A waiting primary keeps its pill outline, so it never melts into the dune as bare text.
+                    ButtonKind.Primary -> if (enabled) Modifier else Modifier.border(1.dp, colors.hairlineStrong, Radius.Pill)
                     ButtonKind.Secondary -> Modifier.glass(colors, Radius.Pill)
                     ButtonKind.Danger -> Modifier.glass(colors, Radius.Pill, tint = colors.danger)
                     ButtonKind.Quiet -> Modifier
@@ -104,11 +105,15 @@ fun AuroraButton(
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-            if (icon != null) Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(20.dp))
+            if (icon != null) Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(18.dp))
             // A compact pill stays one line: large text shrinks to fit (as SegmentedControl does) instead of
             // breaking into a column of single words.
             Text(
-                text, color = content, style = AuroraType.Label, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                text, color = content, style = when (kind) {
+                    ButtonKind.Primary -> AuroraType.Label
+                    ButtonKind.Quiet -> AuroraType.BodyStrong.copy(fontSize = 15.sp)
+                    else -> AuroraType.Title
+                }, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 maxLines = if (compact) 1 else Int.MAX_VALUE, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 autoSize = if (compact) androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = AuroraType.Label.fontSize) else null,
             )
@@ -125,6 +130,6 @@ fun AuroraIconButton(icon: ImageVector, label: String, onClick: () -> Unit, modi
             .pressable(Radius.Pill, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = Aurora.colors.textPrimary, modifier = Modifier.size(24.dp))
+        Icon(icon, contentDescription = label, tint = Aurora.colors.textPrimary, modifier = Modifier.size(20.dp))
     }
 }

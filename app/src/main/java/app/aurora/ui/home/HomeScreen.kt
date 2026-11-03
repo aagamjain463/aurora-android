@@ -1,9 +1,10 @@
 package app.aurora.ui.home
 
-import app.aurora.ui.components.rememberGlassSource
-import app.aurora.ui.components.glassSource
-import app.aurora.ui.components.frosted
-import app.aurora.ui.components.PageGlow
+import app.aurora.progress.bound
+import app.aurora.progress.reaching
+import app.aurora.progress.whileBound
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
 import app.aurora.readyToStart
 import app.aurora.ui.components.auroraSurface
 import androidx.compose.foundation.background
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,7 +58,6 @@ import app.aurora.data.formatDuration
 import app.aurora.data.openAccessSettings
 import app.aurora.data.timeAway
 import app.aurora.plan.Plan
-import app.aurora.protect.planExcess
 import app.aurora.progress.History
 import app.aurora.progress.levelFor
 import app.aurora.progress.light
@@ -76,8 +77,6 @@ import app.aurora.syncRuns
 import app.aurora.ui.components.ArtTier
 import app.aurora.ui.components.AuroraHeader
 import app.aurora.ui.components.BrandEyebrow
-import app.aurora.ui.components.AuroraBackdrop
-import app.aurora.ui.components.Sky
 import app.aurora.ui.components.LitBadge
 import app.aurora.ui.components.TwoToneHeadline
 import androidx.compose.foundation.clickable
@@ -86,7 +85,6 @@ import androidx.compose.ui.res.pluralStringResource
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIconButton
 import app.aurora.ui.components.AuroraIcons
-import app.aurora.ui.components.AuroraLight
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ModeGlyph
 import app.aurora.ui.components.PillarHeading
@@ -116,7 +114,6 @@ import app.aurora.ui.components.ContentMaxWidth
 import app.aurora.ui.components.rise
 import androidx.compose.animation.togetherWith
 import app.aurora.ui.components.ProvideIntro
-import app.aurora.ui.components.AuroraSweep
 
 /** Time Reclaimed, or why it can't be shown. */
 sealed interface AwayState {
@@ -154,8 +151,13 @@ suspend fun AuroraApplication.measureReclaimed(): AwayState {
     val list = protectedList.value ?: return AwayState.Loading
     fun startOf(day: LocalDate) = day.atStartOfDay(zone).toInstant().toEpochMilli()
     // ponytail: past schedule windows come from today's rules; a schedule edited before its day is stored counts as edited.
+    // Only while the Shield service was really bound: Accessibility off, safe mode or a dead phone isn't protection.
+    val service = history.service.reaching(now, app.aurora.protect.ShieldService.connected.value)
+    val bound = service.bound()
+    val evidenceFrom = service.firstOrNull()?.start ?: Long.MAX_VALUE
     fun spans(from: Long, to: Long) = protectionToday(history, rules, runtime, list, plan, from, to, zone)
         .filter { it.end > from && it.start < to && it.keys.isNotEmpty() }
+        .flatMap { it.whileBound(bound, evidenceFrom) }
     val from = startOf(date)
     val today = spans(from, now)
     val unsettled = (UsageKeepDays.toLong() downTo 1).map(date::minusDays)
@@ -194,19 +196,21 @@ class TodayModel(val app: AuroraApplication) : ViewModel() {
 }
 
 /**
- * Home. One hero, the two ways in, then Time Reclaimed: real time away from protected apps, measured
- * from Android's usage records, never the time someone set on a timer. Custom sessions follow.
+ * Home. One hero, Start session, then Time Reclaimed: real time away from protected apps, measured
+ * from Android's usage records, never the time someone set on a timer. Saved sessions follow.
  */
 @Composable
 fun HomeScreen(
-    onNormalUse: () -> Unit,
-    onCustom: () -> Unit,
+    onStart: () -> Unit,
     onOpenFocus: (runId: String) -> Unit,
     onOpenLegacyFocus: () -> Unit,
     onOpenSettings: () -> Unit,
-    onKeep: () -> Unit = {},
+    onEditSession: (configId: String) -> Unit = {},
+    onOpenGuide: () -> Unit = {},
 ) {
     val today = auroraViewModel { TodayModel(it) }
+    var info by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (info) app.aurora.ui.guide.GuideDialog(app.aurora.ui.guide.GuideTopic.Home, { info = false }, onOpenGuide)
     val protect = auroraViewModel { ProtectModel(it) }
     val data by protect.data.collectAsStateWithLifecycle()
     val away by today.away.collectAsStateWithLifecycle()
@@ -224,21 +228,17 @@ fun HomeScreen(
     val light = h.light(date)
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + TabBarHeight + Space.XXL
 
-    val glass = rememberGlassSource()
     ProvideIntro { Box(Modifier.fillMaxSize().background(colors.background)) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val heroVisible by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { listState.firstVisibleItemIndex == 0 } }
-    val sky = data?.let { skyNow(it, today.app) } ?: Sky.Quiet
     val arc = data?.let { d -> leadRun(d, today.app)?.let { r -> runProgress(r, d) } }
-    Box(Modifier.fillMaxSize().glassSource(glass)) {
-    AuroraBackdrop(ArtTier.Immersive, sky = sky, glow = light.glow, arc = arc, scroll = { if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else Int.MAX_VALUE / 4 })
-    PageGlow()
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottom)) {
         // The brand promise leads into setup; measurement follows the actions.
         item(key = "hero") {
             Column(Modifier.statusBarsPadding()) {
-                AuroraHeader(onOpenSettings)
-                Spacer(Modifier.height(164.dp))
+                AuroraHeader(onOpenSettings, onInfo = { info = true })
+                Spacer(Modifier.height(30.dp))
                 // While protection runs, the hero is that session; otherwise it is the brand promise.
                 val lead = data?.let { leadRun(it, today.app) }
                 val still = Aurora.reducedMotion
@@ -254,36 +254,41 @@ fun HomeScreen(
                     label = "hero",
                 ) { running ->
                 val now = if (running) data?.let { leadRun(it, today.app) } else null
-                if (now != null) NowHero(now, data!!) else Column(Modifier.rise()) {
-                    TwoToneHeadline(stringResource(R.string.today_headline), Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.XS))
-                    Text(stringResource(R.string.today_description), Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S), color = colors.textSecondary, style = AuroraType.Body)
+                if (now != null) NowHero(now, data!!) else Column(Modifier.rise().padding(horizontal = Space.Gutter)) {
+                    app.aurora.ui.components.HeroHeadline(stringResource(R.string.today_headline))
+                    Text(stringResource(R.string.today_description), Modifier.padding(top = 12.dp), color = colors.textSecondary, style = AuroraType.Body)
                 }
                 }
             }
         }
         val d = data
-        val busy = d != null && busyNow(d, today.app)
-        // One filled action per screen: while something runs, starting another is secondary.
-        // Saved sessions start in one tap; while one exists, it holds Home's filled action.
+        // Start session is Home's one filled action; saved sessions start from their own cards.
         val running = d?.let { today.app.runsNow(it.time).map { r -> r.configId } }.orEmpty()
         val ready = d?.rules?.readyToStart(Int.MAX_VALUE)?.filterNot { it.id in running }.orEmpty()
-        // The two ways in lead, right under the promise.
-        item(key = "choose") { Column(Modifier.animateItem()) { ChooseCard(onNormalUse, onCustom, primary = !busy && ready.isEmpty()) } }
+        // Start session leads, right under the promise.
+        val busy = d != null && app.aurora.protect.sessionRunning(d.rules, d.runtime, d.plan, d.time, java.time.ZoneId.systemDefault())
+        val busyEnd = if (busy) d?.let { leadRun(it, today.app)?.endAt(it.time) } else null
+        item(key = "choose") {
+            val note = if (!busy) null else busyEnd?.let { stringResource(R.string.home_one_session, clockTime(it)) } ?: stringResource(R.string.cfg_problem_session_running)
+            Column(Modifier.animateItem()) { ChooseCard(onStart, note) }
+        }
         // Time Reclaimed follows at once: real time away, today, this week and overall.
         if (away !is AwayState.Loading) item(key = "metric") {
-            Column(Modifier.rise().padding(horizontal = Space.M, vertical = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.L)) {
-                Text(stringResource(R.string.today_metric_label), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
-                Spacer(Modifier.height(Space.S))
+            Column(Modifier.rise().padding(horizontal = Space.Gutter).padding(top = 20.dp).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.today_metric_label), Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title.copy(fontSize = 15.sp))
+                    if (away is AwayState.Measured) Text(stringResource(R.string.reclaimed_today), color = colors.textTertiary, style = AuroraType.Caption)
+                }
                 when (val a = away) {
-                    is AwayState.Measured -> Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        listOf(
-                            R.string.reclaimed_today to a.reclaimed.todayMs,
-                            R.string.reclaimed_week to a.reclaimed.weekMs,
-                            R.string.reclaimed_overall to a.reclaimed.overallMs,
-                        ).forEach { (label, ms) ->
-                            Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(label), Modifier.weight(1f), color = colors.textSecondary, style = AuroraType.Body)
-                                app.aurora.ui.components.CountUpText(formatDuration(ms), colors.textPrimary, AuroraType.Headline)
+                    is AwayState.Measured -> Column {
+                        app.aurora.ui.components.CountUpText(formatDuration(a.reclaimed.todayMs), colors.textPrimary, AuroraType.Metric, Modifier.padding(top = 8.dp))
+                        Box(Modifier.padding(top = 14.dp).fillMaxWidth().height(1.dp).background(colors.hairline))
+                        Row(Modifier.padding(top = 14.dp).fillMaxWidth()) {
+                            listOf(R.string.reclaimed_week to a.reclaimed.weekMs, R.string.reclaimed_overall to a.reclaimed.overallMs).forEach { (label, ms) ->
+                                Column(Modifier.weight(1f).semantics(mergeDescendants = true) { }) {
+                                    Text(stringResource(label), color = colors.textTertiary, style = AuroraType.Caption)
+                                    app.aurora.ui.components.CountUpText(formatDuration(ms), colors.textPrimary, AuroraType.Metric.copy(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight(380), letterSpacing = (-0.02).em), Modifier.padding(top = 3.dp))
+                                }
                             }
                         }
                     }
@@ -302,22 +307,12 @@ fun HomeScreen(
         }
         // Then what is running, finishing or needs attention: Home shows what matters now.
         if (d != null) homeNow(d, today.app, onOpenFocus, onOpenLegacyFocus)
-        if (d != null && d.rules.planExcess(d.plan, d.time.wall, java.time.ZoneId.systemDefault()).any) item(key = "over-free") {
-            app.aurora.ui.components.Notice(
-                stringResource(R.string.keep_banner_title), stringResource(R.string.keep_banner_body),
-                Modifier.animateItem().padding(horizontal = Space.M).padding(top = Space.S),
-            ) {
-                app.aurora.ui.components.AuroraButton(stringResource(R.string.keep_banner_action), onKeep, Modifier.fillMaxWidth(), kind = app.aurora.ui.components.ButtonKind.Secondary)
-            }
-        }
-        if (d != null && ready.isNotEmpty()) item(key = "ready") { Column(Modifier.animateItem()) { QuickStart(ready, d, today.app, primary = !busy) } }
+        if (d != null && ready.isNotEmpty()) item(key = "ready") { Column(Modifier.animateItem()) { QuickStart(ready, d, today.app, busy, onEditSession) } }
         // What is scheduled, always on and recent.
         if (d != null) homeLater(d, today.app, onOpenFocus)
     }
     }
     // Content frosts under the status bar, never under the clock.
-    if (!heroVisible) Box(Modifier.fillMaxWidth().frosted(glass, androidx.compose.ui.graphics.RectangleShape).background(colors.background.copy(alpha = 0.60f)).statusBarsPadding())
-    // Protection starting: aurora light sweeps up the page once.
-    AuroraSweep(sky == Sky.Flare, Modifier.fillMaxSize())
+    if (!heroVisible) Box(Modifier.fillMaxWidth().background(colors.background).statusBarsPadding())
     } }
 }

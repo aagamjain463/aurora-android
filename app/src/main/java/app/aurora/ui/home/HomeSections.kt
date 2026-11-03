@@ -1,10 +1,13 @@
 package app.aurora.ui.home
 
-import app.aurora.ui.components.gloss
+import app.aurora.ui.components.Eyebrow
 import app.aurora.ui.components.glass
-import app.aurora.ui.components.ribbonKnot
+import app.aurora.ui.components.sunlit
 import app.aurora.ui.components.RollingClock
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.text
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,7 +42,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.account.isWaitingForServer
-import app.aurora.ui.components.Sky
 import app.aurora.data.Access
 import app.aurora.data.AccessState
 import app.aurora.data.ProtectionStatus
@@ -51,7 +53,6 @@ import app.aurora.progress.Outcome
 import app.aurora.progress.RunRecord
 import app.aurora.protect.Activation
 import app.aurora.protect.ConfigRun
-import app.aurora.protect.FocusOutcome
 import app.aurora.protect.ShieldService
 import app.aurora.protect.Timing
 import app.aurora.protect.UsageConfig
@@ -65,7 +66,6 @@ import app.aurora.ui.components.minutesText
 import app.aurora.ui.configure.problemText
 import app.aurora.protect.entitledActivations
 import app.aurora.protect.nextStart
-import app.aurora.reportFocus
 import app.aurora.rememberAccess
 import app.aurora.runsNow
 import app.aurora.setActivationEnabled
@@ -82,6 +82,8 @@ import app.aurora.ui.components.auroraSurface
 import app.aurora.ui.components.clockTime
 import app.aurora.ui.configure.timingText
 import app.aurora.ui.protect.IconStack
+import app.aurora.ui.protect.modeName
+import app.aurora.ui.components.AuroraIconButton
 import app.aurora.ui.protect.ModeChip
 import app.aurora.ui.protect.ProtectData
 import app.aurora.ui.protect.SessionCard
@@ -93,71 +95,49 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 import kotlinx.coroutines.launch
+import app.aurora.saveConfig
+import app.aurora.deleteConfig
+import app.aurora.newId
+import app.aurora.ui.library.ItemMenuItems
+import app.aurora.ui.library.DetailsDialog
+import app.aurora.ui.library.keyRows
+import app.aurora.ui.protect.intentSummary
 import java.io.IOException
 import java.time.ZoneId
 import app.aurora.data.formatDuration
 import app.aurora.ui.components.pressable
-import app.aurora.ui.components.rimLight
 import app.aurora.ui.components.rise
 import app.aurora.ui.components.BrandEyebrow
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Spacer
 
-/** The two ways in: quick setup from built-ins, or the person's own saved presets. */
+/** The one way in: Start session, always the full-width filled pill. Saved sessions follow further down. */
 @Composable
-fun ChooseCard(onNormalUse: () -> Unit, onCustom: () -> Unit, primary: Boolean = true) {
+fun ChooseCard(onStart: () -> Unit, busy: String? = null) {
     val colors = Aurora.colors
-    Column(Modifier.rise().padding(horizontal = Space.M, vertical = Space.S).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        if (primary) {
-            Choice(AuroraIcons.Play, stringResource(R.string.home_normal_title), stringResource(R.string.home_normal_body), onNormalUse, primary = true)
-            Choice(AuroraIcons.Layers, stringResource(R.string.home_custom_title), stringResource(R.string.home_custom_body), onCustom)
-        } else {
-            // Once Home has something better to offer, the two ways in step back to a pair of tiles.
-            // Large text stacks the tiles, so a title never breaks mid-word.
-            if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) {
-                SmallChoice(AuroraIcons.Play, stringResource(R.string.home_normal_title), onNormalUse, Modifier.fillMaxWidth())
-                SmallChoice(AuroraIcons.Layers, stringResource(R.string.home_custom_title), onCustom, Modifier.fillMaxWidth())
-            } else Row(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-                SmallChoice(AuroraIcons.Play, stringResource(R.string.home_normal_title), onNormalUse, Modifier.weight(1f))
-                SmallChoice(AuroraIcons.Layers, stringResource(R.string.home_custom_title), onCustom, Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun Choice(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String, onClick: () -> Unit, primary: Boolean = false) {
-    val colors = Aurora.colors
-    val foreground = if (primary) colors.onAccent else colors.textPrimary
-    Row(
-        Modifier.fillMaxWidth().pressable(Radius.L, onClick = onClick)
-            .then(if (primary) Modifier else Modifier.rimLight(Radius.L))
-            .then(if (primary) Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(colors.cta)).ribbonKnot().gloss(Radius.L) else Modifier.auroraSurface(colors))
-            .padding(Space.M),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Space.M),
-    ) {
-        Box(Modifier.size(44.dp).clip(Radius.Pill).background(foreground.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = if (primary) foreground else colors.accent, modifier = Modifier.size(22.dp))
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.XXS)) {
-            Text(title, color = foreground, style = AuroraType.BodyStrong)
-            Text(body, color = if (primary) foreground else colors.textSecondary, style = AuroraType.Caption)
-        }
-        Icon(AuroraIcons.Chevron, null, tint = foreground, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
-private fun SmallChoice(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, onClick: () -> Unit, modifier: Modifier) {
-    val colors = Aurora.colors
-    // Icon over title, so the whole tile's width holds the name on one line.
     Column(
-        modifier.heightIn(min = 64.dp).pressable(Radius.L, onClick = onClick).auroraSurface(colors).padding(Space.M),
-        verticalArrangement = Arrangement.spacedBy(Space.XS),
+        Modifier.rise().padding(horizontal = Space.Gutter).padding(top = 28.dp, bottom = Space.XS).fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(icon, null, tint = colors.accent, modifier = Modifier.size(20.dp))
-        Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        // One session at a time: while one runs, Start gives way to a quiet note, not a button that would refuse.
+        if (busy != null) {
+            Text(
+                busy,
+                Modifier.fillMaxWidth().heightIn(min = 58.dp).glass(colors, Radius.Pill).padding(horizontal = Space.L, vertical = 18.dp),
+                color = colors.textSecondary, style = AuroraType.Secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            return@Column
+        }
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 58.dp).pressable(Radius.Pill, onClick = onStart).clip(Radius.Pill).sunlit(colors).padding(horizontal = Space.L),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(AuroraIcons.Play, null, tint = colors.onAccent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(10.dp))
+            Text(stringResource(R.string.home_start_title), color = colors.onAccent, style = AuroraType.Label)
+        }
     }
 }
 
@@ -190,30 +170,9 @@ fun NowHero(run: ConfigRun, d: ProtectData) {
     }
 }
 
-private const val FlareMs = 6_000L
-
-/** The sky over Today: alive while a timed session runs, lit while anything else protects, quiet otherwise. */
-fun skyNow(d: ProtectData, app: AuroraApplication): Sky {
-    val runs = app.runsNow(d.time)
-    return when {
-        // Beginning is a moment too: the sky surges once as protection starts, then drifts.
-        runs.any { d.time.wall - it.startAt(d.time) in 0..FlareMs } -> Sky.Flare
-        runs.any { it.end != null || it.time != null } || d.sessions.isNotEmpty() || d.runtime.focus?.isOver(d.time) == false -> Sky.Alive
-        runs.isNotEmpty() -> Sky.Lit
-        else -> Sky.Quiet
-    }
-}
-
 /**
- * What needs the person now, above everything else: Shield attention, a finish, Focus reports waiting and
- * what is running. Returns true when a report or run is shown, so Home can give up its filled row; a finish
- * has no action of its own, so starting the next one stays primary.
+ * What needs the person now, above everything else: Shield attention, Focus reports waiting and what is running.
  */
-/** Something on Home needs the person now: a Focus report to answer, a timed run, a session or Focus. */
-fun busyNow(d: ProtectData, app: AuroraApplication): Boolean =
-    d.history.runs.any { it.awaitingReport } || app.runsNow(d.time).any { it.end != null || it.time != null } ||
-        d.sessions.isNotEmpty() || d.runtime.focus?.isOver(d.time) == false
-
 fun LazyListScope.homeNow(d: ProtectData, app: AuroraApplication, onOpenFocus: (String) -> Unit, onOpenLegacyFocus: () -> Unit) {
     val runs = app.runsNow(d.time).sortedBy { it.endAt(d.time) ?: Long.MAX_VALUE }
     val legacy = d.sessions
@@ -222,13 +181,7 @@ fun LazyListScope.homeNow(d: ProtectData, app: AuroraApplication, onOpenFocus: (
 
     item(key = "status") { Column(Modifier.animateItem()) { EnforcementStatus(d, hasEnforcement) } }
 
-    // The finish is a moment: a run that just succeeded gets the arc of light, completed, for two hours.
-    val finished = d.history.runs.lastOrNull()?.takeIf { it.outcome == Outcome.Succeeded && !it.turnedOff && d.time.wall - it.end in 0..2 * 3_600_000L }
-    if (finished != null) item(key = "finished-" + finished.id) { Column(Modifier.animateItem()) { FinishedCard(finished) } }
-
-    val awaiting = d.history.runs.filter { it.awaitingReport }.takeLast(3)
-    items(awaiting, key = { "report-" + it.id }) { r -> Column(Modifier.animateItem()) { FocusReport(r, app) } }
-
+    // A finished session says nothing here: it goes to Recent sessions in Progress.
     val timed = runs.filter { it.end != null || it.time != null }
     if (timed.isNotEmpty() || legacy.isNotEmpty() || legacyFocus != null) item(key = "active-label") { Column(Modifier.animateItem()) { HomeLabel(stringResource(R.string.home_active)) } }
     val lead = leadRun(d, app)
@@ -261,7 +214,13 @@ fun LazyListScope.homeLater(d: ProtectData, app: AuroraApplication, onOpenFocus:
 
 @Composable
 private fun HomeLabel(text: String) {
-    Text(text, Modifier.rise().padding(start = Space.Gutter, end = Space.Gutter, top = Space.L, bottom = Space.XS).semantics { heading() }, color = Aurora.colors.textSecondary, style = AuroraType.Eyebrow)
+    // Small caps like every section label; read aloud as written.
+    Text(
+        text.uppercase(),
+        Modifier.rise().padding(start = Space.Gutter + 4.dp, end = Space.Gutter, top = Space.L, bottom = 10.dp)
+            .clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
+        color = Aurora.colors.textTertiary, style = AuroraType.Eyebrow,
+    )
 }
 
 /** The Shield service's real state, shown only when something should be enforced and isn't. */
@@ -282,7 +241,7 @@ private fun EnforcementStatus(d: ProtectData, hasEnforcement: Boolean) {
 
 /**
  * One running session: its Shield and Intent, the time left (or that it runs until turned off),
- * whether it is really enforced, Focus progress, and the one action it allows. Always Block shows that
+ * whether it is really enforced, Focus progress, and the one action it allows. Strict shows that
  * it ends on its own instead of a button.
  */
 @Composable
@@ -297,7 +256,7 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
     // A commitment carried over from another account doesn't show what it covers.
     val keys = if (run.carried) emptyList() else (run.shield?.keys.orEmpty() + run.intent?.keys.orEmpty()).distinct()
     Column(
-        Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors, edge = tint).padding(Space.L),
+        Modifier.rise().padding(horizontal = Space.Gutter).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors, edge = tint).padding(horizontal = 22.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
@@ -324,8 +283,8 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
         run.focus?.let { f ->
             val target = f.minutes?.let { it * 60_000L } ?: ((end ?: d.time.wall) - run.startAt(d.time))
             val done = (d.time.wall - run.startAt(d.time)).coerceIn(0, target.coerceAtLeast(1))
-            Column(Modifier.fillMaxWidth().glass(colors, Radius.M, tint = colors.rose).padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                Text(stringResource(R.string.focus_name), color = colors.rose, style = AuroraType.Eyebrow)
+            Column(Modifier.fillMaxWidth().clip(Radius.M).background(colors.field).padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                Eyebrow(stringResource(R.string.focus_name), color = colors.rose)
                 Text(f.task, color = colors.textPrimary, style = AuroraType.BodyStrong)
                 ProgressLine(done.toFloat() / target.coerceAtLeast(1), warm = true)
                 AuroraButton(stringResource(R.string.home_open_focus), { onOpenFocus(run.id) }, kind = ButtonKind.Quiet, compact = true, icon = AuroraIcons.Focus)
@@ -335,7 +294,7 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
             AuroraButton(stringResource(R.string.home_turn_off), { confirm = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
         } else {
             Row(
-                Modifier.fillMaxWidth().glass(colors, Radius.Pill, tint = colors.violet).padding(horizontal = Space.M, vertical = 12.dp),
+                Modifier.fillMaxWidth().glass(colors, Radius.Pill).padding(horizontal = Space.M, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
                 Icon(AuroraIcons.Lock, null, tint = colors.violetText, modifier = Modifier.size(18.dp))
@@ -361,7 +320,7 @@ private fun ActivationCard(a: Activation, d: ProtectData, app: AuroraApplication
     val config = d.rules.configs.find { it.id == a.configId }
     val next = a.nextStart(d.time.wall, zone)
     Column(
-        Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors).padding(Space.L),
+        Modifier.rise().padding(horizontal = Space.Gutter).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors).padding(horizontal = 22.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
         Text(config?.name.orEmpty(), color = colors.textPrimary, style = AuroraType.Title)
@@ -388,58 +347,14 @@ private fun ActivationCard(a: Activation, d: ProtectData, app: AuroraApplication
     }
 }
 
-/** A finished run with a Focus task asks how it went. A timer alone never decides. */
-@Composable
-private fun FocusReport(r: RunRecord, app: AuroraApplication) {
-    val colors = Aurora.colors
-    val scope = app.scope
-    Column(
-        Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L),
-        verticalArrangement = Arrangement.spacedBy(Space.S),
-    ) {
-        Text(stringResource(R.string.focus_name), color = colors.rose, style = AuroraType.Eyebrow)
-        Text(stringResource(R.string.home_focus_prompt, r.focusTask.orEmpty()), color = colors.textPrimary, style = AuroraType.Title)
-        val report = { o: FocusOutcome -> scope.launch { app.saving { app.reportFocus(r.id, o) } }; Unit }
-        // The hoped-for answer gets the full width; the other two share a row (stacked with large text),
-        // so no label ever wraps.
-        AuroraButton(stringResource(R.string.focus_completed), { report(FocusOutcome.Completed) }, Modifier.fillMaxWidth(), compact = true)
-        val others = listOf(FocusOutcome.Partial to R.string.focus_partial, FocusOutcome.NotCompleted to R.string.focus_not_completed)
-        if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) {
-            others.forEach { (o, label) -> AuroraButton(stringResource(label), { report(o) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true) }
-        } else Row(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-            others.forEach { (o, label) -> AuroraButton(stringResource(label), { report(o) }, Modifier.weight(1f), kind = ButtonKind.Secondary, compact = true) }
-        }
-    }
-}
-
-@Composable
-private fun FinishedCard(r: RunRecord) {
-    val colors = Aurora.colors
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    // Haptic Confirm once, when the finish is first seen (brand bible: Motion).
-    androidx.compose.runtime.LaunchedEffect(r.id) { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm) }
-    Column(
-        Modifier.rise().padding(horizontal = Space.M).padding(top = Space.S).fillMaxWidth().auroraSurface(colors, warm = true).padding(Space.L),
-        verticalArrangement = Arrangement.spacedBy(Space.XS),
-    ) {
-        Text(stringResource(R.string.home_finished_eyebrow), color = colors.rose, style = AuroraType.Eyebrow)
-        app.aurora.ui.components.HorizonArc(1f, Modifier.fillMaxWidth(0.6f).align(Alignment.CenterHorizontally), complete = true)
-        Text(r.name, color = colors.textPrimary, style = AuroraType.Headline)
-        Text(
-            if (r.verifiedMs > 0) stringResource(R.string.home_finished_verified, formatDuration(r.verifiedMs)) else stringResource(R.string.home_finished_body),
-            color = colors.textSecondary, style = AuroraType.Secondary,
-        )
-    }
-}
-
 @Composable
 private fun LegacyFocusCard(title: String, left: Long, onOpen: () -> Unit) {
     val colors = Aurora.colors
     Column(
-        Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth().pressable(Radius.L, onClick = onOpen).auroraSurface(colors, warm = true).padding(Space.L),
+        Modifier.rise().padding(horizontal = Space.Gutter).padding(top = Space.XS).fillMaxWidth().pressable(Radius.L, onClick = onOpen).auroraSurface(colors, warm = true).padding(horizontal = 22.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        Text(stringResource(R.string.focus_name), color = colors.rose, style = AuroraType.Eyebrow)
+        Eyebrow(stringResource(R.string.focus_name), color = colors.rose)
         Text(title, color = colors.textPrimary, style = AuroraType.Title)
         Text(formatClock(left), color = colors.textPrimary, style = AuroraType.Headline)
     }
@@ -483,23 +398,21 @@ fun OutcomeTag(o: Outcome) {
 
 /**
  * Saved custom sessions start now for the person's chosen duration.
- * Strict ones (Always Block, Cooldown, Friction) still ask for the commitment first.
+ * Strict ones (Strict, Cooldown, Friction) still ask for the commitment first.
  */
 @Composable
-fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplication, primary: Boolean = true) {
+fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplication, busy: Boolean = false, onEdit: (String) -> Unit = {}) {
     val colors = Aurora.colors
     val context = LocalContext.current
     val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
-    // While Home asks to turn Shield on, that is its one filled action.
     val access = rememberAccess(Access.Accessibility)
-    val connected by ShieldService.connected.collectAsStateWithLifecycle()
-    val enforcing = app.runsNow(d.time).isNotEmpty() || d.sessions.isNotEmpty() || d.rules.activations.any { it.enabled }
-    val attention = protectionStatus(enforcing, blocked = false, access, connected, d.list.readable && d.rulesReadable) !in setOf(ProtectionStatus.Active, ProtectionStatus.Off)
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var pending by remember { mutableStateOf<Pair<UsageConfig, Int>?>(null) }
     // Without Shield a session is only a timer: nothing starts until it's on.
     var disclosure by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<Pair<String, ActivationProblem>?>(null) }
+    var viewing by remember { mutableStateOf<UsageConfig?>(null) }
+    var deleting by remember { mutableStateOf<UsageConfig?>(null) }
     fun start(c: UsageConfig, minutes: Int) {
         // Asked first: this card leaves Home as soon as the run starts. The first time protection starts,
         // Aurora asks to show it in the notification shade (Android 13+).
@@ -519,45 +432,97 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
         }
     }
     HomeLabel(stringResource(R.string.home_ready_title))
-    configs.forEachIndexed { index, c ->
+    // How long is asked in a dialog once Start is tapped, so every card keeps the same shape.
+    var asking by remember { mutableStateOf<UsageConfig?>(null) }
+    configs.forEach { c ->
         key(c.id) {
-            var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
             val shield = d.rules.shieldOf(c)
             val intent = d.rules.intentOf(c)
             val keys = (shield?.keys.orEmpty() + intent?.keys.orEmpty()).distinct()
             Column(
-                Modifier.rise().padding(horizontal = Space.M).padding(top = Space.XS).fillMaxWidth()
-                    .auroraSurface(colors, edge = shield?.let { modeColor(it.mode) }).padding(Space.L),
+                Modifier.rise().padding(horizontal = Space.Gutter).padding(top = Space.XS).fillMaxWidth()
+                    .auroraSurface(colors).padding(horizontal = 22.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(Space.S),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
                     Text(c.name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
                     IconStack(keys, d, max = 4, size = 28.dp)
+                    // Only a saved session is the person's to change; a Shield or Intent offered here is changed in its own tab.
+                    if (c.custom) Box {
+                        var open by remember { mutableStateOf(false) }
+                        AuroraIconButton(AuroraIcons.More, stringResource(R.string.preset_more, c.name), { open = true }, Modifier.size(40.dp))
+                        androidx.compose.material3.DropdownMenu(
+                            open, { open = false },
+                            shape = Radius.M,
+                            containerColor = colors.elevated,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, colors.hairline),
+                        ) {
+                            ItemMenuItems(
+                                { open = false },
+                                onView = { viewing = c },
+                                onEdit = { onEdit(c.id) },
+                                onDuplicate = {
+                                    app.scope.launch {
+                                        runCatching { app.saveConfig(c.copy(id = newId(), name = app.getString(R.string.preset_copy_name, c.name), createdAt = System.currentTimeMillis())) }
+                                            .onFailure { app.saveFailed.value = true }
+                                    }
+                                },
+                                onDelete = { deleting = c },
+                            )
+                        }
+                    }
                 }
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                    shield?.let { if (it.name == c.name) ModeChip(it.mode) else ModeChip(it.mode, label = it.name) }
+                    shield?.let { ModeChip(it.mode, label = it.name) }
                     intent?.let { IntentChip(it.name) }
                 }
-                DurationPicker(minutes, { minutes = it }, emptyList(), title = stringResource(R.string.cfg_how_long), endsFromNow = true)
-                AuroraButton(
+                // Every saved session's Start looks the same: Home's one filled action is Start session.
+                // While a session runs, the note at the top says why nothing here starts.
+                if (!busy) AuroraButton(
                     stringResource(R.string.cfg_start),
-                    {
-                        val m = minutes ?: return@AuroraButton
-                        when {
-                            access != AccessState.Granted -> disclosure = true
-                            shield?.mode?.strict == true -> pending = c to m
-                            else -> start(c, m)
-                        }
-                    },
-                    Modifier.fillMaxWidth(),
-                    kind = if (primary && index == 0 && !attention) ButtonKind.Primary else ButtonKind.Secondary,
-                    enabled = minutes != null,
+                    { if (access != AccessState.Granted) disclosure = true else asking = c },
+                    Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Play,
                 )
                 problem?.takeIf { it.first == c.id && !it.second.overLimit }?.let { (_, p) ->
                     Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
                 }
             }
         }
+    }
+    asking?.let { c ->
+        var minutes by rememberSaveable(c.id) { mutableStateOf<Int?>(null) }
+        AuroraDialog(
+            c.name, { asking = null },
+            stringResource(R.string.home_start_title),
+            {
+                val m = minutes ?: return@AuroraDialog
+                asking = null
+                if (d.rules.shieldOf(c)?.mode?.strict == true) pending = c to m else start(c, m)
+            },
+            dismissLabel = stringResource(R.string.action_cancel),
+            confirmEnabled = minutes != null,
+            scrollContent = false,
+        ) {
+            // The dialog would hand its first focus to the hours box and throw the keyboard over the choice: the
+            // wrapper takes that focus instead, so the keyboard waits for a tap.
+            Column(Modifier.focusable()) {
+                DurationPicker(minutes, { minutes = it }, emptyList(), title = stringResource(R.string.cfg_how_long), endsFromNow = true)
+            }
+        }
+    }
+    viewing?.let { c -> DetailsDialog(c.name, sessionRows(c, d), { viewing = null }) { onEdit(c.id) } }
+    deleting?.let { c ->
+        val goals = d.rules.trackGoals.filter { it.configId == c.id }
+        AuroraDialog(
+            stringResource(R.string.config_delete_title, c.name), { deleting = null },
+            stringResource(if (goals.isEmpty()) R.string.preset_delete else R.string.config_delete_archive),
+            {
+                deleting = null
+                app.scope.launch { runCatching { app.deleteConfig(c.id, removeGoals = true) }.onFailure { app.saveFailed.value = true } }
+            },
+            if (goals.isEmpty()) stringResource(R.string.config_delete_body) else stringResource(R.string.config_delete_habits, goals.joinToString(", ") { it.name }) + " " + stringResource(R.string.config_delete_body),
+            stringResource(R.string.action_cancel),
+        )
     }
     if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
     pending?.let { (c, m) ->
@@ -567,4 +532,18 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
             stringResource(R.string.start_commit_body) + "\n\n" + stringResource(R.string.start_commit_limits), stringResource(R.string.action_cancel),
         )
     }
+}
+
+/** A saved session in full: its Shield and Intent, its Focus and note, and everything it covers. */
+@Composable
+private fun sessionRows(c: UsageConfig, d: ProtectData): List<Pair<String, String>> {
+    val shield = d.rules.shieldOf(c)
+    val intent = d.rules.intentOf(c)
+    val keys = (shield?.keys.orEmpty() + intent?.keys.orEmpty()).distinct()
+    return listOf(
+        stringResource(R.string.detail_shield) to (shield?.let { it.name + " · " + modeName(it.mode) } ?: stringResource(R.string.detail_none)),
+        stringResource(R.string.detail_intent) to (intent?.let { it.name + " · " + intentSummary(it.config) } ?: stringResource(R.string.detail_none)),
+        stringResource(R.string.detail_focus) to c.focus?.task.orEmpty(),
+        stringResource(R.string.detail_note) to c.note,
+    ) + keyRows(keys, d)
 }

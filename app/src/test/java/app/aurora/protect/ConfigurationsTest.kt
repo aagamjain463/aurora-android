@@ -86,7 +86,7 @@ class ConfigurationsTest {
         assertNull(a.nextStart(at(2026, 10, 28, 12), zone))
     }
 
-    /** Scenario G: Always runs with no end; Always isn't allowed with an Always Block Shield. */
+    /** Scenario G: Always runs with no end; Always isn't allowed with a Strict Shield. */
     @Test
     fun alwaysAndItsEligibility() {
         val a = Activation("a", "c", Timing.Always, createdAt = 5)
@@ -109,6 +109,28 @@ class ConfigurationsTest {
         val later = liveRuns(r, Runtime(runs = listOf(run)), Plan.Plus, t(now + min), zone).single()
         assertEquals(run.id, later.id)
         assertEquals(now, later.start)
+    }
+
+    /** A part of an app is a Shield target like any other: the old switches become an always-on Flexible Shield. */
+    @Test
+    fun partsOfAppsAreShieldTargets() {
+        val now = at(2027, 1, 1, 9)
+        val m = Rules(version = 1, content = setOf("instagram_reels", "instagram_feed")).migratedContent(now)
+        assertTrue(m.content.isEmpty())
+        assertEquals(m, m.migratedContent(now + min))
+        assertEquals(listOf(PartReels, PartInstagramFeed, PartInstagramSearch), m.shields.single().keys)
+        val state = policy(m, Runtime(), now + min)
+        assertEquals(ShieldReason.Flexible, (decide(PartReels, now + min, state) as Decision.Shield).reason)
+        // The app itself and the parts nobody chose stay open.
+        assertEquals(Decision.Allow, decide("com.instagram.android", now + min, state))
+        assertEquals(Decision.Allow, decide(PartShorts, now + min, state))
+        // A Friction grant on a part opens that part only.
+        val friction = rules.copy(shields = listOf(social.copy(keys = listOf(PartShorts, PartReels), mode = Mode.Friction)))
+        val run = ConfigRun("r", "c", "Parts", shield = friction.shields.single(), start = now, end = now + 60 * min)
+        val granted = Runtime(runs = listOf(run), access = mapOf(PartShorts to Grant(now + 10 * min, Mode.Friction)))
+        val s2 = policy(friction, granted, now + min)
+        assertTrue(decide(PartShorts, now + min, s2) is Decision.TemporarilyAllowed)
+        assertEquals(ShieldReason.Friction, (decide(PartReels, now + min, s2) as Decision.Shield).reason)
     }
 
     /** Scenario H: a weaker configuration can't lift a committed one over the same app. */
@@ -184,5 +206,19 @@ class ConfigurationsTest {
         val a = IntentConfig(reflectionSeconds = 5, expiry = IntentExpiry.Reminder)
         val b = IntentConfig(reflectionSeconds = 1, expiry = IntentExpiry.Cooldown)
         assertEquals(b, stricter(a, b))
+    }
+
+    @Test
+    fun sessionNoteFollowsTheRunThatCoversTheApp() {
+        val start = at(2026, 11, 2, 9)
+        val run = rules.runFor(Activation("a", "c", Timing.Later(start, 60)), start to start + 60 * min, Plan.Plus, start, zone)!!
+            .copy(note = "Exam on Friday")
+        assertEquals("Exam on Friday", sessionNote(listOf(run), "com.instagram.android", t(start + min)))
+        assertEquals("Exam on Friday", sessionNote(listOf(run), "com.google.android.youtube", t(start + min)))
+        assertNull(sessionNote(listOf(run), "com.whatsapp", t(start + min)))
+        assertNull(sessionNote(listOf(run), "com.instagram.android", t(start + 61 * min)))
+        // A scheduled occurrence freezes the configuration's note.
+        val withNote = rules.copy(configs = listOf(config.copy(note = "Read")))
+        assertEquals("Read", withNote.runFor(Activation("a", "c", Timing.Later(start, 60)), start to start + 60 * min, Plan.Plus, start, zone)!!.note)
     }
 }

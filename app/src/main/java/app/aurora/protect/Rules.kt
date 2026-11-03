@@ -150,7 +150,10 @@ data class Rules(
     /** What the person wants more time for (onboarding). Shown back to them, never sent anywhere. */
     val motivations: List<String> = emptyList(),
     val defaultRule: AppRule = AppRule(),
-    /** Content surfaces to leave automatically (Web & content Shield, experimental): [ContentShorts], [ContentReels], [ContentInstagramFeed]. */
+    /**
+     * Before parts of apps were Shield targets: global switches ("youtube_shorts", "instagram_reels",
+     * "instagram_feed"). Read once by [migratedContent], which empties it.
+     */
     val content: Set<String> = emptySet(),
     /** 0: the Phase 3/reinvention model. 1: presets and configurations ([migratedToConfigurations]). */
     val version: Int = 0,
@@ -166,7 +169,8 @@ data class Rules(
 
     /** The person's choices that the plan currently enforces; the rest stay saved and paused. */
     fun activeSchedules() = schedules.filter { it.enabled }
-    fun activeLimits() = limits.filter { it.enabled }
+    /** Daily limits are retired (founder, 2026-11-02): saved ones stay in storage but never enforce or show. */
+    fun activeLimits(): List<DailyLimit> = emptyList()
     fun activeIntents(plan: Plan): Set<String> =
         keepActive(plan, Allowance.IntentApps, apps.filterValues { it.intent?.enabled == true }.keys.toList()).toSet()
 
@@ -175,11 +179,7 @@ data class Rules(
 
 val DefaultProfile = FocusProfile("focus", "Deep work", 25)
 
-const val ContentShorts = "youtube_shorts"
-const val ContentReels = "instagram_reels"
-const val ContentInstagramFeed = "instagram_feed"
-
-/** A key the engine understands: the package name for an app, "web:<domain>" for a site. */
+/** A key the engine understands: the package name for an app, "web:<domain>" for a site, "part:<id>" for a part of an app. */
 val ProtectedItem.key: String
     get() = when (this) {
         is ProtectedItem.App -> packageName
@@ -228,7 +228,7 @@ data class Session(
 
 /**
  * One activated protection: [keys] are fixed when it starts, so editing a rule, a group or the protected
- * list never changes what a running session covers. [scheduleId] is set for an Always Block window that
+ * list never changes what a running session covers. [scheduleId] is set for a Strict window that
  * was committed from a schedule.
  */
 @Serializable
@@ -241,7 +241,7 @@ data class ProtectionSession(
     val cooldownWaitMinutes: Int = 15,
     val scheduleId: String? = null,
 ) {
-    /** Only Flexible can be turned off in aurora: Always Block, Cooldown and Friction run to their end. */
+    /** Only Flexible can be turned off in aurora: Strict, Cooldown and Friction run to their end. */
     val cancellable: Boolean get() = !mode.strict
 }
 
@@ -293,6 +293,8 @@ data class Runtime(
     val intentCooldowns: Map<String, Long> = emptyMap(),
     /** Each post-usage cooldown's full length, so a new attempt can start it again from the beginning. */
     val intentCooldownLengths: Map<String, Long> = emptyMap(),
+    /** Until when opening an Intent app again counts as a relapse: [IntentQuietMs] after its time (and cooldown) ran out. */
+    val intentQuiet: Map<String, Long> = emptyMap(),
     /** Configuration runs happening now (Configurations.kt). */
     val runs: List<ConfigRun> = emptyList(),
     /** Occurrences turned off or settled: run id to when its window ends, so they never start again. */
@@ -300,9 +302,9 @@ data class Runtime(
     /** Flexible schedule windows the person turned off: schedule id to that window's start. */
     val skipped: Map<String, Long> = emptyMap(),
     val focus: Session? = null,
-    /** A Phase 3 Lockdown, read once and migrated into an Always Block session ([migrated]). */
+    /** A Phase 3 Lockdown, read once and migrated into a Strict session ([migrated]). */
     val lockdown: Session? = null,
-    /** Committed Cooldown and Always Block time (plan/CommittedQuota.kt), kept on Plus too so a downgrade counts today honestly. */
+    /** Committed Cooldown and Strict time (plan/CommittedQuota.kt), kept on Plus too so a downgrade counts today honestly. */
     val ledger: List<LedgerEntry> = emptyList(),
     /** Committed occurrences the server has signed off, by occurrence id. Nothing committed starts on Free without one. */
     val authorizations: Map<String, CommitmentAuthorization> = emptyMap(),
@@ -324,6 +326,7 @@ data class Runtime(
             reflections = reflections.filterValues { now - it in 0 until ReflectionReuseMs },
             intentCooldowns = intentCooldowns.filterValues { it > now },
             intentCooldownLengths = intentCooldownLengths.filterKeys { (intentCooldowns[it] ?: 0) > now },
+            intentQuiet = intentQuiet.filterValues { it > now },
             closed = closed.filterValues { it > now },
             ledger = ledger.filter { now - it.end < 7 * 86_400_000L },
             quotaDenied = quotaDenied.filterValues { it > now },
@@ -337,7 +340,7 @@ data class Runtime(
 }
 
 /**
- * A Phase 3 Lockdown becomes an Always Block session over the same items, keeping its start and length,
+ * A Phase 3 Lockdown becomes a Strict session over the same items, keeping its start and length,
  * so a running commitment neither disappears nor becomes cancellable when aurora updates.
  */
 fun Runtime.migrated(rules: Rules, active: Set<String>): Runtime {
@@ -404,7 +407,7 @@ fun windowId(scheduleId: String, start: Long) = "schedule:$scheduleId:$start"
  * items were fixed when they started, and a downgrade never cancels a commitment.
  *
  * The legacy [Rules.schedules] exist only until the migration at start-up empties them. Until then a Free
- * Always Block window is enforced as a block that can be turned off, as it always was.
+ * Strict window is enforced as a block that can be turned off, as it always was.
  */
 fun policyState(
     list: ProtectedList,

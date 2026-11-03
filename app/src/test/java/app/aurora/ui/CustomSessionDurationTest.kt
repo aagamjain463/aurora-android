@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -45,7 +47,7 @@ class CustomSessionDurationTest {
         rule.runOnIdle { assertEquals(77, minutes) }
         hours.performTextReplacement("25")
         rule.runOnIdle { assertNull(minutes) }
-        rule.onNodeWithText("30 min").performClick()
+        rule.onNodeWithText("30m").performClick()
         rule.runOnIdle { assertEquals(30, minutes) }
         rule.onNodeWithText("Custom").performClick()
         hours.performTextReplacement("1")
@@ -60,7 +62,7 @@ class CustomSessionDurationTest {
                     custom = true, configId = null, forGoal = false,
                     createdShield = null, createdIntent = null,
                     onBack = {}, onDone = {}, onCreateShield = {}, onCreateIntent = {},
-                    onStrict = {}, onPlus = {}, startStep = "When", startWhen = When.Now,
+                    onStrict = {}, onPlus = {}, startStep = "Timing", startWhen = When.Now,
                 )
             }
         }
@@ -74,5 +76,25 @@ class CustomSessionDurationTest {
         rule.onNodeWithText("Next").assertIsNotEnabled()
         rule.onNodeWithContentDescription("minutes").performTextReplacement("7")
         rule.onNodeWithText("Next").assertIsEnabled()
+    }
+
+    @Test
+    fun newSessionAsksForANameAndWhetherToSave() {
+        rule.setContent {
+            AuroraTheme(reduceMotion = true) {
+                ConfigureScreen(
+                    custom = false, configId = null, forGoal = false,
+                    createdShield = null, createdIntent = null,
+                    onBack = {}, onDone = {}, onCreateShield = {}, onCreateIntent = {},
+                    onStrict = {}, onPlus = {},
+                )
+            }
+        }
+        rule.waitUntil(5_000) { rule.onAllNodes(hasText("Name this session")).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("Save this session").assertIsDisplayed()
+        rule.onNodeWithText("Next").assertIsNotEnabled()
+        rule.onNode(hasSetTextAction()).performTextReplacement("Deep work")
+        rule.onNodeWithText("Next").assertIsEnabled().performClick()
+        rule.onNodeWithText("At most one Shield and one Intent.").assertIsDisplayed()
     }
 }

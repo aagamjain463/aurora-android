@@ -1,9 +1,12 @@
 package app.aurora.ui.library
 
+import app.aurora.ui.protect.modeIcon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
@@ -33,6 +36,8 @@ import app.aurora.protect.FrictionTask
 import app.aurora.protect.Mode
 import app.aurora.protect.strict
 import app.aurora.protect.ShieldPreset
+import app.aurora.protect.AppParts
+import app.aurora.protect.PartPrefix
 import app.aurora.protect.WebPrefix
 import app.aurora.runsNow
 import app.aurora.saveShield
@@ -76,41 +81,31 @@ val ShieldWaitPresets = listOf(1, 5, 15, 30, 60)
  * starting never does (Home is where sessions start).
  */
 @Composable
-fun ShieldLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenLimits: () -> Unit, onOpenWeb: () -> Unit, onOpenSettings: () -> Unit) {
+fun ShieldLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSettings: () -> Unit, onOpenGuide: () -> Unit = {}) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     var deleting by remember { mutableStateOf<ShieldPreset?>(null) }
+    var viewing by remember { mutableStateOf<ShieldPreset?>(null) }
     val d = data
     AuroraScreen(
         title = stringResource(R.string.tab_shield),
         tabBar = true,
         art = ArtTier.Balanced,
-        header = { TabHeader(stringResource(R.string.shield_library_headline), onOpenSettings) },
+        header = { TabHeader(stringResource(R.string.shield_library_headline), onOpenSettings, app.aurora.ui.guide.GuideTopic.Shield, onOpenGuide) },
     ) {
         item(key = "create") {
-            AuroraButton(stringResource(R.string.shield_create), onCreate, Modifier.padding(horizontal = Space.M).padding(bottom = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
-        }
-        // Web & content is a main feature: it stands out right under Create, with Daily limits below it.
-        item(key = "web") {
-            RowGroup(Modifier.padding(bottom = Space.XS), edge = Aurora.colors.accent) {
-                AuroraRow(stringResource(R.string.shield_web_row), subtitle = stringResource(R.string.shield_web_row_body), leading = { IconBadge(AuroraIcons.Globe) }, onClick = onOpenWeb, trailing = { Chevron() })
-            }
-        }
-        item(key = "limits") {
-            RowGroup(Modifier.padding(bottom = Space.M)) {
-                AuroraRow(stringResource(R.string.shield_limits_row), subtitle = stringResource(R.string.shield_limits_row_body), leading = { IconBadge(AuroraIcons.Hourglass) }, onClick = onOpenLimits, trailing = { Chevron() })
-            }
+            AuroraButton(stringResource(R.string.shield_create), onCreate, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
         }
         if (d == null) return@AuroraScreen
         val running = vm.app.runsNow(d.time).mapNotNull { it.shield?.id }.toSet()
         val shields = d.rules.shields.sortedByDescending { it.createdAt }
         if (shields.isEmpty()) item(key = "empty") {
-            EmptyState(stringResource(R.string.shield_empty_title), stringResource(R.string.shield_empty_body), icon = AuroraIcons.Protect)
+            EmptyState(stringResource(R.string.shield_empty_title), "", icon = AuroraIcons.Protect)
         }
         items(shields, key = { it.id }) { p ->
-            val apps = p.keys.count { !it.startsWith(WebPrefix) }
             PresetCard(
-                p.name, { ModeChip(p.mode) }, shieldDetail(p, apps), p.keys, d, p.id in running,
+                p.name, { ModeChip(p.mode) }, shieldDetail(p), p.keys, d, p.id in running,
+                onView = { viewing = p },
                 onEdit = { onEdit(p.id) },
                 onDuplicate = { vm.run { vm.app.saveShield(p.copy(id = newId(), name = vm.app.getString(R.string.preset_copy_name, p.name), createdAt = System.currentTimeMillis())) } },
                 onDelete = { deleting = p },
@@ -120,17 +115,38 @@ fun ShieldLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenLi
         }
     }
     deleting?.let { p -> DeletePresetDialog(vm, p.id, p.name) { deleting = null } }
+    val shown = viewing
+    if (shown != null && d != null) DetailsDialog(shown.name, shieldRows(shown, d), { viewing = null }) { onEdit(shown.id) }
+}
+
+/** A Shield in full: its type, its setting, and every app, site and part it covers. */
+@Composable
+fun shieldRows(p: ShieldPreset, d: app.aurora.ui.protect.ProtectData): List<Pair<String, String>> {
+    val setting = when (p.mode) {
+        Mode.Friction -> taskName(p.friction.task)
+        Mode.Cooldown -> stringResource(R.string.start_review_cooldown, minutesText(p.cooldownWaitMinutes))
+        else -> null
+    }
+    return listOf(stringResource(R.string.detail_type) to listOfNotNull(modeName(p.mode), setting).joinToString(" · ")) + keyRows(p.keys, d)
 }
 
 @Composable
-fun shieldDetail(p: ShieldPreset, apps: Int = p.keys.count { !it.startsWith(WebPrefix) }): String {
+fun shieldDetail(p: ShieldPreset): String {
+    val sites = p.keys.count { it.startsWith(WebPrefix) }
+    val parts = p.keys.count { it.startsWith(PartPrefix) }
+    val apps = p.keys.size - sites - parts
     val extra = when (p.mode) {
         Mode.Friction -> taskName(p.friction.task)
         Mode.Cooldown -> stringResource(R.string.start_review_cooldown, minutesText(p.cooldownWaitMinutes))
         // The mode's chip already names these; their meaning is spelled out where the mode is chosen.
         else -> null
     }
-    return listOfNotNull(pluralStringResource(R.plurals.count_apps, apps, apps), (p.keys.size - apps).takeIf { it > 0 }?.let { pluralStringResource(R.plurals.count_sites, it, it) }, extra).joinToString(" · ")
+    return listOfNotNull(
+        pluralStringResource(R.plurals.count_apps, apps, apps),
+        sites.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.count_sites, it, it) },
+        parts.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.count_parts, it, it) },
+        extra,
+    ).joinToString(" · ")
 }
 
 /** Deleting asks first, and refuses (explaining why) while a configuration uses the preset. */
@@ -147,10 +163,10 @@ fun DeletePresetDialog(vm: ProtectModel, id: String, name: String, onDone: () ->
     }
 }
 
-private enum class ShieldStep { Name, Apps, Sites, Type, Review }
+private enum class ShieldStep { Name, Apps, Sites, Parts, Type, Review }
 
 /**
- * Create or edit a Shield: name, apps, websites, the type with its settings on the same step, save. Saving never starts
+ * Create or edit a Shield: name, apps, websites, parts of apps, the type with its settings on the same step, save. Saving never starts
  * it. [onSaved] gets the preset's id, so a Home flow that sent the person here can select it.
  */
 @Composable
@@ -172,7 +188,8 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
     val exempt by vm.exempt.collectAsStateWithLifecycle()
     val colors = Aurora.colors
     var name by rememberSaveable(initial.id) { mutableStateOf(initial.name) }
-    var keys by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filterNot { it.startsWith(WebPrefix) }) }
+    var keys by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filterNot { it.startsWith(WebPrefix) || it.startsWith(PartPrefix) }) }
+    var parts by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filter { it.startsWith(PartPrefix) }) }
     var sites by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filter { it.startsWith(WebPrefix) }.map { it.removePrefix(WebPrefix) }) }
     var mode by rememberSaveable(initial.id) { mutableStateOf(initial.mode) }
     var task by rememberSaveable(initial.id) { mutableStateOf(initial.friction.task) }
@@ -182,21 +199,21 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
     var query by rememberSaveable { mutableStateOf("") }
     var step by rememberSaveable { mutableStateOf(ShieldStep.entries[startStep]) }
 
-    // Websites are one tap away from the apps, for those who want them; most Shields are apps.
-    var sitesOpen by rememberSaveable(initial.id) { mutableStateOf(initial.keys.any { it.startsWith(WebPrefix) }) }
-    val steps = ShieldStep.entries.filter { it != ShieldStep.Sites || sitesOpen }
+    // Apps, websites and parts of apps each have their own page; any of them can be left empty.
+    val steps = ShieldStep.entries
+    val all = keys + sites.map { WebPrefix + it } + parts
     val cap = vm.data.collectAsStateWithLifecycle().value?.max(Allowance.ProtectedItems)
     val index = steps.indexOf(step).coerceAtLeast(0)
     val back = { if (index == 0) onBack() else step = steps[index - 1] }
     val canNext = when (step) {
         ShieldStep.Name -> name.isNotBlank()
-        ShieldStep.Apps, ShieldStep.Sites -> true
+        ShieldStep.Apps, ShieldStep.Sites, ShieldStep.Parts -> true
         ShieldStep.Type -> mode != Mode.Cooldown || wait != null
-        ShieldStep.Review -> keys.isNotEmpty() || sites.isNotEmpty()
+        ShieldStep.Review -> all.isNotEmpty()
     }
     val save = {
         val preset = initial.copy(
-            name = name.trim(), keys = keys + sites.map { WebPrefix + it }, mode = mode,
+            name = name.trim(), keys = all, mode = mode,
             friction = FrictionSettings(task, difficulty, pause), cooldownWaitMinutes = wait ?: initial.cooldownWaitMinutes,
         )
         vm.run {
@@ -219,22 +236,14 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
         when (step) {
             ShieldStep.Name -> {
                 stepTitle(R.string.shield_name_title, null)
-                item(key = "name") { AuroraTextField(name, { name = it.take(40) }, stringResource(R.string.shield_name_placeholder), capitalization = KeyboardCapitalization.Words) }
-                item(key = "ideas") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        listOf(R.string.shield_idea_social, R.string.shield_idea_entertainment, R.string.shield_idea_gaming, R.string.shield_idea_night).map { stringResource(it) }.forEach { Chip(it, name == it) { name = it } }
-                    }
-                }
+                item(key = "name") { AuroraTextField(name, { name = it.take(40) }, "", capitalization = KeyboardCapitalization.Words) }
             }
             ShieldStep.Apps -> {
                 stepTitle(R.string.shield_apps_title, R.string.shield_apps_body)
-                if (!sitesOpen) item(key = "add-sites") {
-                    AuroraButton(stringResource(R.string.shield_add_sites), { sitesOpen = true; step = ShieldStep.Sites }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true, icon = AuroraIcons.Globe)
-                }
                 appChecklist(apps, exempt, keys.toSet(), query, { query = it }, cap) { pkg ->
                     when {
                         pkg in keys -> keys = keys - pkg
-                        cap != null && keys.size + sites.size >= cap -> vm.atLimit(Allowance.ProtectedItems)
+                        cap != null && all.size >= cap -> vm.atLimit(Allowance.ProtectedItems)
                         else -> keys = keys + pkg
                     }
                 }
@@ -242,12 +251,41 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
             ShieldStep.Sites -> {
                 stepTitle(R.string.shield_sites_title, R.string.shield_sites_body)
                 siteEditor(sites) { next ->
-                    if (cap != null && next.size > sites.size && keys.size + next.size > cap) vm.atLimit(Allowance.ProtectedItems) else sites = next
+                    if (cap != null && next.size > sites.size && all.size - sites.size + next.size > cap) vm.atLimit(Allowance.ProtectedItems) else sites = next
+                }
+            }
+            ShieldStep.Parts -> {
+                stepTitle(R.string.shield_parts_title, R.string.shield_parts_body)
+                item(key = "parts") {
+                    // RowGroup's own gutter would double the step's; the same surface without it.
+                    Column(Modifier.fillMaxWidth().auroraSurface(colors)) {
+                        AppParts.forEachIndexed { i, part ->
+                            if (i > 0) app.aurora.ui.components.RowDivider()
+                            app.aurora.ui.components.ToggleRow(
+                                title = stringResource(part.name),
+                                subtitle = stringResource(part.body),
+                                checked = part.key in parts,
+                                onCheckedChange = { want ->
+                                    when {
+                                        !want -> parts = parts - part.key
+                                        cap != null && all.size >= cap -> vm.atLimit(Allowance.ProtectedItems)
+                                        else -> parts = parts + part.key
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+                item(key = "parts-note") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
+                        app.aurora.ui.components.Tag(stringResource(R.string.web_experimental))
+                        Text(stringResource(R.string.web_experimental_body), color = colors.textTertiary, style = AuroraType.Caption)
+                    }
                 }
             }
             ShieldStep.Type -> {
                 stepTitle(R.string.shield_type_title, null)
-                items(Mode.entries, key = { "mode-" + it.name }) { m -> ChoiceCard(modeName(m), modeDescription(m), mode == m, { mode = m }, swatch = modeColor(m)) }
+                items(Mode.entries, key = { "mode-" + it.name }) { m -> ChoiceCard(modeName(m), modeDescription(m), mode == m, { mode = m }, icon = modeIcon(m)) }
                 if (mode.strict) item(key = "ab-note") {
                     Text(stringResource(R.string.shield_always_block_note), Modifier.padding(top = Space.XS), color = colors.violetText, style = AuroraType.Secondary)
                 }
@@ -277,7 +315,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
             ShieldStep.Review -> {
                 stepTitle(R.string.cfg_review_title, R.string.shield_review_note)
                 item(key = "review") {
-                    val preview = ShieldPreset(initial.id, name.trim(), keys + sites.map { WebPrefix + it }, mode, FrictionSettings(task, difficulty, pause), wait ?: 1)
+                    val preview = ShieldPreset(initial.id, name.trim(), all, mode, FrictionSettings(task, difficulty, pause), wait ?: 1)
                     Column(
                         Modifier.fillMaxWidth().then(Modifier.padding(top = Space.XS)),
                         verticalArrangement = Arrangement.spacedBy(Space.S),
@@ -304,7 +342,7 @@ private fun PresetCardPreview(p: ShieldPreset, vm: ProtectModel) {
     val data by vm.data.collectAsStateWithLifecycle()
     val colors = Aurora.colors
     Column(
-        Modifier.fillMaxWidth().auroraSurface(colors, edge = modeColor(p.mode)).padding(Space.L),
+        Modifier.fillMaxWidth().auroraSurface(colors, edge = modeColor(p.mode)).padding(horizontal = 22.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
         ModeChip(p.mode)

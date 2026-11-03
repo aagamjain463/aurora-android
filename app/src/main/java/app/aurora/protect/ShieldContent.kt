@@ -1,12 +1,18 @@
 package app.aurora.protect
 
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.animateFloat
 import app.aurora.ui.components.RollingClock
 import app.aurora.ui.components.rise
 import app.aurora.ui.components.ArtTier
-import app.aurora.ui.components.Sky
 import app.aurora.ui.components.AuroraIcons
-import app.aurora.ui.components.AuroraBackdrop
 import app.aurora.ui.components.LitBadge
 import app.aurora.ui.components.auroraSurface
 import androidx.compose.ui.graphics.Brush
@@ -69,10 +75,12 @@ import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.cooldownWait
 import app.aurora.data.formatClock
+import app.aurora.data.ThemeMode
 import app.aurora.finishIntent
 import app.aurora.grantAccess
 import app.aurora.intentOverrun
 import app.aurora.record
+import app.aurora.runsNow
 import app.aurora.reflectionStart
 import app.aurora.startIntent
 import app.aurora.wentBack
@@ -112,14 +120,17 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
     val prefs by app.preferences.preferences.collectAsStateWithLifecycle(null)
     // The Shield is always night: the same sky as Today's hero, whatever the theme. It reads as aurora at
     // once, and never flashes white over a dark app.
-    AuroraTheme(reduceMotion = prefs?.reduceMotion == true) {
+    AuroraTheme(reduceMotion = prefs?.reduceMotion == true, themeMode = prefs?.themeMode ?: ThemeMode.Dark) {
         val pkg = request.packageName
         val website = pkg.startsWith(WebPrefix)
-        val label by produceState(if (website) pkg.removePrefix(WebPrefix) else "", pkg) {
-            if (!website) value = app.catalog.label(pkg) ?: pkg
+        // A part of an app shows its own name over its app's icon.
+        val part = partOf(pkg)
+        val partName = part?.let { stringResource(it.name) }
+        val label by produceState(if (website) pkg.removePrefix(WebPrefix) else partName.orEmpty(), pkg) {
+            if (!website && part == null) value = app.catalog.label(pkg) ?: pkg
         }
         val icon by produceState<ImageBitmap?>(null, pkg) {
-            if (!website) value = app.catalog.app(pkg)?.icon
+            if (!website) value = app.catalog.app(part?.owner ?: pkg)?.icon
         }
         val now by produceState(TrustedClock.wall()) {
             while (true) {
@@ -139,9 +150,16 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
                 }
             }
         }
+        // The person's own reason for the session behind this Shield, if they wrote one.
+        val runtimeState by app.runtime.state.collectAsStateWithLifecycle()
+        val rulesState by app.rules.state.collectAsStateWithLifecycle()
+        val note = remember(runtimeState, rulesState, pkg) { sessionNote(app.runsNow(), pkg, app.now()) }
         val decision = request.decision ?: Decision.Shield(pkg, request.reason, request.until)
         val home = { close(true) }
-        ShieldFrame(label, icon, showName = website) {
+        val intent = decision.reason == ShieldReason.Intent
+        val leave = { app.scope.launch { runCatching { app.wentBack(intent = true) } }; home() }
+        androidx.compose.runtime.CompositionLocalProvider(LocalSessionNote provides note, LocalLeave provides if (part != null) R.string.shield_go_back else R.string.shield_return_home) {
+        ShieldFrame(label, icon, showName = website || part != null, onClose = if (intent) leave else null) {
             when (decision.reason) {
                 ShieldReason.AlwaysBlock, ShieldReason.Flexible, ShieldReason.Focus, ShieldReason.Limit, ShieldReason.IntentCooldown, ShieldReason.Locked ->
                     Blocked(decision, label, now, home, onEnded = { close(false) })
@@ -151,32 +169,35 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
                 ShieldReason.Intent -> IntentFlow(app, decision, label, now, home, onOpen = { close(false) })
             }
         }
+        }
     }
 }
 
+/** What leaving says: "Return home", or "Go back" for a part of an app, which keeps the rest of the app. */
+private val LocalLeave = androidx.compose.runtime.staticCompositionLocalOf { R.string.shield_return_home }
+
+/** The running session's note for this app, shown under every headline ([SessionNote]). */
+private val LocalSessionNote = androidx.compose.runtime.staticCompositionLocalOf<String?> { null }
+
+/** Set by [ShieldFrame]: Intentional App Opening reads left-aligned; every other moment is centred. */
+private val LocalStartAligned = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /**
- * The Shield's stage: First Light at full strength, the mark, then the app in question held in a soft
- * halo at the centre, and the moment's content set centred beneath it.
+ * The Shield's stage. A block is centred on the sky: the mark, the app, then the moment's words, with
+ * the actions at the foot. Intentional App Opening ([onClose] set) is a page read from the top: the app and a
+ * close button, then the question.
  */
 @Composable
-private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, content: @Composable () -> Unit) {
+private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, onClose: (() -> Unit)? = null, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     val colors = Aurora.colors
     val reduced = Aurora.reducedMotion
-    // The stage arrives as first light does: the art brightens, then the app rises into its halo.
+    val start = onClose != null
     val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
     androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Gentle, easing = app.aurora.ui.theme.Motion.Ease)) }
-    // The app lands in its halo on a soft spring, and the halo then breathes while the person decides.
-    val land = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0.82f) }
-    androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) land.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 240f)) }
-    val breath = if (reduced) null else androidx.compose.animation.core.rememberInfiniteTransition(label = "halo").animateFloat(
-        0f, 1f,
-        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Breath, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "breath",
-    )
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     app.aurora.ui.components.ProvideIntro {
-    Box(Modifier.fillMaxSize().background(colors.background)) {
-        // Protection is answering: the sky is lit and holds still while the person decides.
-        AuroraBackdrop(ArtTier.Stage, Modifier.graphicsLayer { alpha = shown.value }, sky = Sky.Lit)
+    androidx.compose.runtime.CompositionLocalProvider(LocalStartAligned provides start) {
+    Box(Modifier.fillMaxSize().background(if (start) colors.background else colors.sky)) {
         androidx.compose.foundation.layout.BoxWithConstraints(
             Modifier
                 .align(Alignment.TopCenter)
@@ -190,61 +211,115 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, co
                 .verticalScroll(rememberScrollState())
                 .fillMaxWidth()
                 .heightIn(min = maxHeight)
-                .padding(horizontal = Space.Gutter),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Bottom,
+                .padding(horizontal = Space.Gutter)
+                .graphicsLayer { alpha = shown.value; translationY = (1f - shown.value) * 12.dp.toPx() },
+            horizontalAlignment = if (start) Alignment.Start else Alignment.CenterHorizontally,
         ) {
-            // Clears the ring when the content is tall; otherwise everything sits low on the lake.
-            Spacer(Modifier.height(StageClearance))
-            Box(Modifier.graphicsLayer { alpha = shown.value; translationY = (1f - shown.value) * 18.dp.toPx() }, contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier.size(112.dp).graphicsLayer {
-                        val b = breath?.value ?: 0.5f
-                        scaleX = 0.92f + 0.16f * b; scaleY = scaleX; alpha = 0.75f + 0.25f * b
-                    }.background(Brush.radialGradient(listOf(colors.accent.copy(alpha = 0.26f), Color.Transparent))),
-                )
-                val iconLanding = Modifier.size(60.dp).graphicsLayer { scaleX = land.value; scaleY = land.value }.clip(RoundedCornerShape(16.dp))
-                if (icon != null) {
-                    Image(icon, label, iconLanding)
-                } else {
-                    Box(iconLanding.background(colors.elevated))
+            if (start) {
+                Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AppTile(label, icon, 44.dp, 13.dp)
+                    Spacer(Modifier.weight(1f))
+                    Box(
+                        Modifier.size(42.dp).clip(CircleShape).background(colors.elevated)
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = stringResource(LocalLeave.current), onClick = onClose!!),
+                        contentAlignment = Alignment.Center,
+                    ) { androidx.compose.material3.Icon(AuroraIcons.Close, stringResource(LocalLeave.current), tint = colors.textPrimary, modifier = Modifier.size(18.dp)) }
                 }
+                if (showName) Text(label, Modifier.padding(top = Space.XS), color = colors.textSecondary, style = AuroraType.Secondary)
+                Spacer(Modifier.height(22.dp))
+                content()
+                Spacer(Modifier.height((30.dp - navInset).coerceAtLeast(Space.M)))
+            } else {
+                app.aurora.ui.components.AuroraMark(26.dp, Modifier.padding(top = 34.dp), lit = true)
+                Spacer(Modifier.weight(0.62f).heightIn(min = Space.L))
+                AppTile(label, icon, 76.dp, 22.dp)
+                // The icon names an app; a website has only its name.
+                if (showName) Text(label, Modifier.padding(top = Space.S), color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(22.dp))
+                content()
+                Spacer(Modifier.height((44.dp - navInset).coerceAtLeast(Space.M)))
             }
-            // The icon names an app; a website has only its name.
-            if (showName) Text(label, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(Space.S))
-            Column(Modifier.rise(), horizontalAlignment = Alignment.CenterHorizontally) { content() }
-            Spacer(Modifier.height(Space.M))
         }
         }
-        // The northern lights sweep across as the block lands: Shield answering, felt.
-        app.aurora.ui.components.AuroraSweep(play = true, modifier = Modifier.fillMaxSize())
+    }
     }
     }
 }
 
-private val StageClearance = 196.dp
-
+/** The app in question: its icon, or a website's first letter, on a tile. */
 @Composable
-private fun Eyebrow(text: String, warm: Boolean = false) {
-    Text(text, Modifier.fillMaxWidth(), color = if (warm) Aurora.colors.rose else Aurora.colors.accent, style = AuroraType.Eyebrow, textAlign = TextAlign.Center)
+private fun AppTile(label: String, icon: ImageBitmap?, size: androidx.compose.ui.unit.Dp, corner: androidx.compose.ui.unit.Dp) {
+    val colors = Aurora.colors
+    val shape = RoundedCornerShape(corner)
+    if (icon != null) {
+        Image(icon, label, Modifier.size(size).clip(shape))
+    } else {
+        Box(Modifier.size(size).clip(shape).background(colors.elevated).border(1.dp, colors.hairline, shape), contentAlignment = Alignment.Center) {
+            Text(label.firstOrNull()?.uppercase().orEmpty(), color = colors.textPrimary, style = AuroraType.Display.copy(fontSize = (size.value * 0.4f).sp))
+        }
+    }
 }
 
-/** The Shield's question. The app's name, when it appears, is lit in First Light cream. */
+/** When the moment ends, on a quiet pill under the headline. */
+@Composable
+private fun EndsPill(text: String) {
+    val colors = Aurora.colors
+    Row(
+        Modifier.padding(top = 18.dp).heightIn(min = 32.dp).clip(Radius.Pill).background(colors.elevated).padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        androidx.compose.material3.Icon(AuroraIcons.Clock, null, tint = colors.textSecondary, modifier = Modifier.size(15.dp))
+        Text(text, color = colors.textSecondary, style = AuroraType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)))
+    }
+}
+
+/** A small-capital label over a part of the Intent page ("YOUR REASON"). */
+@Composable
+private fun PartLabel(text: String) {
+    Text(
+        text.uppercase(), Modifier.padding(start = 4.dp, top = 26.dp, bottom = 10.dp).clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
+        color = Aurora.colors.textTertiary, style = AuroraType.Eyebrow,
+    )
+}
+
+
+/** The Shield's question: large and bold, centred on a block, left-aligned on the Intent page. */
 @Composable
 private fun Headline(text: String, highlight: String? = null) {
+    val start = LocalStartAligned.current
+    Text(
+        text, Modifier.fillMaxWidth().semantics { heading() }, color = Aurora.colors.textPrimary,
+        style = if (start) AuroraType.Display else AuroraType.Display.copy(fontSize = 42.sp, lineHeight = 46.sp),
+        textAlign = if (start) TextAlign.Start else TextAlign.Center,
+    )
+    LocalSessionNote.current?.let { SessionNote(it) }
+}
+
+/** The reason the person wrote when starting the session, in their words, on a flat card. */
+@Composable
+private fun SessionNote(text: String) {
     val colors = Aurora.colors
-    val at = highlight?.takeIf { it.isNotBlank() }?.let { text.indexOf(it) } ?: -1
-    val annotated = androidx.compose.ui.text.buildAnnotatedString {
-        append(text)
-        if (at >= 0) addStyle(androidx.compose.ui.text.SpanStyle(color = colors.headlineLead), at, at + highlight!!.length)
+    val start = LocalStartAligned.current
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        Modifier.padding(top = 18.dp).fillMaxWidth().clip(shape).background(colors.field).border(1.dp, colors.hairline, shape)
+            .padding(horizontal = 18.dp, vertical = 14.dp).semantics(mergeDescendants = true) { },
+        horizontalAlignment = if (start) Alignment.Start else Alignment.CenterHorizontally,
+    ) {
+        Text(stringResource(R.string.session_note_label).uppercase(), color = colors.textTertiary, style = AuroraType.Eyebrow)
+        Text(text, Modifier.padding(top = 6.dp), color = colors.textPrimary, style = AuroraType.Body, textAlign = if (start) TextAlign.Start else TextAlign.Center)
     }
-    Text(annotated, Modifier.fillMaxWidth().padding(top = Space.XS).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center)
 }
 
 @Composable
 private fun Body(text: String) {
-    Text(text, Modifier.fillMaxWidth().padding(top = Space.S), color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center)
+    val start = LocalStartAligned.current
+    Text(
+        text,
+        if (start) Modifier.fillMaxWidth().padding(top = 8.dp) else Modifier.padding(top = 22.dp).widthIn(max = 270.dp),
+        color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = if (start) TextAlign.Start else TextAlign.Center,
+    )
 }
 
 /** The reflection pause: a small ring of light that closes as the seconds pass. */
@@ -289,80 +364,79 @@ private fun RestartNote() {
     )
 }
 
+/** The moment's actions, at the foot of the page. */
 @Composable
-private fun Actions(content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) { content() }
+private fun androidx.compose.foundation.layout.ColumnScope.Actions(content: @Composable () -> Unit) {
+    Spacer(Modifier.weight(1f).heightIn(min = Space.L))
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
 }
 
 // ---- Blocks: no way through -------------------------------------------------------------------
 
 @Composable
-private fun Blocked(decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onEnded: () -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onEnded: () -> Unit) {
     val app = LocalContext.current.applicationContext as AuroraApplication
     val runtime by app.runtime.state.collectAsStateWithLifecycle()
     // An Intent cooldown is read live: a new attempt restarts it, and the countdown follows.
     val until = if (decision.reason == ShieldReason.IntentCooldown) runtime?.value?.intentCooldowns?.get(decision.packageName) ?: decision.until else decision.until
     if (until != null && now >= until && decision.reason != ShieldReason.Limit) {
-        Eyebrow(stringResource(R.string.shield_ended_eyebrow))
         Headline(stringResource(R.string.shield_ended_title))
         Body(stringResource(R.string.shield_ended_body, label))
         Actions {
             AuroraButton(stringResource(R.string.shield_open_app, label), onEnded, Modifier.fillMaxWidth())
-            AuroraButton(stringResource(R.string.shield_return_home), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+            AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
         }
         return
     }
-    val schedule = decision.restriction?.label?.takeIf { it.isNotBlank() }
+    // Each block says what holds the app back, when that ends, and what the person can do about it.
+    val ends = until?.let {
+        when (decision.reason) {
+            ShieldReason.AlwaysBlock -> stringResource(R.string.shield_always_block_ends, clockTime(it))
+            ShieldReason.Limit -> stringResource(R.string.shield_limit_resets)
+            ShieldReason.IntentCooldown -> stringResource(R.string.shield_opens_again_at, clockTime(it))
+            else -> stringResource(R.string.shield_ends_at, clockTime(it))
+        }
+    }
     when (decision.reason) {
         ShieldReason.AlwaysBlock -> {
-            Eyebrow(stringResource(R.string.mode_always_block), warm = true)
             Headline(stringResource(R.string.shield_blocked_title, label), label)
+            ends?.let { EndsPill(it) }
             Body(stringResource(R.string.mode_always_block_desc))
         }
         ShieldReason.Flexible -> {
-            Eyebrow(schedule ?: stringResource(R.string.mode_flexible))
             Headline(stringResource(R.string.shield_blocked_title, label), label)
-            Body(stringResource(R.string.mode_flexible_desc))
+            ends?.let { EndsPill(it) }
             Body(stringResource(R.string.shield_flexible_how_to_off))
         }
         ShieldReason.Focus -> {
-            Eyebrow(stringResource(R.string.focus_name))
             Headline(stringResource(R.string.shield_focus_title))
+            ends?.let { EndsPill(it) }
             Body(stringResource(R.string.shield_focus_body, label))
         }
         ShieldReason.Locked -> {
-            Eyebrow(stringResource(R.string.strict_title), warm = true)
             Headline(stringResource(R.string.shield_locked_title, label), label)
+            ends?.let { EndsPill(it) }
             Body(stringResource(R.string.shield_locked_body))
         }
         ShieldReason.Limit -> {
-            Eyebrow(stringResource(R.string.limits_name))
             Headline(stringResource(R.string.shield_limit_title, label), label)
+            ends?.let { EndsPill(it) }
             Body(stringResource(R.string.shield_limit_body))
         }
         else -> {
-            Eyebrow(stringResource(R.string.intent_name))
             Headline(stringResource(R.string.shield_intent_cooldown_title))
+            ends?.let { EndsPill(it) }
             Body(stringResource(R.string.shield_intent_cooldown_body, label))
+            RestartNote()
         }
     }
-    if (until != null) {
-        val caption = when (decision.reason) {
-            ShieldReason.AlwaysBlock -> stringResource(R.string.shield_always_block_ends, clockTime(until))
-            ShieldReason.Limit -> stringResource(R.string.shield_limit_resets)
-            ShieldReason.IntentCooldown -> stringResource(R.string.shield_opens_again_at, clockTime(until))
-            else -> stringResource(R.string.shield_ends_at, clockTime(until))
-        }
-        Countdown(until, now, caption)
-    }
-    if (decision.reason == ShieldReason.IntentCooldown) RestartNote()
-    Actions { AuroraButton(stringResource(R.string.shield_return_home), home, Modifier.fillMaxWidth()) }
+    Actions { AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth()) }
 }
 
 // ---- Cooldown: wait first, then timed access ----------------------------------------------------
 
 @Composable
-private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onOpen: () -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.CooldownFlow(app: AuroraApplication, decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onOpen: () -> Unit) {
     val restriction = decision.restriction ?: return Blocked(decision, label, now, home, onOpen)
     // The wait is stored, and read live: a genuine new attempt restarts it (Cooldowns.kt), and the
     // countdown shows the restart at once. Showing or recreating the Shield never restarts it.
@@ -378,19 +452,17 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
     val haptics = LocalHapticFeedback.current
     var failed by remember { mutableStateOf(false) }
     if (!ready) {
-        Eyebrow(stringResource(R.string.mode_cooldown))
         Headline(stringResource(R.string.shield_cooldown_title, label), label)
         Body(stringResource(R.string.shield_cooldown_body))
         readyAt?.let { Countdown(it, now, stringResource(R.string.shield_cooldown_ready_at, clockTime(it))) }
         RestartNote()
         Actions {
-            AuroraButton(stringResource(R.string.shield_return_home), {
+            AuroraButton(stringResource(LocalLeave.current), {
                 scope.launch { runCatching { app.wentBack(intent = false) } }
                 home()
             }, Modifier.fillMaxWidth())
         }
     } else {
-        Eyebrow(stringResource(R.string.mode_cooldown))
         Headline(stringResource(R.string.shield_cooldown_done_title))
         Body(stringResource(R.string.shield_cooldown_done_body))
         UsageChoice(label, decision, onBack = null) { minutes ->
@@ -406,7 +478,7 @@ private fun CooldownFlow(app: AuroraApplication, decision: Decision.Shield, labe
             }
         }
         if (failed) SaveFailed()
-        Actions { AuroraButton(stringResource(R.string.shield_return_home), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
+        Actions { AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
     }
 }
 
@@ -417,7 +489,7 @@ private fun SaveFailed() {
 
 /** "How long do you want to use {app}?": presets and a custom time, then open. */
 @Composable
-private fun UsageChoice(label: String, decision: Decision.Shield, initial: Int? = null, onBack: (() -> Unit)?, onChoose: (Int) -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.UsageChoice(label: String, decision: Decision.Shield, initial: Int? = null, onBack: (() -> Unit)?, onChoose: (Int) -> Unit) {
     var minutes by remember { mutableStateOf(initial) }
     // Never longer than the protection that's running: access can't outlast the restriction anyway.
     val max = decision.until?.let { ((it - TrustedClock.wall()) / 60_000).toInt().coerceIn(1, 24 * 60) } ?: (24 * 60)
@@ -444,7 +516,7 @@ private fun UsageChoice(label: String, decision: Decision.Shield, initial: Int? 
 private enum class FrictionStep { Task, Usage }
 
 @Composable
-private fun FrictionFlow(app: AuroraApplication, decision: Decision.Shield, label: String, home: () -> Unit, onOpen: () -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.FrictionFlow(app: AuroraApplication, decision: Decision.Shield, label: String, home: () -> Unit, onOpen: () -> Unit) {
     val settings = decision.restriction?.friction ?: FrictionSettings()
     var step by remember { mutableStateOf(FrictionStep.Task) }
     var failed by remember { mutableStateOf(false) }
@@ -456,7 +528,6 @@ private fun FrictionFlow(app: AuroraApplication, decision: Decision.Shield, labe
     }
     AnimatedContent(step, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "friction") { s ->
         Column {
-            Eyebrow(stringResource(R.string.mode_friction))
             when (s) {
                 FrictionStep.Task -> {
                     Headline(stringResource(R.string.shield_friction_title))
@@ -470,7 +541,7 @@ private fun FrictionFlow(app: AuroraApplication, decision: Decision.Shield, labe
                         FrictionTask.Intention -> IntentionTask(label, onDone = done)
                         FrictionTask.Reflection -> ReflectionTask(app, decision.packageName, settings.reflectionSeconds, onDone = done)
                     }
-                    Actions { AuroraButton(stringResource(R.string.shield_return_home), goHome, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
+                    Actions { AuroraButton(stringResource(LocalLeave.current), goHome, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
                 }
                 FrictionStep.Usage -> {
                     Headline(stringResource(R.string.shield_friction_done_title))
@@ -486,7 +557,7 @@ private fun FrictionFlow(app: AuroraApplication, decision: Decision.Shield, labe
                         }
                     }
                     if (failed) SaveFailed()
-                    Actions { AuroraButton(stringResource(R.string.shield_return_home), goHome, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
+                    Actions { AuroraButton(stringResource(LocalLeave.current), goHome, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
                 }
             }
         }
@@ -639,7 +710,7 @@ private fun ReflectionTask(app: AuroraApplication, key: String, seconds: Int, on
 private enum class IntentStep { Reflect, Usage }
 
 @Composable
-private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onOpen: () -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.IntentFlow(app: AuroraApplication, decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onOpen: () -> Unit) {
     val colors = Aurora.colors
     val pkg = decision.packageName
     val rules by app.rules.state.collectAsStateWithLifecycle()
@@ -664,7 +735,6 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
 
     if (decision.timeUp && step == IntentStep.Reflect) {
         val chosen = ((use?.allowanceMs ?: 0L) / 60_000).toInt()
-        Eyebrow(stringResource(R.string.intent_name))
         Headline(stringResource(R.string.intent_reminder_title, minutesText(chosen.coerceAtLeast(1))))
         Body(stringResource(R.string.intent_reminder_body, label))
         Actions {
@@ -687,36 +757,58 @@ private fun IntentFlow(app: AuroraApplication, decision: Decision.Shield, label:
                 else try { app.reflectionStart(pkg) } catch (_: IOException) { TrustedClock.wall() }
             }
             val left = pauseStart?.let { it + config.reflectionSeconds * 1000L - now } ?: (config.reflectionSeconds * 1000L)
-            // Without an explicit confirmation, the time choice follows as soon as the pause is over.
-            LaunchedEffect(left <= 0 && pauseStart != null) {
-                if (!config.confirmContinue && left <= 0 && pauseStart != null) step = IntentStep.Usage
-            }
-            Eyebrow(stringResource(R.string.intent_name))
+            var minutes by remember { mutableStateOf<Int?>(config.defaultUsageMinutes) }
+            // Never longer than the protection that's running: access can't outlast it anyway.
+            val max = decision.until?.let { ((it - TrustedClock.wall()) / 60_000).toInt().coerceIn(1, 24 * 60) } ?: (24 * 60)
             Headline(stringResource(R.string.intent_prompt_title, label), label)
             Body(stringResource(R.string.intent_prompt_question))
-            if (config.reflectionSeconds > 0) PauseRing(left.coerceAtLeast(0), config.reflectionSeconds * 1000L)
-            if (config.reason.isNotBlank()) {
-                ReasonCard(AuroraIcons.Spark, stringResource(R.string.intent_your_reason), config.reason, warm = false)
+            if (config.reflectionSeconds > 0 && left > 0) PauseRing(left.coerceAtLeast(0), config.reflectionSeconds * 1000L)
+            // The preset's reason, unless the session's note already says the same.
+            if (config.reason.isNotBlank() && config.reason.trim() != LocalSessionNote.current?.trim()) {
+                PartLabel(stringResource(R.string.intent_your_reason))
+                Text(
+                    config.reason,
+                    Modifier.fillMaxWidth().heightIn(min = 54.dp).clip(RoundedCornerShape(18.dp)).background(colors.field)
+                        .border(1.dp, colors.hairline, RoundedCornerShape(18.dp)).padding(horizontal = 18.dp, vertical = 16.dp),
+                    color = colors.textPrimary, style = AuroraType.Body,
+                )
             }
+            PartLabel(stringResource(R.string.usage_prompt, label))
+            DurationPicker(minutes, { minutes = it }, UsagePresets.filter { it <= max }.ifEmpty { listOf(max) }, Modifier.fillMaxWidth(), max = max)
             if (config.alternative.isNotBlank()) {
-                ReasonCard(AuroraIcons.Target, stringResource(R.string.intent_instead), config.alternative, warm = true)
+                PartLabel(stringResource(R.string.intent_instead))
+                Row(
+                    Modifier.fillMaxWidth().auroraSurface(colors, RoundedCornerShape(18.dp)).padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    androidx.compose.material3.Icon(AuroraIcons.Target, null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
+                    Text(config.alternative, color = colors.textPrimary, style = AuroraType.BodyStrong.copy(fontSize = 14.5.sp))
+                }
             }
+            Text(
+                when (config.expiry) {
+                    IntentExpiry.Reminder -> stringResource(R.string.intent_expiry_note_reminder)
+                    IntentExpiry.Cooldown -> stringResource(R.string.intent_expiry_note_cooldown, minutesText(config.cooldownMinutes))
+                },
+                Modifier.padding(top = Space.M, start = 4.dp),
+                color = colors.textTertiary,
+                style = AuroraType.Caption,
+            )
             Actions {
-                AuroraButton(stringResource(R.string.shield_return_home), {
-                    scope.launch { runCatching { app.wentBack(intent = true) } }
-                    home()
-                }, Modifier.fillMaxWidth())
                 AuroraButton(
                     stringResource(R.string.intent_continue),
-                    { step = IntentStep.Usage },
+                    { minutes?.let(start) },
                     Modifier.fillMaxWidth(),
-                    kind = ButtonKind.Secondary,
-                    enabled = left <= 0 && pauseStart != null,
+                    enabled = left <= 0 && pauseStart != null && minutes != null,
                 )
+                AuroraButton(stringResource(LocalLeave.current), {
+                    scope.launch { runCatching { app.wentBack(intent = true) } }
+                    home()
+                }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
             }
         }
         IntentStep.Usage -> {
-            Eyebrow(stringResource(R.string.intent_name))
             UsageChoice(label, decision, initial = config.defaultUsageMinutes, onBack = { step = IntentStep.Reflect }, onChoose = start)
             Text(
                 when (config.expiry) {

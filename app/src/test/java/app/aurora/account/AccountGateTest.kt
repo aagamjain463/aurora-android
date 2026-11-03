@@ -54,8 +54,8 @@ class AccountGateTest {
     @Test
     fun firstRunWelcomesThenAsksForAnAccount() {
         open(signedIn = false, onboarded = false)
-        await("Begin")
-        compose.onNodeWithText("Begin").performClick()
+        await("Continue")
+        compose.onNodeWithText("Continue").performClick()
         await("Continue with Google")
     }
 

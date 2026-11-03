@@ -37,17 +37,16 @@ class DowngradeTest {
 
     @Test
     fun plusKeepsEverythingActive() {
-        assertFalse(rules.planExcess(Plus, start, zone).any)
         assertNull(rules.retainedShield(Plus, start, zone))
         assertEquals(5, rules.activeGoalIds(Plus).size)
     }
 
     @Test
     fun expiryPausesTheExcessWithoutDeletingIt() {
-        val excess = rules.planExcess(Free, start, zone)
-        assertEquals(10, excess.shield.size)
-        assertEquals(5, excess.intent.size)
-        assertEquals(4, excess.goals.size)
+        // 15 Shield targets, 8 Intent apps and 5 Goals switched on: Free enforces 5, 3 and 1, the rest wait.
+        assertEquals(5, rules.retainedShield(Free, start, zone)!!.size)
+        assertEquals(3, rules.retainedIntent(Free, start, zone)!!.size)
+        assertEquals(1, rules.activeGoalIds(Free).size)
         // Nothing stored changed: this is the same Rules value.
         assertEquals(15, rules.shields.single().keys.size)
         assertEquals(5, rules.trackGoals.size)
@@ -163,13 +162,13 @@ class DowngradeTest {
     }
 
     @Test
-    fun aDailyLimitIsNoRouteToCommittedProtection() {
-        // A limit never locks Settings, never reserves minutes, and exhausting the minutes doesn't touch it.
+    fun aSavedDailyLimitNoLongerEnforces() {
+        // Daily limits are retired: a saved one blocks nothing, locks nothing and reserves no minutes.
         val r = Rules(version = 1, limits = listOf(DailyLimit("com.example.app1", 30)))
         val list = ProtectedList(items = listOfNotNull(app.aurora.plan.ProtectedItem.App.of("com.example.app1")))
         val spent = Runtime(ledger = listOf(LedgerEntry(start = start - 3 * 3_600_000L, end = start - 3_600_000L, zone = zone.id)))
         val state = policyState(list, r, spent, Free, emptySet(), emptyMap(), t, zone)!!
-        assertEquals(mapOf("com.example.app1" to 30 * 60_000L), state.limits)
+        assertEquals(emptyMap<String, Long>(), state.limits)
         assertTrue(state.restrictions.none { it.locks })
         assertEquals(null, state.lockedUntil(t.wall))
     }

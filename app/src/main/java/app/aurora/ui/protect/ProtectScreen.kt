@@ -92,7 +92,6 @@ object ProtectRoutes {
     const val Start = "protect/start"
     const val Schedules = "protect/schedules"
     const val ScheduleEdit = "protect/schedule"
-    const val Limits = "protect/limits"
     const val Keep = "plus/keep"
     const val Groups = "protect/groups"
     const val Intent = "protect/intent"
@@ -110,7 +109,7 @@ fun runningWindows(d: ProtectData): List<RunningWindow> {
     return d.rules.activeSchedules().mapNotNull { s ->
         val (start, end) = s.windowAt(now, zone) ?: return@mapNotNull null
         if (d.runtime.skipped[s.id] == start && s.mode != Mode.AlwaysBlock) return@mapNotNull null
-        // A committed Always Block window shows as its session instead.
+        // A committed Strict window shows as its session instead.
         if (d.sessions.any { it.scheduleId == s.id }) return@mapNotNull null
         val committed = s.mode == Mode.AlwaysBlock && d.plan == Plan.Plus
         RunningWindow(s.id, s.name, s.mode, d.rules.covers(s, d.activeKeys), end, committed, canSkip = !committed && d.runtime.skipped[s.id] != start)

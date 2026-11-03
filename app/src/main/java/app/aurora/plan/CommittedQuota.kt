@@ -6,7 +6,7 @@ import java.time.Instant
 import java.time.ZoneId
 
 /*
- * Free's shared allowance for committed protection: Cooldown and Always Block together get 120 minutes per
+ * Free's shared allowance for committed protection: Cooldown and Strict together get 120 minutes per
  * local calendar day (docs/BUSINESS_MODEL.md 3.4). Pure Kotlin, unit tested (CommittedQuotaTest).
  *
  * The ledger holds absolute time intervals, one per committed run, written in the same transaction as the

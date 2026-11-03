@@ -11,8 +11,9 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -39,10 +40,11 @@ import kotlinx.coroutines.flow.StateFlow
  * - Websites: in the browsers in [BrowserAddressBars], it reads the address field and asks [decide]
  *   about "web:<domain>". Pages in other browsers, in-app browsers and private tabs a browser hides from
  *   accessibility aren't covered, and the screens say so.
- * - Content (experimental): when YouTube Shorts or the Instagram Reels tab is on screen and the person
- *   turned that on, it goes back once. A reel opened from a message plays, but swiping to the next one goes
- *   back. Instagram Home posts and Search can be covered, leaving stories and messages. Detection uses view
- *   IDs those apps can change at any update.
+ * - Parts of apps (experimental, [AppParts]): Shield targets like apps and sites, so every mode works.
+ *   When YouTube Shorts or the Instagram Reels tab is on screen and a running Shield holds it back, the
+ *   Shield shows; leaving it goes back inside the app. A reel opened from a message plays, but swiping to
+ *   the next one brings the Shield. Instagram Home posts and Search are covered, leaving stories and
+ *   messages; tapping the cover shows the Shield. Detection uses view IDs those apps can change at any update.
  *
  * Nothing it reads is stored, logged or sent.
  */
@@ -74,8 +76,20 @@ class ContentService : AccessibilityService() {
     }
 
     override fun onServiceConnected() {
-        presenter = OverlayShieldPresenter(this) { request, close -> ShieldContent(request, close) }
-        cover = Cover(this)
+        presenter = OverlayShieldPresenter(this) { request, close -> ShieldContent(request, close) }.apply {
+            // Leaving a part keeps the app: back out of Shorts or Reels; a covered part keeps its cover.
+            leaveAction = { key ->
+                when {
+                    key == PartInstagramFeed || key == PartInstagramSearch -> null
+                    key.startsWith(PartPrefix) -> GLOBAL_ACTION_BACK
+                    else -> GLOBAL_ACTION_HOME
+                }
+            }
+        }
+        cover = Cover(this) { key, decision ->
+            lastKey = null
+            present(key, decision, Instagram, SystemClock.uptimeMillis())
+        }
         connectedState.value = true
     }
 
@@ -112,28 +126,40 @@ class ContentService : AccessibilityService() {
         if (presenter?.present(ShieldRequest(key, decision.reason, decision.until, now, now, now, decision = decision)) == true) shownOver = browser
     }
 
+    /** The Shield [key] is under right now, or null when nothing holds it back. */
+    private fun shieldFor(state: PolicyState?, key: String): Decision.Shield? =
+        state?.let { decide(key, TrustedClock.wall(), it) as? Decision.Shield }
+
+    /** The Shield for a part of [owner], over that app. */
+    private fun present(key: String, decision: Decision.Shield, owner: String, now: Long) {
+        if (key == lastKey && now - lastAt < RepeatMs) return
+        lastKey = key
+        lastAt = now
+        if (presenter?.present(ShieldRequest(key, decision.reason, decision.until, now, now, now, decision = decision)) == true) shownOver = owner
+    }
+
     private fun checkContent(app: AuroraApplication, pkg: String, root: AccessibilityNodeInfo, now: Long) {
-        val wanted = app.rules.value?.content.orEmpty()
-        for ((surface, target) in ContentSurfaces) {
-            val (owner, ids) = target
-            if (owner != pkg || surface !in wanted) continue
-            if (ids.none { root.findAccessibilityNodeInfosByViewId(it).isNotEmpty() }) continue
-            if (surface == lastKey && now - lastAt < RepeatMs) return
-            lastKey = surface
-            lastAt = now
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            Toast.makeText(this, if (surface == ContentShorts) "Shorts are off in Aurora" else "Reels are off in Aurora", Toast.LENGTH_SHORT).show()
+        val surfaces = ContentSurfaces.filterValues { it.first == pkg }
+        if (surfaces.isEmpty()) return
+        val state = app.policySnapshot(emptySet(), emptyMap())
+        for ((key, target) in surfaces) {
+            val decision = shieldFor(state, key) ?: continue
+            if (target.second.none { root.findAccessibilityNodeInfosByViewId(it).isNotEmpty() }) continue
+            present(key, decision, pkg, now)
             return
         }
     }
 
     private fun checkInstagram(app: AuroraApplication, root: AccessibilityNodeInfo, now: Long) {
-        val wanted = app.rules.value?.content.orEmpty()
-        val reels = ContentReels in wanted
-        val feed = ContentInstagramFeed in wanted
-        val verdict = if (reels || feed) instagramVerdict(readInstagram(root), reels, feed, resources.displayMetrics.heightPixels) else InstagramVerdict.Allow
+        val state = app.policySnapshot(emptySet(), emptyMap())
+        val reels = shieldFor(state, PartReels)
+        val feed = shieldFor(state, PartInstagramFeed)
+        val search = shieldFor(state, PartInstagramSearch)
+        val verdict = if (reels != null || feed != null || search != null) {
+            instagramVerdict(readInstagram(root), reels != null, feed != null, search != null, resources.displayMetrics.heightPixels)
+        } else InstagramVerdict.Allow
         if (verdict is InstagramVerdict.Cover) {
-            cover?.show(verdict.top, verdict.bottom, verdict.search)
+            cover?.show(verdict.top, verdict.bottom, verdict.search, (if (verdict.search) search else feed)!!)
             handler.removeCallbacks(watchCover)
             handler.postDelayed(watchCover, CheckEveryMs)
         } else {
@@ -141,7 +167,7 @@ class ContentService : AccessibilityService() {
         }
         if (verdict != InstagramVerdict.OneReel) oneReel = null
         when (verdict) {
-            InstagramVerdict.Leave -> leave(ContentReels, now, "Reels are off in Aurora")
+            InstagramVerdict.Leave -> present(PartReels, reels!!, Instagram, now)
             InstagramVerdict.OneReel -> {
                 val current = reelOnScreen(root) ?: return
                 val first = oneReel
@@ -151,19 +177,11 @@ class ContentService : AccessibilityService() {
                     oneReel = current
                 } else if (current != first) {
                     oneReel = null
-                    leave(ContentReels, now, getString(R.string.ig_one_reel))
+                    present(PartReels, reels!!, Instagram, now)
                 }
             }
             else -> Unit
         }
-    }
-
-    private fun leave(surface: String, now: Long, message: String) {
-        if (surface == lastKey && now - lastAt < RepeatMs) return
-        lastKey = surface
-        lastAt = now
-        performGlobalAction(GLOBAL_ACTION_BACK)
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun readInstagram(root: AccessibilityNodeInfo): InstagramScreen {
@@ -213,10 +231,11 @@ class ContentService : AccessibilityService() {
  * An opaque band over part of Instagram (Home posts or Search), so they can't be seen or touched. It never
  * takes focus: the keyboard, back and everything outside the band stay Instagram's.
  */
-private class Cover(private val service: AccessibilityService) {
+private class Cover(private val service: AccessibilityService, private val onTap: (key: String, decision: Decision.Shield) -> Unit) {
     private val windows = service.getSystemService(WindowManager::class.java)
     private var host: OverlayShieldPresenter.Host? = null
     private val search = mutableStateOf(false)
+    private val decision = mutableStateOf<Decision.Shield?>(null)
     private val params = WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT,
         0,
@@ -236,8 +255,9 @@ private class Cover(private val service: AccessibilityService) {
 
     val showing: Boolean get() = host != null
 
-    fun show(top: Int, bottom: Int, search: Boolean) {
+    fun show(top: Int, bottom: Int, search: Boolean, decision: Decision.Shield) {
         this.search.value = search
+        this.decision.value = decision
         val h = host
         if (h != null && params.y == top && params.height == bottom - top) return
         params.y = top
@@ -247,7 +267,11 @@ private class Cover(private val service: AccessibilityService) {
             return
         }
         val fresh = OverlayShieldPresenter.Host(service) {}
-        fresh.view.addView(ComposeView(service).apply { setContent { CoverContent(this@Cover.search.value) } })
+        fresh.view.addView(ComposeView(service).apply { setContent {
+            val d = this@Cover.decision.value
+            val key = if (this@Cover.search.value) PartInstagramSearch else PartInstagramFeed
+            CoverContent(this@Cover.search.value, d?.reason?.canContinue == true) { d?.let { onTap(key, it) } }
+        } })
         try {
             windows.addView(fresh.view, params)
             fresh.start()
@@ -266,14 +290,23 @@ private class Cover(private val service: AccessibilityService) {
 }
 
 @androidx.compose.runtime.Composable
-private fun CoverContent(search: Boolean) = AuroraTheme(reduceMotion = true) {
-    Box(Modifier.fillMaxSize().background(Aurora.colors.sky), contentAlignment = Alignment.Center) {
-        Text(
-            stringResource(if (search) R.string.ig_cover_search else R.string.ig_cover_posts),
-            Modifier.padding(horizontal = Space.Gutter),
-            color = Aurora.colors.textSecondary,
-            style = AuroraType.Body,
-            textAlign = TextAlign.Center,
-        )
+private fun CoverContent(search: Boolean, canContinue: Boolean, onTap: () -> Unit) = AuroraTheme(reduceMotion = true) {
+    // Tapping shows the Shield, which offers the mode's way through (a wait or a task) or says it's blocked.
+    Box(Modifier.fillMaxSize().background(Aurora.colors.sky).clickable(onClick = onTap), contentAlignment = Alignment.Center) {
+        Column(Modifier.padding(horizontal = Space.Gutter), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                stringResource(if (search) R.string.ig_cover_search else R.string.ig_cover_posts),
+                color = Aurora.colors.textSecondary,
+                style = AuroraType.Body,
+                textAlign = TextAlign.Center,
+            )
+            if (canContinue) Text(
+                stringResource(R.string.part_cover_tap),
+                Modifier.padding(top = Space.XS),
+                color = Aurora.colors.textTertiary,
+                style = AuroraType.Caption,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }

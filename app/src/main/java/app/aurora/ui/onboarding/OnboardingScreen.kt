@@ -1,5 +1,6 @@
 package app.aurora.ui.onboarding
 
+import app.aurora.ui.components.Eyebrow
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
@@ -49,8 +50,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.aurora.ui.components.PageGlow
 import app.aurora.ui.components.glass
 import app.aurora.AuroraApplication
 import app.aurora.R
@@ -75,8 +77,6 @@ import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.ArtTier
-import app.aurora.ui.components.Sky
-import app.aurora.ui.components.AuroraBackdrop
 import app.aurora.ui.components.TwoToneHeadline
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.LockupMark
@@ -107,6 +107,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.remember
 import app.aurora.ui.components.BrandEyebrow
+import app.aurora.ui.components.HeroHeadline
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import app.aurora.ui.components.LitBadge
 import app.aurora.ui.components.AuroraIcons
 import androidx.compose.foundation.layout.widthIn
@@ -144,15 +147,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val context = LocalContext.current
     val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
 
-    Box(Modifier.fillMaxSize().background(colors.background)) {
+    Box(Modifier.fillMaxSize().background(if (p == 0) colors.sky else colors.background)) {
         // First Light opens and closes onboarding; the steps between are quiet.
         androidx.compose.animation.AnimatedVisibility(p == 0 || p == StartPage, enter = fadeIn(tween(Motion.Gentle)), exit = fadeOut(tween(Motion.Standard))) {
             // The sky lights on the first page and surges on the last, when Aurora is ready.
-            AuroraBackdrop(ArtTier.Immersive, sky = if (p == StartPage) Sky.Flare else Sky.Lit)
         }
-        PageGlow()
         Column(Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-            Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
+            // The welcome is the mark itself, set large; the steps after it carry the lockup.
+            if (p != 0) Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
                 AuroraMark(LockupMark)
                 Spacer(Modifier.width(Space.S))
                 Wordmark(Modifier.weight(1f))
@@ -176,7 +178,11 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     else -> Page { TurnOnShield() }
                 }
             }
-            Column(Modifier.padding(horizontal = Space.Gutter, vertical = Space.M).animateContentSize(), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+            val navInset = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            Column(
+                Modifier.padding(horizontal = Space.Gutter).padding(top = if (p == 0) 34.dp else Space.M, bottom = if (p == 0) (58.dp - navInset).coerceAtLeast(Space.M) else Space.M).animateContentSize(),
+                verticalArrangement = Arrangement.spacedBy(Space.XS),
+            ) {
                 val finish = {
                     app.scope.launch { runCatching { app.preferences.setOnboardingStep(0) } }
                     onFinish()
@@ -204,8 +210,12 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     // One filled action per step: until Shield is on, "Turn on Shield" is it, and skipping stays quiet.
                     p == ShieldPage && !shieldOn -> AuroraButton(stringResource(R.string.onb_skip), { finish() }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                     p >= StartPage -> AuroraButton(stringResource(R.string.onb_finish), { finish() }, Modifier.fillMaxWidth())
-                    else -> AuroraButton(stringResource(if (p == 0) R.string.onb_begin else R.string.action_continue), { page = p + 1 }, Modifier.fillMaxWidth())
+                    else -> AuroraButton(stringResource(R.string.action_continue), { page = p + 1 }, Modifier.fillMaxWidth())
                 }
+                if (p == 0) Text(
+                    stringResource(R.string.onb_welcome_privacy), Modifier.fillMaxWidth().padding(top = 8.dp),
+                    color = colors.textPrimary, style = AuroraType.Caption, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
             }
         }
     }
@@ -234,53 +244,34 @@ private fun PageDots(page: Int) {
 private fun Title(eyebrow: String, title: String, body: String?) {
     val colors = Aurora.colors
     Spacer(Modifier.height(Space.M))
-    Text(eyebrow, color = colors.accent, style = AuroraType.Eyebrow)
+    Eyebrow(eyebrow, color = colors.accent)
     Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
     if (body != null) Text(body, color = colors.textSecondary, style = AuroraType.Body)
     Spacer(Modifier.height(Space.S))
 }
 
 /**
- * The promise sits low over the lake, then the three things Aurora does arrive one by one. The column
- * fills the screen so the type rests near the action, and scrolls when text is large.
+ * The welcome: the mark and the name, set large in the middle of the sky; the promise rests low, by the action.
+ * The column fills the screen, and scrolls when text is large.
  */
 @Composable
 internal fun Welcome() {
     val colors = Aurora.colors
-    val reduced = Aurora.reducedMotion
-    val pillars = listOf(
-        Triple(AuroraIcons.Protect, R.string.onb_pillar_shield, R.string.onb_pillar_shield_body),
-        Triple(AuroraIcons.Intent, R.string.onb_pillar_intent, R.string.onb_pillar_intent_body),
-        Triple(AuroraIcons.Track, R.string.onb_pillar_track, R.string.onb_pillar_track_body),
-    )
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
-            verticalArrangement = Arrangement.spacedBy(Space.S),
-        ) {
-            Spacer(Modifier.weight(1f).heightIn(min = 160.dp))
-            BrandEyebrow(stringResource(R.string.onb_welcome_eyebrow))
-            TwoToneHeadline(stringResource(R.string.today_headline))
-            Text(stringResource(R.string.onb_welcome_body), color = colors.textSecondary, style = AuroraType.Body)
-            Spacer(Modifier.height(Space.S))
-            pillars.forEachIndexed { i, (icon, title, body) ->
-                val shown = remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
-                LaunchedEffect(Unit) {
-                    if (!reduced) shown.animateTo(1f, tween(Motion.Gentle, delayMillis = 260 + 140 * i, easing = Motion.Ease))
-                }
-                Row(
-                    Modifier.fillMaxWidth().graphicsLayer { alpha = shown.value; translationY = (1f - shown.value) * 24f },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Space.M),
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter)) {
+            Box(Modifier.weight(1f).fillMaxWidth().heightIn(min = 200.dp), contentAlignment = Alignment.Center) {
+                Column(
+                    Modifier.padding(bottom = 40.dp).semantics(mergeDescendants = true) { },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(22.dp),
                 ) {
-                    LitBadge(icon, size = 44, tint = if (i == 2) colors.rose else colors.accent)
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(title), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                        Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
-                    }
+                    AuroraMark(54.dp, lit = true)
+                    Text(stringResource(R.string.app_name), color = colors.textPrimary, style = AuroraType.HeroBold.copy(fontSize = 56.sp, lineHeight = 58.sp))
                 }
             }
-            Spacer(Modifier.height(Space.S))
+            HeroHeadline(stringResource(R.string.today_headline))
+            Spacer(Modifier.height(14.dp))
+            Text(stringResource(R.string.today_description), color = colors.textSecondary, style = AuroraType.Body)
         }
     }
 }
@@ -345,7 +336,7 @@ private fun FirstLight(vm: ProtectModel, minutes: Int, onMinutes: (Int) -> Unit,
     val count = data?.list?.items?.size ?: 0
     val mode = data?.rules?.defaultRule?.mode ?: Mode.Flexible
     Spacer(Modifier.height(if (count > 0) 180.dp else 260.dp))
-    Text(stringResource(R.string.onb_first_light_eyebrow), color = colors.violetText, style = AuroraType.Eyebrow)
+    Eyebrow(stringResource(R.string.onb_first_light_eyebrow), color = colors.violetText)
     Text(stringResource(R.string.onb_first_light_title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
     Text(
         if (count == 0) stringResource(R.string.onb_first_light_none) else androidx.compose.ui.res.pluralStringResource(R.plurals.onb_first_light_body, count, count),

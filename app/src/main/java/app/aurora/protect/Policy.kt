@@ -36,12 +36,12 @@ enum class ShieldReason {
 }
 
 /**
- * Always Block, Cooldown and Friction are strict: no early exit in aurora, and while one with an end runs,
+ * Strict, Cooldown and Friction are strict: no early exit in aurora, and while one with an end runs,
  * Accessibility, Date & time and uninstalling are locked and the clock can't be moved under it. Only Flexible can be undone.
  */
 val Mode.strict: Boolean get() = this != Mode.Flexible
 
-/** Cooldown and Always Block draw on Free's shared daily minutes (plan/CommittedQuota.kt). Friction doesn't. */
+/** Cooldown and Strict draw on Free's shared daily minutes (plan/CommittedQuota.kt). Friction doesn't. */
 val Mode.usesQuota: Boolean get() = this == Mode.Cooldown || this == Mode.AlwaysBlock
 
 val Mode.reason: ShieldReason
@@ -164,10 +164,10 @@ fun PolicyState.strongest(key: String, now: Long): Restriction? =
  * What to do when [packageName] comes to the front. A null [state] means the configuration isn't known.
  * [lockedScreen]: the window is a Settings page [LockedScreens] matches.
  *
- * Precedence, strongest first: Always Block, Flexible, Focus, a spent daily limit, Cooldown, Friction,
+ * Precedence, strongest first: Strict, Flexible, Focus, a spent daily limit, Cooldown, Friction,
  * an Intent cooldown, then Intent. A grant lifts only its own level and weaker: a Cooldown grant lifts
  * Cooldown and Friction, a Friction grant lifts Friction. Any grant also covers Intent, so the person
- * isn't asked twice. Nothing lifts Always Block, Flexible, Focus or a spent limit.
+ * isn't asked twice. Nothing lifts Strict, Flexible, Focus or a spent limit.
  */
 fun decide(packageName: String?, now: Long, state: PolicyState?, lockedScreen: Boolean = false): Decision {
     if (packageName.isNullOrBlank()) return Decision.Invalid

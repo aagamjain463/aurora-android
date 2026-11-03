@@ -2,54 +2,58 @@ package app.aurora.ui.theme
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
 /**
- * Raw palette. Screens never use these directly; they read semantic [AuroraColors].
+ * Raw palette: First Light. Aurora is the dawn, so the night theme (the default) is a deep violet-black sky and the
+ * one colour in the product is the light coming up over the horizon: plum, rose, ember, gold. The day theme is warm
+ * paper with the same dawn, softer. Screens never use these directly; they read semantic [AuroraColors].
  * Source of truth: brand/tokens/aurora.tokens.json (DesignTokensTest keeps the two in sync).
- * See docs/design-studio/AURORA_BRAND_BIBLE.md.
  */
 object Palette {
-    // Night: the real polar sky, aubergine black, going green-black only where the light pools.
-    val Night1000 = Color(0xFF050609)
-    val Night950 = Color(0xFF080A0F)
-    val Night900 = Color(0xFF0F1416)
-    val Night850 = Color(0xFF15201C)
-    val Night800 = Color(0xFF1E2F27)
-    val Mist300 = Color(0xFFBFD0C4)
-    val Mist400 = Color(0xFF8FA697)
-    val Frost = Color(0xFFF2F9F1)
+    // Night: the dark theme.
+    val Night1000 = Color(0xFF06050A)
+    val Night950 = Color(0xFF0A090F)
+    val Night900 = Color(0xFF131119)
+    val Night850 = Color(0xFF1B1822)
+    val Night800 = Color(0xFF25212D)
+    val Night700 = Color(0xFF383340)
+    val Mist700 = Color(0xFF6E6874)
+    val Mist500 = Color(0xFF9B94A0)
+    val Mist300 = Color(0xFFC9C1C6)
+    val Ivory = Color(0xFFF6F0E8)
 
-    // Aurora: oxygen green, measured from footage of the real thing. 300 is its hottest knot, 400 the band,
-    // 600 the body, 700 where it fades. 500 is the sea-green of a thin curtain, and the Always Block mode.
-    val Aurora300 = Color(0xFFC9FFB4)
-    val Aurora400 = Color(0xFF4BEA55)
-    val Aurora500 = Color(0xFF19C48A)
-    val Aurora600 = Color(0xFF17A850)
-    val Aurora700 = Color(0xFF0B5A2A)
+    // Dawn: the light over the horizon. The only colour Aurora owns.
+    val Plum700 = Color(0xFF3B1E3A)
+    val Rose500 = Color(0xFFD0607A)
+    val Rose400 = Color(0xFFE8899A)
+    val Ember400 = Color(0xFFF59164)
+    val Gold300 = Color(0xFFFFD39A)
+    val Peach200 = Color(0xFFFFD7B5)
+    val Dawn100 = Color(0xFFFFF1E0)
 
-    // Violet: a rare accent. Indigo: the top of a tall ray, where it thins into the sky.
-    val Violet300 = Color(0xFFD0BCFF)
-    val Violet400 = Color(0xFFA78BFA)
-    val Indigo500 = Color(0xFF3D3A9E)
+    // Day: the light theme.
+    val Day25 = Color(0xFFFFFDFA)
+    val Day50 = Color(0xFFFBF7F2)
+    val Day100 = Color(0xFFF4EEE7)
+    val Day150 = Color(0xFFF1EAE2)
+    val Day200 = Color(0xFFEAE1D7)
+    val Day300 = Color(0xFFDDD2C6)
+    val Umber400 = Color(0xFFADA196)
+    val Umber600 = Color(0xFF6F655C)
+    val Umber700 = Color(0xFF4A423B)
+    val Ink = Color(0xFF16131A)
+    val Ink800 = Color(0xFF2A2430)
+    val Blush200 = Color(0xFFF3D3C6)
+    val Clay400 = Color(0xFFE59A76)
+    val Ember700 = Color(0xFFB8532C)
+    val Rose700 = Color(0xFFA9445A)
 
-    // Rose: the pink fringe under a strong curtain. Progress, streaks, the person's own words.
-    val Rose300 = Color(0xFFF58BD0)
-    val Mint100 = Color(0xFFDDF9D4)
-
-    // Gold: the warm end of the logo's ribbon. Only in the opening's halo.
-    val Gold400 = Color(0xFFF2C46D)
-
-    // Glacier: the Cooldown mode, cool and patient.
-    val Glacier400 = Color(0xFF7FB8E6)
-
-    // The primary action is the light itself: the ribbon from its hot core out to its emerald edge.
-    val CtaStart = Color(0xFF8BF27A)
-    val CtaMid = Color(0xFF4BEA55)
-    val CtaEnd = Color(0xFF1FC46A)
-    val Starlight = Color(0xFFF4FFF0)
-    val Coral400 = Color(0xFFF48FA1)
+    // Danger only: ending something early, errors.
+    val Coral400 = Color(0xFFF08A80)
+    val Coral700 = Color(0xFFB3261E)
 }
 
 @Immutable
@@ -91,8 +95,18 @@ data class AuroraColors(
     val rose: Color,
     /** The lead phrase of a two-tone hero headline. */
     val headlineLead: Color,
-    /** Primary action fill: a sweep of aurora light. */
+    /** Primary action fill. */
     val cta: List<Color>,
+    /** The bottom bar, and the well behind its chosen tab. */
+    val dock: Color,
+    val dockWell: Color,
+    /** Fields, segmented tracks and secondary buttons: a step off the card. */
+    val field: Color,
+    /** The earth under the Horizon: [dune] is its night side, [duneBack] the lit band just inside its rim. */
+    val dune: Color,
+    val duneBack: Color,
+    /** The firmer hairline: outlined buttons, chips, the dock and switch tracks. */
+    val hairlineStrong: Color,
 )
 
 val DarkColors = AuroraColors(
@@ -101,40 +115,83 @@ val DarkColors = AuroraColors(
     sky = Palette.Night1000,
     surface = Palette.Night900,
     elevated = Palette.Night850,
-    hairline = Palette.Aurora300.copy(alpha = 0.14f),
-    textPrimary = Palette.Frost,
+    hairline = Color.White.copy(alpha = 0.06f),
+    textPrimary = Palette.Ivory,
     textSecondary = Palette.Mist300,
-    textTertiary = Palette.Mist400,
-    accent = Palette.Aurora400,
-    onAccent = Palette.Night950,
-    accentSoft = Palette.Aurora400.copy(alpha = 0.13f),
-    violet = Palette.Violet400,
-    violetText = Palette.Violet300,
-    violetSoft = Palette.Violet400.copy(alpha = 0.14f),
-    glassBase = Palette.Night900.copy(alpha = 0.38f),
-    glassTop = Palette.Frost.copy(alpha = 0.17f),
-    glassBottom = Palette.Frost.copy(alpha = 0.035f),
-    glassRim = Palette.Frost.copy(alpha = 0.60f),
-    glowDeep = Palette.Aurora700,
-    glowCool = Palette.Aurora600,
-    glowTop = Palette.Indigo500,
-    glowHot = Palette.Aurora300,
-    light = Palette.Starlight,
+    textTertiary = Palette.Mist500,
+    accent = Palette.Peach200,
+    onAccent = Palette.Night1000,
+    accentSoft = Palette.Peach200.copy(alpha = 0.12f),
+    violet = Palette.Mist300,
+    violetText = Palette.Mist300,
+    violetSoft = Color.White.copy(alpha = 0.06f),
+    glassBase = Palette.Night900,
+    glassTop = Palette.Night850,
+    glassBottom = Palette.Night900,
+    glassRim = Color.White.copy(alpha = 0.13f),
+    glowDeep = Palette.Plum700,
+    glowCool = Palette.Rose500,
+    glowTop = Palette.Gold300,
+    glowHot = Palette.Ember400,
+    light = Palette.Dawn100,
     danger = Palette.Coral400,
-    rose = Palette.Rose300,
-    headlineLead = Palette.Mint100,
-    cta = listOf(Palette.CtaStart, Palette.CtaMid, Palette.CtaEnd),
+    rose = Palette.Rose400,
+    headlineLead = Palette.Mist300,
+    cta = listOf(Palette.Dawn100, Palette.Gold300),
+    dock = Palette.Night900,
+    dockWell = Palette.Night700,
+    field = Palette.Night850,
+    dune = Palette.Night1000,
+    duneBack = Palette.Plum700,
+    hairlineStrong = Color.White.copy(alpha = 0.11f),
+)
+
+val LightColors = AuroraColors(
+    isDark = false,
+    background = Palette.Day50,
+    sky = Palette.Day100,
+    surface = Palette.Day25,
+    elevated = Palette.Day200,
+    hairline = Color.Black.copy(alpha = 0.07f),
+    textPrimary = Palette.Ink,
+    textSecondary = Palette.Umber700,
+    textTertiary = Palette.Umber600,
+    accent = Palette.Ink,
+    onAccent = Palette.Day50,
+    accentSoft = Palette.Ink.copy(alpha = 0.07f),
+    violet = Palette.Umber700,
+    violetText = Palette.Umber700,
+    violetSoft = Color.Black.copy(alpha = 0.05f),
+    glassBase = Palette.Day25,
+    glassTop = Palette.Day25,
+    glassBottom = Palette.Day25,
+    glassRim = Color.White,
+    glowDeep = Palette.Blush200,
+    glowCool = Palette.Rose400,
+    glowTop = Palette.Gold300,
+    glowHot = Palette.Clay400,
+    light = Palette.Ember700,
+    danger = Palette.Coral700,
+    rose = Palette.Rose700,
+    headlineLead = Palette.Umber700,
+    cta = listOf(Palette.Ink800, Palette.Ink),
+    dock = Palette.Day25,
+    dockWell = Palette.Day200,
+    field = Palette.Day150,
+    dune = Palette.Day150,
+    duneBack = Palette.Blush200,
+    hairlineStrong = Color.Black.copy(alpha = 0.10f),
 )
 
 /** Maps aurora's semantics onto Material 3 so stock components (switch, text selection, ripples) match. */
 fun AuroraColors.toMaterial(): ColorScheme {
-    return darkColorScheme().copy(
+    return (if (isDark) darkColorScheme() else lightColorScheme()).copy(
         primary = accent,
         onPrimary = onAccent,
         primaryContainer = accentSoft,
         onPrimaryContainer = accent,
         secondary = violet,
-        onSecondary = Palette.Night950,
+        onSecondary = background,
         background = background,
         onBackground = textPrimary,
         surface = surface,

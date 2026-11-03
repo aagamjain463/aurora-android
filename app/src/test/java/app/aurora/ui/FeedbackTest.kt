@@ -55,12 +55,11 @@ class FeedbackTest {
     private fun pausedNotice(fontScale: Float, name: String) {
         var opened = 0
         show(fontScale) {
-            Notice(stringResource(R.string.keep_banner_title), stringResource(R.string.keep_banner_body), Modifier.padding(horizontal = Space.M)) {
-                AuroraButton(stringResource(R.string.keep_banner_action), { opened++ }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+            Notice(stringResource(R.string.status_permission_title), stringResource(R.string.status_permission_body), Modifier.padding(horizontal = Space.M)) {
+                AuroraButton(stringResource(R.string.status_turn_on), { opened++ }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
             }
         }
-        compose.onNodeWithText("Some of your setup is paused").assertIsDisplayed()
-        compose.onNodeWithText("Choose what stays active").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Turn on Shield").assertIsDisplayed().performClick()
         assertEquals(1, opened)
         compose.onRoot().captureRoboImage("src/test/screenshots/feedback/$name.png")
     }

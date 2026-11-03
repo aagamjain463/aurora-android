@@ -180,7 +180,8 @@ class BillingRepository(
     suspend fun refresh() {
         // A timeout and a late answer can both call back: only the first counts.
         val (purchasesResult, purchases) = suspendCancellableCoroutine { c ->
-            client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(ProductType.SUBS).build()) { r, list -> if (c.isActive) c.resume(r to list) }
+            val answer = once(c)
+            client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(ProductType.SUBS).build()) { r, list -> answer(r to list) }
         }
         val offers = queryOffers()
         _state.value = _state.value.copy(
@@ -200,7 +201,8 @@ class BillingRepository(
             plusProducts.map { QueryProductDetailsParams.Product.newBuilder().setProductId(it).setProductType(ProductType.SUBS).build() },
         ).build()
         val details = suspendCancellableCoroutine { c ->
-            client.queryProductDetailsAsync(params) { r, result -> if (c.isActive) c.resume(if (r.responseCode == BillingResponseCode.OK) result.productDetailsList else emptyList()) }
+            val answer = once(c)
+            client.queryProductDetailsAsync(params) { r, result -> answer(if (r.responseCode == BillingResponseCode.OK) result.productDetailsList else emptyList()) }
         }
         return details.flatMap { product ->
             product.subscriptionOfferDetails.orEmpty()
@@ -221,7 +223,8 @@ class BillingRepository(
             )
         }, complete) { token ->
             suspendCancellableCoroutine<Unit> { c ->
-                client.acknowledgePurchase(AcknowledgePurchaseParams.newBuilder().setPurchaseToken(token).build()) { if (c.isActive) c.resume(Unit) }
+                val answer = once(c)
+                client.acknowledgePurchase(AcknowledgePurchaseParams.newBuilder().setPurchaseToken(token).build()) { answer(Unit) }
             }
         }
     }
@@ -318,4 +321,13 @@ fun openSubscriptionSettings(context: Context, productId: String?) {
     } catch (_: ActivityNotFoundException) {
         // No Play Store and no browser: nothing to open.
     }
+}
+
+/**
+ * Play Billing can answer one request twice (a timeout, then the late reply, on different threads): only the first
+ * answer resumes, so the second can't crash with "Already resumed".
+ */
+private fun <T> once(c: kotlinx.coroutines.CancellableContinuation<T>): (T) -> Unit {
+    val done = java.util.concurrent.atomic.AtomicBoolean()
+    return { value -> if (done.compareAndSet(false, true) && c.isActive) c.resume(value) }
 }

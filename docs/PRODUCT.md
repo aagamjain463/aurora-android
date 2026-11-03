@@ -18,12 +18,12 @@ for apps, mode, settings where needed, duration and confirmation. Custom duratio
 | Flexible | Fully blocked | Turn off in aurora; no continue button on Shield |
 | Friction | A task before access | Math, written intention with read-back, or reflection; then chosen usage time |
 | Cooldown | A wait before access | A genuine reopening restarts the persisted wait; then chosen usage time |
-| Always Block | Fully blocked | No in-app early end; timer ends automatically |
+| Strict | Fully blocked | No in-app early end; timer ends automatically |
 
-Always Block has no escape through edits, removing an app, deleting data or downgrading. A running
+Strict has no escape through edits, removing an app, deleting data or downgrading. A running
 session captures its app keys and settings. It survives process recreation and reboot through stored
 state, though enforcement requires a bound accessibility service. Android still lets the person
-revoke permission, force-stop or uninstall aurora. Always Block does not claim device-owner control.
+revoke permission, force-stop or uninstall aurora. Strict does not claim device-owner control.
 
 Friction math has three difficulties and rejects an incorrect answer. Written intention requires
 at least two words and a confirmation. Reflection asks two questions and includes a pause. The wait
@@ -35,7 +35,7 @@ Invalid events are ignored. Unknown/unreadable configuration is reported as unav
 nothing. Recovery surfaces (Settings, launcher, keyboard, installers, phone/emergency and aurora)
 are exempt. Otherwise `decide()` selects the strongest current restriction:
 
-1. Always Block
+1. Strict
 2. Flexible
 3. Focus
 4. Spent daily limit
@@ -45,7 +45,7 @@ are exempt. Otherwise `decide()` selects the strongest current restriction:
 8. Intentional App Opening
 
 A grant lifts its own level and weaker levels only. A Friction grant cannot lift Cooldown, Focus,
-Flexible, Always Block or a spent limit. The plan determines active items before the decision;
+Flexible, Strict or a spent limit. The plan determines active items before the decision;
 `decide()` does not read the plan. A timer rechecks the app already open at the next relevant change.
 
 ## Intentional App Opening
@@ -66,10 +66,10 @@ Free supports three enabled apps; Plus has no Intent app limit.
 The schedule wizard asks for name, days, start/end, apps/groups, mode, optional mode settings and a
 plain-language summary. A window whose end is at or before its start runs overnight. Windows use
 local time and handle DST. The strongest overlapping mode wins. Flexible windows can be skipped.
-A running Always Block window is committed to a session before edits, disabling or deletion.
+A running Strict window is committed to a session before edits, disabling or deletion.
 
-Free has 120 Always Block minutes per start day, shared by sessions and committed schedule windows.
-Overlapping reserved time is not charged twice. On Free, a scheduled Always Block window commits
+Free has 120 Strict minutes per start day, shared by sessions and committed schedule windows.
+Overlapping reserved time is not charged twice. On Free, a scheduled Strict window commits
 only the available allowance; the remaining window behaves as Flexible. This fallback is disclosed
 in the schedule wizard and was approved by the founder on 29 October 2026. Plus commits the full
 window. Existing commitments survive downgrade.
@@ -98,9 +98,9 @@ stays in app-private storage; cloud backup is disabled. Unknown JSON fields are 
 configuration is not silently replaced. The foreground event path reads an in-memory snapshot.
 
 Legacy `Block` and `RulesOnly` decode as Flexible preferences. Legacy Lockdown runtime migrates to
-an Always Block session. Existing Intent notes retain their reason, alternative and pause. Migration
+a Strict session. Existing Intent notes retain their reason, alternative and pause. Migration
 fixtures cover the founder's prior preferences. Clear history resets progress; deleting all data
-keeps a running Always Block commitment until its end. Google Play owns purchases independently.
+keeps a running Strict commitment until its end. Google Play owns purchases independently.
 
 ## Platform and commercial limits
 
@@ -110,7 +110,7 @@ browsers and inaccessible address bars are not covered. Shorts/Reels exit remain
 current real-app versions and signed-in flows have not been validated.
 
 Free: five protected apps/sites, three Intent apps, three daily limits, one schedule, one Focus
-profile, 120 Always Block minutes per day and Today/7-day Insights. Plus removes these limits and
+profile, 120 Strict minutes per day and Today/7-day Insights. Plus removes these limits and
 adds 30-day Insights. Paused items remain saved after downgrade; restoring them is explicit.
 
 Play Billing uses the configured subscription products and Play-formatted prices. A purchase unlocks Plus only
