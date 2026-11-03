@@ -60,7 +60,6 @@ import app.aurora.runsNow
 import app.aurora.saveConfig
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
-import app.aurora.ui.components.AuroraIconButton
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.deleteConfig
 import androidx.compose.runtime.remember
@@ -178,7 +177,6 @@ fun ConfigureScreen(
         )
     }
 
-    var deleting by remember { mutableStateOf<UsageConfig?>(null) }
     var committing by remember { mutableStateOf(false) }
     LaunchedEffect(createdShield) { if (createdShield != null) shieldId = createdShield }
     LaunchedEffect(createdIntent) { if (createdIntent != null) intentId = createdIntent }
@@ -363,15 +361,13 @@ fun ConfigureScreen(
                 items(saved, key = { "cfg-" + it.id }) { c ->
                     val s = d.rules.shieldOf(c)
                     val i = d.rules.intentOf(c)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                    PickRow(c.name, listOfNotNull(s?.name, i?.name, c.focus?.task).joinToString(" · "), id == c.id, modifier = Modifier.weight(1f), onClick = {
+                    // Only picking here: saved sessions are edited and deleted on Home.
+                    PickRow(c.name, listOfNotNull(s?.name, i?.name, c.focus?.task).joinToString(" · "), id == c.id, onClick = {
                         id = c.id; name = c.name; shieldId = c.shieldId; intentId = c.intentId; note = c.note
                         focusOn = c.focus != null; goal = c.focus?.goal.orEmpty()
                         focusWindow = c.focus?.minutes == null; focusMinutes = c.focus?.minutes
                         messageOn = c.note.isNotBlank(); fromSaved = true; step = Step.When
                     }, leading = { IconStack((s?.keys.orEmpty() + i?.keys.orEmpty()).distinct(), d, max = 3, size = 28.dp) })
-                    AuroraIconButton(AuroraIcons.Trash, stringResource(R.string.config_delete_title, c.name), { deleting = c })
-                    }
                 }
             }
             Step.Name -> {
@@ -529,19 +525,6 @@ fun ConfigureScreen(
         stringResource(R.string.start_commit_body) + "\n\n" + stringResource(R.string.start_commit_limits),
         stringResource(R.string.action_cancel),
     )
-    deleting?.let { c ->
-        val goals = d.rules.trackGoals.filter { it.configId == c.id }
-        AuroraDialog(
-            stringResource(R.string.config_delete_title, c.name), { deleting = null },
-            stringResource(if (goals.isEmpty()) R.string.preset_delete else R.string.config_delete_archive),
-            {
-                deleting = null
-                vm.run { vm.app.deleteConfig(c.id, removeGoals = true) }
-            },
-            if (goals.isEmpty()) stringResource(R.string.config_delete_body) else stringResource(R.string.config_delete_habits, goals.joinToString(", ") { it.name }) + " " + stringResource(R.string.config_delete_body),
-            stringResource(R.string.action_cancel),
-        )
-    }
 }
 
 /** What a strict session locks, read as one group, then "I'm ready to commit" below all of it. */

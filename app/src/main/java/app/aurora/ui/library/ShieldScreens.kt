@@ -37,7 +37,20 @@ import app.aurora.protect.FrictionTask
 import app.aurora.protect.Mode
 import app.aurora.protect.strict
 import app.aurora.protect.ShieldPreset
+import app.aurora.protect.AppPart
 import app.aurora.protect.AppParts
+import app.aurora.protect.Instagram
+import app.aurora.protect.YouTube
+import app.aurora.data.InstalledApp
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
+import app.aurora.ui.components.AppIcon
+import app.aurora.ui.components.Eyebrow
+import app.aurora.ui.components.RowDivider
+import app.aurora.ui.components.SelectionMark
 import app.aurora.protect.PartPrefix
 import app.aurora.protect.PartYouTubeChannels
 import app.aurora.protect.channelsKey
@@ -267,36 +280,31 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
             }
             ShieldStep.Parts -> {
                 stepTitle(R.string.shield_parts_title, R.string.shield_parts_body)
-                item(key = "parts") {
-                    // RowGroup's own gutter would double the step's; the same surface without it.
-                    Column(Modifier.fillMaxWidth().auroraSurface(colors)) {
-                        AppParts.forEachIndexed { i, part ->
-                            if (i > 0) app.aurora.ui.components.RowDivider()
-                            app.aurora.ui.components.ToggleRow(
-                                title = stringResource(part.name),
-                                subtitle = stringResource(part.body),
-                                checked = part.key in parts,
-                                onCheckedChange = { want ->
-                                    when {
-                                        !want -> parts = parts - part.key
-                                        cap != null && all.size >= cap -> vm.atLimit(Allowance.ProtectedItems)
-                                        else -> parts = parts + part.key
-                                    }
-                                },
-                            )
+                // One card per app, each part a plain choice; the channel list sits right under YouTube.
+                AppParts.groupBy { it.owner }.forEach { (owner, group) ->
+                    item(key = "parts-$owner") {
+                        PartGroup(owner, apps?.find { it.packageName == owner }, group, parts) { part, want ->
+                            when {
+                                !want -> parts = parts - part.key
+                                cap != null && all.size >= cap -> vm.atLimit(Allowance.ProtectedItems)
+                                else -> parts = parts + part.key
+                            }
                         }
                     }
+                    if (owner == YouTube && PartYouTubeChannels in parts) item(key = "channels") { ChannelEditor(channels) { channels = it } }
                 }
-                if (PartYouTubeChannels in parts) item(key = "channels") { ChannelEditor(channels) { channels = it } }
                 item(key = "parts-permission") {
-                    // Whether Web & content is on, said plainly, with the way to turn it on from here.
+                    // Whether Web & content is on, said plainly: one quiet line when on, one row to turn it on when off.
                     val on = app.aurora.rememberAccess(app.aurora.data.Access.Content) == app.aurora.data.AccessState.Granted
-                    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = !on).padding(horizontal = 22.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(Space.S), verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.material3.Icon(if (on) AuroraIcons.Check else AuroraIcons.Protect, null, tint = if (on) colors.accent else colors.textSecondary, modifier = Modifier.size(18.dp))
-                            Text(stringResource(if (on) R.string.parts_permission_on else R.string.parts_permission_off), Modifier.weight(1f), color = if (on) colors.textPrimary else colors.textSecondary, style = AuroraType.Secondary)
-                        }
-                        if (!on) AuroraButton(stringResource(R.string.parts_permission_enable), onOpenWeb, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
+                    if (on) Row(Modifier.padding(start = 4.dp, top = Space.XS), horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Icon(AuroraIcons.Check, null, tint = colors.accent, modifier = Modifier.size(16.dp))
+                        Text(stringResource(R.string.parts_permission_on), color = colors.textTertiary, style = AuroraType.Caption)
+                    } else Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true)) {
+                        AuroraRow(
+                            title = stringResource(R.string.parts_permission_enable),
+                            subtitle = stringResource(R.string.parts_permission_off),
+                            icon = AuroraIcons.Protect, onClick = onOpenWeb, trailing = { Chevron() },
+                        )
                     }
                 }
             }
@@ -366,6 +374,38 @@ private fun PresetCardPreview(p: ShieldPreset, vm: ProtectModel) {
         Text(p.name, color = colors.textPrimary, style = AuroraType.Headline)
         Text(shieldDetail(p), color = colors.textSecondary, style = AuroraType.Secondary)
         if (p.keys.isNotEmpty()) app.aurora.ui.protect.IconStack(p.keys, data, max = 8)
+    }
+}
+
+/**
+ * One app's parts: the app's own icon and name, then each part as a short name, one quiet line and a check.
+ * Choosing several is normal, so the mark is a check, not a switch.
+ */
+@Composable
+private fun PartGroup(owner: String, installed: InstalledApp?, group: List<AppPart>, chosen: List<String>, onToggle: (AppPart, Boolean) -> Unit) {
+    val colors = Aurora.colors
+    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(vertical = 6.dp)) {
+        Row(
+            Modifier.padding(horizontal = 18.dp).padding(top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (installed != null) AppIcon(installed, size = 26.dp)
+            Eyebrow(installed?.label ?: stringResource(if (owner == Instagram) R.string.brand_instagram else R.string.brand_youtube), Modifier.semantics { heading() }, color = colors.textSecondary)
+        }
+        group.forEachIndexed { i, part ->
+            if (i > 0) RowDivider(inset = 18.dp)
+            val on = part.key in chosen
+            Row(
+                Modifier.fillMaxWidth().toggleable(on, role = Role.Checkbox) { onToggle(part, it) }.padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(stringResource(part.short), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                    Text(stringResource(part.body), color = colors.textTertiary, style = AuroraType.Secondary.copy(fontSize = 12.5.sp, lineHeight = 17.sp))
+                }
+                SelectionMark(on)
+            }
+        }
     }
 }
 

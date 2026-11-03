@@ -439,6 +439,14 @@
     <string name="part_yt_feed_body">No Home feed, nothing beside or under a video, no Shorts. Watch from Subscriptions or Search.</string>
     <string name="part_yt_channels">YouTube from chosen channels</string>
     <string name="part_yt_channels_body">Only videos and Shorts from the channels you choose play.</string>
+    <!-- Parts of apps under their app's name: the app is already said, so the part's own name is enough. -->
+    <string name="part_reels_short">Reels</string>
+    <string name="part_ig_messages_short">Messages and stories only</string>
+    <string name="part_shorts_short">Shorts</string>
+    <string name="part_yt_feed_short">Recommendations</string>
+    <string name="part_yt_channels_short">Chosen channels only</string>
+    <string name="brand_instagram" translatable="false">Instagram</string>
+    <string name="brand_youtube" translatable="false">YouTube</string>
     <string name="yt_channels_placeholder">Channel name or @handle</string>
     <string name="yt_channels_hint">Add the name YouTube shows under a video. For Shorts, add its @handle too.</string>
     <string name="yt_channels_need">Add at least one channel.</string>

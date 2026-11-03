@@ -26,15 +26,15 @@ const val PartInstagramSearch = "part:instagram.search"
  * A part of an app that a Shield holds back on its own, like an app or a site, while the rest of [owner]
  * stays open. Experimental: detection reads view IDs those apps can change at any update.
  */
-data class AppPart(val key: String, val owner: String, @StringRes val name: Int, @StringRes val body: Int)
+data class AppPart(val key: String, val owner: String, @StringRes val name: Int, @StringRes val body: Int, @StringRes val short: Int = name)
 
 /** The five parts a Shield can hold back, in the order the picker shows them. */
 val AppParts = listOf(
-    AppPart(PartReels, Instagram, R.string.part_reels, R.string.part_reels_body),
-    AppPart(PartInstagramMessages, Instagram, R.string.part_ig_messages, R.string.part_ig_messages_body),
-    AppPart(PartShorts, YouTube, R.string.part_shorts, R.string.part_shorts_body),
-    AppPart(PartYouTubeFeed, YouTube, R.string.part_yt_feed, R.string.part_yt_feed_body),
-    AppPart(PartYouTubeChannels, YouTube, R.string.part_yt_channels, R.string.part_yt_channels_body),
+    AppPart(PartReels, Instagram, R.string.part_reels, R.string.part_reels_body, R.string.part_reels_short),
+    AppPart(PartInstagramMessages, Instagram, R.string.part_ig_messages, R.string.part_ig_messages_body, R.string.part_ig_messages_short),
+    AppPart(PartShorts, YouTube, R.string.part_shorts, R.string.part_shorts_body, R.string.part_shorts_short),
+    AppPart(PartYouTubeFeed, YouTube, R.string.part_yt_feed, R.string.part_yt_feed_body, R.string.part_yt_feed_short),
+    AppPart(PartYouTubeChannels, YouTube, R.string.part_yt_channels, R.string.part_yt_channels_body, R.string.part_yt_channels_short),
 )
 
 private val LegacyParts = listOf(

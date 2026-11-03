@@ -203,22 +203,40 @@ fun PlusScreen(onBack: () -> Unit) {
     }
 }
 
-/** Free: the quiet card. Every Shield at full strength, its few limits stated plainly. */
+/**
+ * Free: the quiet card. Its four limits read first as light figures in a two-by-two grid; everything Free
+ * keeps open follows as plain lines. No dividers between rows: one hairline parts the two halves.
+ */
 @Composable
 private fun FreeCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
-    Column(modifier.padding(horizontal = Space.Gutter).fillMaxWidth().glass(colors).padding(horizontal = Space.L, vertical = 20.dp)) {
+    val (limits, open) = rows.partition { (_, free, plus) -> free != plus && free.first().isDigit() }
+    Column(modifier.padding(horizontal = Space.Gutter).fillMaxWidth().glass(colors).padding(horizontal = Space.L, vertical = Space.L)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AuroraMark(18.dp, Modifier.padding(end = 10.dp))
-            Text(stringResource(R.string.plus_free_name), Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 26.sp, lineHeight = 30.sp))
+            Text(stringResource(R.string.plus_free_name), Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 28.sp, lineHeight = 32.sp))
             if (current) PlanPill()
         }
-        Text(stringResource(R.string.plus_free_tagline), Modifier.padding(top = Space.XS, bottom = Space.S), color = colors.textSecondary, style = AuroraType.Secondary)
-        rows.forEach { (feature, free, _) ->
-            RowDivider()
-            Row(Modifier.fillMaxWidth().padding(vertical = 11.dp).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
-                Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textSecondary, style = AuroraType.Secondary)
-                Text(free, color = colors.textPrimary, style = AuroraType.Caption, textAlign = TextAlign.End)
+        Text(stringResource(R.string.plus_free_tagline), Modifier.padding(top = 6.dp), color = colors.textSecondary, style = AuroraType.Secondary)
+        Column(Modifier.padding(top = 22.dp, bottom = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            limits.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.M)) {
+                    pair.forEach { (feature, free, _) ->
+                        Column(Modifier.weight(1f).semantics(mergeDescendants = true) { }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(free, color = colors.textPrimary, style = AuroraType.Metric.copy(fontSize = 34.sp, lineHeight = 38.sp))
+                            Text(feature, color = colors.textTertiary, style = AuroraType.Caption)
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+        RowDivider()
+        Column(Modifier.padding(top = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+            open.forEach { (feature, free, _) ->
+                Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
+                    Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textSecondary, style = AuroraType.Secondary)
+                    Text(free, color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.End)
+                }
             }
         }
     }
