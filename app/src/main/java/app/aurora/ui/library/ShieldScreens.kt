@@ -39,6 +39,11 @@ import app.aurora.protect.strict
 import app.aurora.protect.ShieldPreset
 import app.aurora.protect.AppParts
 import app.aurora.protect.PartPrefix
+import app.aurora.protect.PartYouTubeChannels
+import app.aurora.protect.channelsKey
+import app.aurora.protect.channelsOf
+import app.aurora.protect.cleanChannel
+import app.aurora.protect.partOf
 import app.aurora.protect.WebPrefix
 import app.aurora.runsNow
 import app.aurora.saveShield
@@ -190,7 +195,9 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
     val colors = Aurora.colors
     var name by rememberSaveable(initial.id) { mutableStateOf(initial.name) }
     var keys by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filterNot { it.startsWith(WebPrefix) || it.startsWith(PartPrefix) }) }
-    var parts by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filter { it.startsWith(PartPrefix) }) }
+    // The chosen channels edit apart from their key; saving folds them back in (channelsKey).
+    var parts by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filter { it.startsWith(PartPrefix) }.map { partOf(it)?.key ?: it }) }
+    var channels by rememberSaveable(initial.id) { mutableStateOf(initial.keys.firstOrNull { partOf(it)?.key == PartYouTubeChannels }?.let(::channelsOf).orEmpty()) }
     var sites by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filter { it.startsWith(WebPrefix) }.map { it.removePrefix(WebPrefix) }) }
     var mode by rememberSaveable(initial.id) { mutableStateOf(initial.mode) }
     var task by rememberSaveable(initial.id) { mutableStateOf(initial.friction.task) }
@@ -202,13 +209,15 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
 
     // Apps, websites and parts of apps each have their own page; any of them can be left empty.
     val steps = ShieldStep.entries
-    val all = keys + sites.map { WebPrefix + it } + parts
+    val all = keys + sites.map { WebPrefix + it } + parts.map { if (it == PartYouTubeChannels) channelsKey(channels) else it }
+    val channelsMissing = PartYouTubeChannels in parts && channels.isEmpty()
     val cap = vm.data.collectAsStateWithLifecycle().value?.max(Allowance.ProtectedItems)
     val index = steps.indexOf(step).coerceAtLeast(0)
     val back = { if (index == 0) onBack() else step = steps[index - 1] }
     val canNext = when (step) {
         ShieldStep.Name -> name.isNotBlank()
-        ShieldStep.Apps, ShieldStep.Sites, ShieldStep.Parts -> true
+        ShieldStep.Apps, ShieldStep.Sites -> true
+        ShieldStep.Parts -> !channelsMissing
         ShieldStep.Type -> mode != Mode.Cooldown || wait != null
         ShieldStep.Review -> all.isNotEmpty()
     }
@@ -229,6 +238,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
             when (step) {
                 ShieldStep.Name -> R.string.need_name
                 ShieldStep.Type -> R.string.need_time
+                ShieldStep.Parts -> R.string.yt_channels_need
                 else -> R.string.need_apps
             },
         ),
@@ -277,6 +287,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                         }
                     }
                 }
+                if (PartYouTubeChannels in parts) item(key = "channels") { ChannelEditor(channels) { channels = it } }
                 item(key = "parts-permission") {
                     // Whether Web & content is on, said plainly, with the way to turn it on from here.
                     val on = app.aurora.rememberAccess(app.aurora.data.Access.Content) == app.aurora.data.AccessState.Granted
@@ -355,5 +366,35 @@ private fun PresetCardPreview(p: ShieldPreset, vm: ProtectModel) {
         Text(p.name, color = colors.textPrimary, style = AuroraType.Headline)
         Text(shieldDetail(p), color = colors.textSecondary, style = AuroraType.Secondary)
         if (p.keys.isNotEmpty()) app.aurora.ui.protect.IconStack(p.keys, data, max = 8)
+    }
+}
+
+/** The channels YouTube may play from: type a name or @handle, add it; each one can be removed. */
+@Composable
+private fun ChannelEditor(channels: List<String>, onChange: (List<String>) -> Unit) {
+    val colors = Aurora.colors
+    var text by rememberSaveable { mutableStateOf("") }
+    val add = {
+        val name = cleanChannel(text)
+        if (name.isNotEmpty() && channels.none { it.equals(name, ignoreCase = true) }) onChange(channels + name)
+        text = ""
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        Text(stringResource(R.string.part_yt_channels), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
+            AuroraTextField(text, { text = it.take(100) }, stringResource(R.string.yt_channels_placeholder), Modifier.weight(1f), onDone = add)
+            AuroraButton(stringResource(R.string.shield_sites_add), add, kind = ButtonKind.Secondary, compact = true, enabled = text.isNotBlank())
+        }
+        Text(stringResource(R.string.yt_channels_hint), color = colors.textTertiary, style = AuroraType.Caption)
+        channels.forEach { name ->
+            Row(
+                Modifier.fillMaxWidth().auroraSurface(colors, app.aurora.ui.theme.Radius.M).padding(horizontal = Space.M, vertical = Space.XS),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.M),
+            ) {
+                Text(name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                app.aurora.ui.components.AuroraIconButton(AuroraIcons.Close, stringResource(R.string.action_remove_channel, name), { onChange(channels - name) })
+            }
+        }
     }
 }

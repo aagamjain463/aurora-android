@@ -69,7 +69,7 @@ data class ProtectData(
     /** The app's own name, a site's domain, a part's name, or "" while the name loads. Never a raw package name. */
     fun label(key: String): String = when {
         key.startsWith(WebPrefix) -> key.removePrefix(WebPrefix)
-        else -> apps[key]?.label ?: labels[key].orEmpty()
+        else -> apps[key]?.label ?: labels[key] ?: labels[app.aurora.protect.partOf(key)?.key].orEmpty()
     }
 
     /** Sessions still running, soonest end first. */

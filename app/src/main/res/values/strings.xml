@@ -27,8 +27,8 @@
     <string name="mode_cooldown">Cooldown</string>
     <string name="mode_always_block">Strict</string>
     <string name="mode_flexible_desc">Blocked until your timer ends, or you turn it off.</string>
-    <string name="mode_friction_desc">Complete a challenge before getting access.</string>
-    <string name="mode_cooldown_desc">Wait before you can open this app.</string>
+    <string name="mode_friction_desc">Blocked until your timer ends. To end it early, complete a challenge in Aurora.</string>
+    <string name="mode_cooldown_desc">Blocked until your timer ends. To end it early, wait it out in Aurora.</string>
     <string name="mode_always_block_desc">No in-app early exit. Protection ends when your timer does.</string>
     <string name="always_block_confirm">I\'m ready to commit</string>
 
@@ -61,6 +61,15 @@
     <string name="shield_opens_again_at">You can open it again at %1$s</string>
     <string name="shield_ended_title">Your timer has ended.</string>
     <string name="shield_ended_body">%1$s isn\'t protected right now.</string>
+    <string name="shield_end_friction_body">To unlock it, open Aurora and complete the challenge to end this session.</string>
+    <string name="shield_end_cooldown_body">To unlock it, open Aurora and wait out the cooldown to end this session.</string>
+    <string name="shield_open_aurora">Open Aurora</string>
+    <string name="end_session_friction_title">Complete the challenge.</string>
+    <string name="end_session_cooldown_title">Wait it out.</string>
+    <string name="end_session_body">This ends %1$s for every app in it.</string>
+    <string name="end_session_cooldown_note">Leaving this screen restarts the wait.</string>
+    <string name="end_session_intention_prompt">Why do you want to end this session?</string>
+    <string name="end_session_confirm">End session</string>
     <string name="shield_cooldown_title">Wait before opening %1$s.</string>
     <string name="shield_cooldown_body">Stay with the wait. When it ends, you choose how long to use the app.</string>
     <string name="shield_restart_note">Each new attempt restarts your wait.</string>
@@ -441,7 +450,18 @@
     <string name="part_shorts">YouTube Shorts</string>
     <string name="part_shorts_body">The rest of YouTube stays open.</string>
     <string name="part_reels">Instagram Reels</string>
-    <string name="part_reels_body">The Reels tab. A reel a friend sends plays, but not the next one.</string>
+    <string name="part_reels_body">Just the Reels tab. The rest of Instagram stays open.</string>
+    <string name="part_ig_messages">Instagram: messages and stories only</string>
+    <string name="part_ig_messages_body">Reels and posts are off everywhere. A reel or post a friend sends opens, but not the next one, and it can\'t be sent on.</string>
+    <string name="part_yt_feed">YouTube recommendations</string>
+    <string name="part_yt_feed_body">No Home feed, nothing beside or under a video, no Shorts. Watch from Subscriptions or Search.</string>
+    <string name="part_yt_channels">YouTube from chosen channels</string>
+    <string name="part_yt_channels_body">Only videos and Shorts from the channels you choose play.</string>
+    <string name="yt_channels_placeholder">Channel name or @handle</string>
+    <string name="yt_channels_hint">Add the name YouTube shows under a video. For Shorts, add its @handle too.</string>
+    <string name="yt_channels_need">Add at least one channel.</string>
+    <string name="action_remove_channel">Remove %1$s</string>
+    <string name="yt_cover_feed">Recommendations are off in Aurora. Search, or open Subscriptions.</string>
     <string name="part_ig_feed">Instagram posts</string>
     <string name="part_ig_feed_body">Home posts are covered. Stories and messages stay.</string>
     <string name="part_ig_search">Instagram Search</string>

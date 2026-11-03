@@ -10,7 +10,15 @@ import app.aurora.R
 const val PartPrefix = "part:"
 const val YouTube = "com.google.android.youtube"
 const val PartShorts = "part:youtube.shorts"
+const val PartYouTubeFeed = "part:youtube.feed"
+/**
+ * YouTube only from chosen channels: "part:youtube.channels=<name>|<name>". The list lives in the key, so a
+ * running Shield keeps the list it started with and a strict one can't be loosened by editing it.
+ */
+const val PartYouTubeChannels = "part:youtube.channels"
 const val PartReels = "part:instagram.reels"
+const val PartInstagramMessages = "part:instagram.messages"
+/** No longer offered; Shields saved with them keep working ([LegacyParts]). */
 const val PartInstagramFeed = "part:instagram.feed"
 const val PartInstagramSearch = "part:instagram.search"
 
@@ -20,14 +28,43 @@ const val PartInstagramSearch = "part:instagram.search"
  */
 data class AppPart(val key: String, val owner: String, @StringRes val name: Int, @StringRes val body: Int)
 
+/** The five parts a Shield can hold back, in the order the picker shows them. */
 val AppParts = listOf(
-    AppPart(PartShorts, YouTube, R.string.part_shorts, R.string.part_shorts_body),
     AppPart(PartReels, Instagram, R.string.part_reels, R.string.part_reels_body),
+    AppPart(PartInstagramMessages, Instagram, R.string.part_ig_messages, R.string.part_ig_messages_body),
+    AppPart(PartShorts, YouTube, R.string.part_shorts, R.string.part_shorts_body),
+    AppPart(PartYouTubeFeed, YouTube, R.string.part_yt_feed, R.string.part_yt_feed_body),
+    AppPart(PartYouTubeChannels, YouTube, R.string.part_yt_channels, R.string.part_yt_channels_body),
+)
+
+private val LegacyParts = listOf(
     AppPart(PartInstagramFeed, Instagram, R.string.part_ig_feed, R.string.part_ig_feed_body),
     AppPart(PartInstagramSearch, Instagram, R.string.part_ig_search, R.string.part_ig_search_body),
 )
 
-fun partOf(key: String): AppPart? = AppParts.find { it.key == key }
+fun partOf(key: String): AppPart? = (AppParts + LegacyParts).find { key == it.key || key.startsWith(it.key + "=") }
+
+/** The key for YouTube from only [channels]. */
+fun channelsKey(channels: List<String>): String =
+    PartYouTubeChannels + "=" + channels.map(::cleanChannel).filter(String::isNotEmpty).distinct().joinToString("|")
+
+/** The channels in a [PartYouTubeChannels] key. */
+fun channelsOf(key: String): List<String> = key.substringAfter('=', "").split('|').filter(String::isNotBlank)
+
+/** A channel as the person typed it, safe inside a key. */
+fun cleanChannel(name: String): String = name.replace("|", "").replace("=", "").trim().take(100)
+
+private fun normal(text: String) = text.lowercase().replace(Regex("\\s+"), " ").trim()
+
+/**
+ * Whether any of [texts] (what YouTube shows around a video) names one of [channels], as a whole name:
+ * "Veritasium" or "@veritasium" matches "Veritasium · 15M subscribers", "ted" doesn't match "united".
+ */
+fun fromChannels(texts: List<String>, channels: List<String>): Boolean = channels.any { channel ->
+    val name = normal(channel).removePrefix("@").takeIf(String::isNotEmpty) ?: return@any false
+    val whole = Regex("(^|[^\\p{L}\\p{N}@])@?" + Regex.escape(name) + "($|[^\\p{L}\\p{N}])")
+    texts.any { whole.containsMatchIn(normal(it)) }
+}
 
 /** The old global switches ([Rules.content]) and the parts each one becomes. */
 val LegacyContent = mapOf(
@@ -73,15 +110,6 @@ fun webKeyFor(host: String, keys: Collection<String>): String? = keys
     .filter { key -> key.removePrefix(WebPrefix).let { host == it || host.endsWith(".$it") } }
     .maxByOrNull { it.length }
 
-/** View IDs that mean a short-video feed is open. They change with app updates: experimental. */
-val ContentSurfaces = mapOf(
-    PartShorts to (YouTube to listOf(
-        "com.google.android.youtube:id/reel_player_page_container",
-        "com.google.android.youtube:id/reel_recycler",
-        "com.google.android.youtube:id/reel_watch_player",
-    )),
-)
-
 const val Instagram = "com.instagram.android"
 
 /** Instagram view IDs, checked against Instagram 453. They change with app updates: experimental. */
@@ -104,31 +132,84 @@ data class InstagramScreen(
 
 sealed interface InstagramVerdict {
     data object Allow : InstagramVerdict
-    /** The Reels tab: the Shield. */
-    data object Leave : InstagramVerdict
-    /** A reel opened from a message or a post: it plays, but moving on to another reel brings the Shield. */
+    /** The Reels tab: the Shield for [key], then back. */
+    data class Leave(val key: String) : InstagramVerdict
+    /** A reel opened from a message: it plays, but moving on to another reel brings the Shield. */
     data object OneReel : InstagramVerdict
-    /** Cover this band of the screen, so posts or Search can't be seen or touched. */
-    data class Cover(val top: Int, val bottom: Int, val search: Boolean) : InstagramVerdict {
-        val key: String get() = if (search) PartInstagramSearch else PartInstagramFeed
-    }
+    /** Cover this band of the screen, so what [key] holds back can't be seen or touched. */
+    data class Cover(val top: Int, val bottom: Int, val key: String) : InstagramVerdict
 }
 
 /**
- * What Aurora does on this Instagram screen, given the parts a Shield holds back right now. [reels]: the
- * Reels tab is shielded and other reels play one at a time. [feed]: Home posts are covered. [search]:
- * Search is covered. Stories, messages and profiles always stay.
+ * What Aurora does on this Instagram screen, given the parts a Shield holds back right now.
+ * [reels]: only the Reels tab. [messages]: only messages and stories stay. Reels and posts are off
+ * everywhere; a reel or post a friend sends opens, but the next reel brings the Shield. [feed] and
+ * [search] are the older separate parts: Home posts, and Search.
  */
-fun instagramVerdict(s: InstagramScreen, reels: Boolean, feed: Boolean, search: Boolean, screenBottom: Int): InstagramVerdict {
+fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed: Boolean, search: Boolean, screenBottom: Int): InstagramVerdict {
     val bottom = s.tabBarTop ?: screenBottom
+    // Below the stories row (or the header, once the row has scrolled away), down to the tab bar.
+    val belowStories = maxOf(s.storiesBottom ?: 0, s.headerBottom ?: 0)
+    fun cover(top: Int, key: String) = if (top < bottom) InstagramVerdict.Cover(top, bottom, key) else InstagramVerdict.Allow
     return when {
         s.storyViewer -> InstagramVerdict.Allow
-        reels && s.tab == "clips_tab" -> InstagramVerdict.Leave
-        s.reelViewer -> if (reels) InstagramVerdict.OneReel else InstagramVerdict.Allow
-        search && s.tab == "search_tab" -> InstagramVerdict.Cover(0, bottom, search = true)
-        // Below the stories row (or the header, once the row has scrolled away), down to the tab bar.
-        feed && s.tab == "feed_tab" && s.posts -> maxOf(s.storiesBottom ?: 0, s.headerBottom ?: 0)
-            .let { top -> if (top < bottom) InstagramVerdict.Cover(top, bottom, search = false) else InstagramVerdict.Allow }
+        (reels || messages) && s.tab == "clips_tab" -> InstagramVerdict.Leave(if (messages) PartInstagramMessages else PartReels)
+        s.reelViewer -> if (messages) InstagramVerdict.OneReel else InstagramVerdict.Allow
+        messages && s.tab == "feed_tab" -> cover(belowStories, PartInstagramMessages)
+        messages && s.tab == "search_tab" -> cover(0, PartInstagramMessages)
+        // Your own grid is posts too; the header (and its menu to Settings) stays.
+        messages && s.tab == "profile_tab" -> cover(s.headerBottom ?: 0, PartInstagramMessages)
+        search && s.tab == "search_tab" -> cover(0, PartInstagramSearch)
+        feed && s.tab == "feed_tab" && s.posts -> cover(belowStories, PartInstagramFeed)
         else -> InstagramVerdict.Allow
+    }
+}
+
+/** One look at YouTube, reduced to what [youTubeVerdict] needs. Bounds are screen pixels. */
+data class YouTubeScreen(
+    /** The Shorts player is open. */
+    val shorts: Boolean = false,
+    /** The Home tab's feed, top to bottom, when Home is the chosen tab. */
+    val homeFeed: Pair<Int, Int>? = null,
+    /** The open video's player (not the miniplayer, not a preview in a list): left, top, right, bottom. */
+    val watch: List<Int>? = null,
+    /** What YouTube shows around the playing video or Short: its title, channel, handle. */
+    val texts: List<String> = emptyList(),
+)
+
+sealed interface YouTubeVerdict {
+    data object Allow : YouTubeVerdict
+    /** The Shield for [key], then back. */
+    data class Leave(val key: String) : YouTubeVerdict
+    /** Not from a chosen channel: the Shield for [key] once YouTube has settled on it. */
+    data class NotFromChannel(val key: String) : YouTubeVerdict
+    /** Cover this rectangle: left, top, right, bottom. */
+    data class Cover(val bounds: List<Int>, val key: String) : YouTubeVerdict
+}
+
+/**
+ * What Aurora does on this YouTube screen. [shorts]: Shorts. [feed]: every recommendation (Home's feed,
+ * what's beside or below a video, Shorts); Subscriptions and Search stay. [channels]: the channels key
+ * and its channels, when only those may play.
+ */
+fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: Pair<String, List<String>>?, screenWidth: Int, screenBottom: Int): YouTubeVerdict {
+    val playing = s.shorts || s.watch != null
+    return when {
+        s.shorts && shorts -> YouTubeVerdict.Leave(PartShorts)
+        s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed)
+        // Nothing to read yet (still loading, or full screen): judged once it shows.
+        channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) -> YouTubeVerdict.NotFromChannel(channels.first)
+        feed && s.watch != null -> {
+            val (_, _, right, bottom) = s.watch
+            when {
+                // Side by side (landscape, tablets): what's beside the video.
+                right < screenWidth * 4 / 5 -> YouTubeVerdict.Cover(listOf(right, 0, screenWidth, screenBottom), PartYouTubeFeed)
+                bottom < screenBottom -> YouTubeVerdict.Cover(listOf(0, bottom, screenWidth, screenBottom), PartYouTubeFeed)
+                else -> YouTubeVerdict.Allow
+            }
+        }
+        feed && s.homeFeed != null && s.homeFeed.first < s.homeFeed.second ->
+            YouTubeVerdict.Cover(listOf(0, s.homeFeed.first, screenWidth, s.homeFeed.second), PartYouTubeFeed)
+        else -> YouTubeVerdict.Allow
     }
 }
