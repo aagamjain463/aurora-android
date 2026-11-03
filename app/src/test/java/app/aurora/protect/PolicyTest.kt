@@ -77,7 +77,8 @@ class PolicyTest {
     fun frictionAsksForATaskThenAllowsOnlyTheChosenTime() {
         val s = state(r(ShieldReason.Friction, 0, 180 * min))
         assertEquals(ShieldReason.Friction, (decide(ig, min, s) as Decision.Shield).reason)
-        assertTrue(ShieldReason.Friction.canContinue)
+        assertFalse(ShieldReason.Friction.canContinue)
+        assertFalse(ShieldReason.Cooldown.canContinue)
         val granted = s.copy(access = mapOf(ig to Grant(16 * min, Mode.Friction)))
         assertEquals(Decision.TemporarilyAllowed(16 * min), decide(ig, min, granted))
         // The grant ends: the task is needed again.

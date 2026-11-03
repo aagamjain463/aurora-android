@@ -129,6 +129,34 @@ fun AuroraRow(
     }
 }
 
+/**
+ * How Aurora explains one thing: a tinted round icon, a short title and at most one quiet line, with an
+ * optional value on the right. No padding of its own, so it sits in a [RowGroup] or a dialog alike.
+ */
+@Composable
+fun FactRow(
+    icon: ImageVector,
+    title: String,
+    modifier: Modifier = Modifier,
+    body: String? = null,
+    tint: androidx.compose.ui.graphics.Color = Aurora.colors.accent,
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+) {
+    val colors = Aurora.colors
+    Row(
+        modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        IconBadge(icon, tint = tint, size = 36)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong)
+            if (body != null) Text(body, color = colors.textTertiary, style = AuroraType.Secondary.copy(fontSize = 12.5.sp, lineHeight = 17.sp))
+        }
+        trailing?.invoke(this)
+    }
+}
+
 @Composable
 fun Chevron() {
     Icon(AuroraIcons.Chevron, null, tint = Aurora.colors.textTertiary, modifier = Modifier.size(16.dp))

@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -207,41 +206,63 @@ fun ShieldDisclosure(onContinue: () -> Unit, onDismiss: () -> Unit) {
 }
 
 /**
- * Shield diagnostics: each link of the chain, from permission to a Shield actually on screen, so a
- * failure shows exactly where it is. Counts come from this process only and are never sent anywhere.
+ * Shield diagnostics: each link of the chain, from permission to a Shield actually on screen, as a
+ * checklist, so a failure shows exactly where it is. Counts come from this process only and are never
+ * sent anywhere.
  */
 @Composable
-fun ShieldDiagnostics(status: ProtectionStatus?, list: ProtectedList?, active: Int, trace: ShieldTrace.Snapshot, onDismiss: () -> Unit) {
+fun ShieldDiagnostics(trace: ShieldTrace.Snapshot, onDismiss: () -> Unit) {
+    val colors = Aurora.colors
     val access = rememberAccess(Access.Accessibility)
     val connected by ShieldService.connected.collectAsStateWithLifecycle()
-    val exposure = trace.exposure
-    fun mark(ok: Boolean?) = when (ok) {
-        true -> "✓"
-        false -> "✗"
-        null -> "–"
-    }
-    val since = trace.lastEventUptime?.let { (SystemClock.uptimeMillis() - it) / 1000 }
-    val lines = buildList {
-        add("${mark(access == AccessState.Granted)} 1. Accessibility permission: ${if (access == AccessState.Granted) "on" else "off"}")
-        add("${mark(connected)} 2. Shield service: ${if (connected) "connected" else "not connected"}")
-        add("${mark(if (connected) trace.events > 0 else null)} 3. Window events received: ${trace.events}" + (since?.let { " (last ${it}s ago)" } ?: ""))
-        add("${mark(if (trace.events > 0) trace.watched > 0 else null)} 4. Protected apps recognised: ${trace.watched}")
-        add("${mark(if (trace.watched > 0) trace.restricted > 0 else null)} 5. Active protection found: ${trace.restricted}" + (trace.lastReason?.let { " (last: ${it.name})" } ?: ""))
-        add("${mark(if (trace.restricted > 0) trace.shields + trace.failures > 0 else null)} 6. Shield requested: ${trace.shields + trace.failures} (${trace.repeats} repeats)")
-        add("${mark(if (trace.shields + trace.failures > 0) trace.failures == 0 else null)} 7. Shield on screen: ${trace.shields}, refused: ${trace.failures}")
-        add(if (exposure == null) "Shield time: none measured yet" else "Shield time (app opened to Shield on screen): median ${exposure.first} ms, slowest ${exposure.second} ms")
-        add("Status: " + (status?.name ?: "checking"))
-        if (list != null) add(if (list.readable) "Protected apps: $active active, ${list.items.size - active} paused" else "Protected apps: can't be read")
-        if (list != null && list.skipped > 0) add("Unreadable saved entries: ${list.skipped}")
-        if (trace.unavailable > 0) add("Decisions skipped while settings loaded: ${trace.unavailable}")
-        if (trace.lifecycle.isNotEmpty()) add("Service: ${trace.lifecycle.takeLast(3).joinToString("; ")}")
-        add("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
+    val granted = access == AccessState.Granted
+    val requested = trace.shields + trace.failures
+    // (title, value, ok): ok stays null until the link before it has been reached.
+    val steps = listOf(
+        Triple(stringResource(R.string.diag_permission), stringResource(if (granted) R.string.settings_allowed else R.string.intent_off), granted),
+        Triple(stringResource(R.string.diag_service), stringResource(if (connected) R.string.diag_connected else R.string.diag_not_connected), connected),
+        Triple(stringResource(R.string.diag_events), "${trace.events}", if (connected) trace.events > 0 else null),
+        Triple(stringResource(R.string.diag_watched), "${trace.watched}", if (trace.events > 0) trace.watched > 0 else null),
+        Triple(
+            stringResource(R.string.diag_shown),
+            if (trace.failures > 0) stringResource(R.string.diag_shown_refused, trace.shields, trace.failures) else "${trace.shields}",
+            if (trace.restricted > 0) requested > 0 && trace.failures == 0 else null,
+        ),
+    )
+    val broken = steps.firstOrNull { it.third == false }
+    val summary = when {
+        broken != null -> stringResource(R.string.diag_broken, broken.first)
+        steps.any { it.third == null } -> stringResource(R.string.diag_waiting)
+        else -> stringResource(R.string.diag_ok)
     }
     AuroraDialog(
         title = stringResource(R.string.diagnostics_title),
-        body = lines.joinToString("\n") + "\n\n" + stringResource(R.string.diagnostics_note),
+        body = summary,
         confirmLabel = stringResource(R.string.action_close),
         onConfirm = onDismiss,
         onDismiss = onDismiss,
-    )
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.M)) {
+            steps.forEach { (title, value, ok) ->
+                app.aurora.ui.components.FactRow(
+                    icon = when (ok) {
+                        true -> app.aurora.ui.components.AuroraIcons.Check
+                        false -> app.aurora.ui.components.AuroraIcons.Close
+                        null -> app.aurora.ui.components.AuroraIcons.Clock
+                    },
+                    title = title,
+                    tint = when (ok) {
+                        true -> colors.accent
+                        false -> colors.danger
+                        null -> colors.textTertiary
+                    },
+                ) { Text(value, color = colors.textSecondary, style = AuroraType.Secondary) }
+            }
+            val speed = trace.exposure?.let { stringResource(R.string.diag_speed, it.first) }
+            Text(
+                listOfNotNull(speed, "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}", stringResource(R.string.diagnostics_note)).joinToString("\n"),
+                Modifier.padding(top = Space.XS), color = colors.textTertiary, style = AuroraType.Caption,
+            )
+        }
+    }
 }

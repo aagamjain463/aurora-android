@@ -72,12 +72,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.AuroraApplication
+import app.aurora.MainActivity
+import app.aurora.ui.components.AuroraMark
 import app.aurora.R
-import app.aurora.cooldownWait
 import app.aurora.data.formatClock
 import app.aurora.data.ThemeMode
 import app.aurora.finishIntent
-import app.aurora.grantAccess
 import app.aurora.intentOverrun
 import app.aurora.record
 import app.aurora.runsNow
@@ -162,12 +162,9 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
         androidx.compose.runtime.CompositionLocalProvider(LocalSessionNote provides note, LocalLeave provides if (part != null) R.string.shield_go_back else R.string.shield_return_home) {
         ShieldFrame(label, icon, showName = website || part != null, onClose = if (intent) leave else null) {
             when (decision.reason) {
-                ShieldReason.AlwaysBlock, ShieldReason.Flexible, ShieldReason.Focus, ShieldReason.Limit, ShieldReason.IntentCooldown, ShieldReason.Locked ->
-                    Blocked(decision, label, now, home, onEnded = { close(false) })
-                // Ended while on screen: nothing is left to wait for or solve.
-                ShieldReason.Cooldown -> if (decision.over(now)) Blocked(decision, label, now, home, onEnded = { close(false) }) else CooldownFlow(app, decision, label, now, home, onOpen = { close(false) })
-                ShieldReason.Friction -> if (decision.over(now)) Blocked(decision, label, now, home, onEnded = { close(false) }) else FrictionFlow(app, decision, label, home, onOpen = { close(false) })
+                // Friction and Cooldown are ended in Aurora, for the whole session; the Shield only says where.
                 ShieldReason.Intent -> IntentFlow(app, decision, label, now, home, onOpen = { close(false) })
+                else -> Blocked(decision, label, now, home, onEnded = { close(false) })
             }
         }
         }
@@ -350,9 +347,9 @@ private fun Countdown(until: Long, now: Long, caption: String) {
 
 /** Both cooldowns restart from every new attempt to open the app; the Shield says so plainly. */
 @Composable
-private fun RestartNote() {
+private fun RestartNote(text: String = stringResource(R.string.shield_restart_note)) {
     Text(
-        stringResource(R.string.shield_restart_note),
+        text,
         Modifier.fillMaxWidth().padding(top = Space.XS).clip(Radius.Pill).background(Aurora.colors.violetSoft).padding(horizontal = Space.M, vertical = 10.dp),
         color = Aurora.colors.violetText,
         style = AuroraType.Label,
@@ -416,6 +413,21 @@ private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Dec
             Headline(stringResource(R.string.shield_limit_title, label), label)
             ends?.let { EndsPill(it) }
         }
+        ShieldReason.Friction, ShieldReason.Cooldown -> {
+            Headline(stringResource(R.string.shield_blocked_title, label), label)
+            ends?.let { EndsPill(it) }
+            Body(stringResource(if (decision.reason == ShieldReason.Friction) R.string.shield_end_friction_body else R.string.shield_end_cooldown_body))
+            val context = LocalContext.current
+            Actions {
+                AuroraButton(stringResource(R.string.shield_open_aurora), {
+                    // Aurora comes to the front first, so taking the Shield away never shows the app behind it.
+                    context.startActivity(android.content.Intent(context, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    onEnded()
+                }, Modifier.fillMaxWidth())
+                AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+            }
+            return
+        }
         else -> {
             Headline(stringResource(R.string.shield_intent_cooldown_title))
             ends?.let { EndsPill(it) }
@@ -424,60 +436,6 @@ private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Dec
         }
     }
     Actions { AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth()) }
-}
-
-// ---- Cooldown: wait first, then timed access ----------------------------------------------------
-
-@Composable
-private fun androidx.compose.foundation.layout.ColumnScope.CooldownFlow(app: AuroraApplication, decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onOpen: () -> Unit) {
-    val restriction = decision.restriction ?: return Blocked(decision, label, now, home, onOpen)
-    // The wait is stored, and read live: a genuine new attempt restarts it (Cooldowns.kt), and the
-    // countdown shows the restart at once. Showing or recreating the Shield never restarts it.
-    val runtime by app.runtime.state.collectAsStateWithLifecycle()
-    val stored = runtime?.value?.cooldownWaits?.get(decision.packageName)?.takeIf { it.restrictionId == restriction.id }?.readyAt
-    LaunchedEffect(decision.packageName, restriction.id, stored == null) {
-        if (stored == null) runCatching { app.cooldownWait(decision.packageName, restriction) }
-    }
-    val readyAt = stored ?: decision.readyAt
-    val ready = readyAt?.let { now >= it } == true
-    // The app's scope: going home closes this overlay, and what was just chosen must still be stored.
-    val scope = app.scope
-    val haptics = LocalHapticFeedback.current
-    var failed by remember { mutableStateOf(false) }
-    if (!ready) {
-        Headline(stringResource(R.string.shield_cooldown_title, label), label)
-        Body(stringResource(R.string.shield_cooldown_body))
-        readyAt?.let { Countdown(it, now, stringResource(R.string.shield_cooldown_ready_at, clockTime(it))) }
-        RestartNote()
-        Actions {
-            AuroraButton(stringResource(LocalLeave.current), {
-                scope.launch { runCatching { app.wentBack(intent = false) } }
-                home()
-            }, Modifier.fillMaxWidth())
-        }
-    } else {
-        Headline(stringResource(R.string.shield_cooldown_done_title))
-        Body(stringResource(R.string.shield_cooldown_done_body))
-        UsageChoice(label, decision, onBack = null) { minutes ->
-            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-            scope.launch {
-                try {
-                    app.grantAccess(decision.packageName, minutes, Mode.Cooldown)
-                    onOpen()
-                } catch (_: IOException) {
-                    // Not stored, so not granted: the Shield stays, and says why.
-                    failed = true
-                }
-            }
-        }
-        if (failed) SaveFailed()
-        Actions { AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
-    }
-}
-
-@Composable
-private fun SaveFailed() {
-    Text(stringResource(R.string.error_save_body), Modifier.fillMaxWidth().padding(top = Space.S), color = Aurora.colors.danger, style = AuroraType.Secondary, textAlign = TextAlign.Center)
 }
 
 /** "How long do you want to use {app}?": presets and a custom time, then open. */
@@ -504,55 +462,62 @@ private fun androidx.compose.foundation.layout.ColumnScope.UsageChoice(label: St
     }
 }
 
-// ---- Friction: a real task, then timed access -----------------------------------------------------
+// ---- Ending a Friction or Cooldown session: in Aurora only, for every app in it -----------------
 
-private enum class FrictionStep { Task, Usage }
-
+/**
+ * The one way a Friction or Cooldown session ends early: its challenge, or its wait sat out on this
+ * screen. The wait starts again whenever [host] comes back to the front (the person went home or to
+ * another app), and closing this screen drops it.
+ */
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.FrictionFlow(app: AuroraApplication, decision: Decision.Shield, label: String, home: () -> Unit, onOpen: () -> Unit) {
-    val settings = decision.restriction?.friction ?: FrictionSettings()
-    var step by remember { mutableStateOf(FrictionStep.Task) }
-    var failed by remember { mutableStateOf(false) }
-    // The app's scope: going home closes this overlay, and what was just chosen must still be stored.
-    val scope = app.scope
-    val goHome = {
-        scope.launch { runCatching { app.wentBack(intent = false) } }
-        home()
-    }
-    AnimatedContent(step, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "friction") { s ->
-        Column {
-            when (s) {
-                FrictionStep.Task -> {
-                    Headline(stringResource(R.string.shield_friction_title))
-                    Body(stringResource(R.string.mode_friction_desc))
-                    val done = {
-                        scope.launch { runCatching { app.record { it.copy(frictionDone = it.frictionDone + 1) } } }
-                        step = FrictionStep.Usage
-                    }
-                    when (settings.task) {
-                        FrictionTask.Math -> MathTask(settings.difficulty, onSolved = done, onMiss = { scope.launch { runCatching { app.record { it.copy(frictionMissed = it.frictionMissed + 1) } } } })
-                        FrictionTask.Intention -> IntentionTask(label, onDone = done)
-                        FrictionTask.Reflection -> ReflectionTask(app, decision.packageName, settings.reflectionSeconds, onDone = done)
-                    }
-                    Actions { AuroraButton(stringResource(LocalLeave.current), goHome, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
+fun EndSession(app: AuroraApplication, run: ConfigRun, host: androidx.lifecycle.LifecycleOwner, onEnd: () -> Unit, onCancel: () -> Unit) {
+    val shield = run.shield ?: return
+    val colors = Aurora.colors
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        Modifier.fillMaxSize().background(colors.background).windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
+    ) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).fillMaxWidth().heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            AuroraMark(26.dp, Modifier.padding(top = 34.dp), lit = true)
+            Spacer(Modifier.height(Space.XL))
+            if (shield.mode == Mode.Friction) {
+                Headline(stringResource(R.string.end_session_friction_title))
+                Body(stringResource(R.string.end_session_body, run.name))
+                val s = shield.friction
+                when (s.task) {
+                    FrictionTask.Math -> MathTask(s.difficulty, onSolved = onEnd, onMiss = {})
+                    FrictionTask.Intention -> IntentionTask(stringResource(R.string.end_session_intention_prompt), onDone = onEnd)
+                    FrictionTask.Reflection -> ReflectionTask(app, "end:${run.id}", s.reflectionSeconds, onDone = onEnd)
                 }
-                FrictionStep.Usage -> {
-                    Headline(stringResource(R.string.shield_friction_done_title))
-                    UsageChoice(label, decision, onBack = { step = FrictionStep.Task }) { minutes ->
-                        scope.launch {
-                            try {
-                                app.grantAccess(decision.packageName, minutes, Mode.Friction)
-                                onOpen()
-                            } catch (_: IOException) {
-                                // Not stored, so not granted.
-                                failed = true
-                            }
-                        }
+                Actions { AuroraButton(stringResource(R.string.action_cancel), onCancel, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
+            } else {
+                var since by remember { mutableStateOf(TrustedClock.wall()) }
+                androidx.lifecycle.compose.LifecycleStartEffect(Unit, lifecycleOwner = host) {
+                    since = TrustedClock.wall()
+                    onStopOrDispose { }
+                }
+                val now by produceState(TrustedClock.wall()) {
+                    while (true) {
+                        value = TrustedClock.wall()
+                        delay(500)
                     }
-                    if (failed) SaveFailed()
-                    Actions { AuroraButton(stringResource(LocalLeave.current), goHome, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
+                }
+                val readyAt = since + shield.cooldownWaitMinutes * 60_000L
+                val ready = now >= readyAt
+                Headline(stringResource(if (ready) R.string.shield_cooldown_done_title else R.string.end_session_cooldown_title))
+                Body(stringResource(R.string.end_session_body, run.name))
+                if (!ready) {
+                    Countdown(readyAt, now, stringResource(R.string.shield_cooldown_ready_at, clockTime(readyAt)))
+                    RestartNote(stringResource(R.string.end_session_cooldown_note))
+                }
+                Actions {
+                    if (ready) AuroraButton(stringResource(R.string.end_session_confirm), onEnd, Modifier.fillMaxWidth())
+                    AuroraButton(stringResource(R.string.action_cancel), onCancel, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                 }
             }
+            Spacer(Modifier.height(Space.M))
         }
     }
 }
@@ -584,7 +549,7 @@ fun mathProblem(difficulty: Difficulty, random: Random = Random.Default): MathPr
 fun checkAnswer(problem: MathProblem, typed: String): Boolean = typed.trim().replace(" ", "").toIntOrNull() == problem.answer
 
 @Composable
-private fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () -> Unit) {
+internal fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () -> Unit) {
     val colors = Aurora.colors
     var problem by remember { mutableStateOf(mathProblem(difficulty)) }
     var answer by remember { mutableStateOf("") }
@@ -632,7 +597,7 @@ private fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () ->
 
 /** A written intention: what the person means to do, read back to them before they go on. */
 @Composable
-private fun IntentionTask(label: String, onDone: () -> Unit) {
+internal fun IntentionTask(prompt: String, onDone: () -> Unit) {
     val colors = Aurora.colors
     var text by remember { mutableStateOf("") }
     var confirming by remember { mutableStateOf(false) }
@@ -640,7 +605,7 @@ private fun IntentionTask(label: String, onDone: () -> Unit) {
     val meaningful = text.trim().split(Regex("\\s+")).count { it.length > 1 } >= 2
     Column(Modifier.padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
         if (!confirming) {
-            Text(stringResource(R.string.friction_intention_prompt, label), color = colors.textPrimary, style = AuroraType.Title)
+            Text(prompt, color = colors.textPrimary, style = AuroraType.Title)
             AuroraTextField(
                 text, { text = it.take(200) },
                 placeholder = stringResource(R.string.friction_intention_placeholder),
@@ -665,7 +630,7 @@ private fun IntentionTask(label: String, onDone: () -> Unit) {
 
 /** Two short decisions, then a pause the person waits out. The pause is stored, so leaving doesn't skip it. */
 @Composable
-private fun ReflectionTask(app: AuroraApplication, key: String, seconds: Int, onDone: () -> Unit) {
+internal fun ReflectionTask(app: AuroraApplication, key: String, seconds: Int, onDone: () -> Unit) {
     val colors = Aurora.colors
     var step by remember { mutableIntStateOf(0) }
     val questions = listOf(

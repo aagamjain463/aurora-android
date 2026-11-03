@@ -51,6 +51,7 @@ import app.aurora.progress.Outcome
 import app.aurora.progress.RunRecord
 import app.aurora.protect.Activation
 import app.aurora.protect.ConfigRun
+import app.aurora.protect.EndSession
 import app.aurora.protect.ShieldService
 import app.aurora.protect.Timing
 import app.aurora.protect.UsageConfig
@@ -247,6 +248,8 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
     val scope = app.scope
     val connected by ShieldService.connected.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf(false) }
+    var ending by remember { mutableStateOf(false) }
+    val host = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val tint = run.shield?.let { modeColor(it.mode) } ?: colors.rose
     val end = run.endAt(d.time)
     // A commitment carried over from another account doesn't show what it covers.
@@ -288,6 +291,9 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
         }
         if (run.cancellable(d.time)) {
             AuroraButton(stringResource(R.string.home_turn_off), { confirm = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+        } else if (run.endsAfterTask) {
+            // Friction and Cooldown end here only, after the challenge or the wait: never from the Shield.
+            AuroraButton(stringResource(R.string.home_turn_off), { ending = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
         } else {
             Row(
                 Modifier.fillMaxWidth().glass(colors, Radius.Pill).padding(horizontal = Space.M, vertical = 12.dp),
@@ -306,6 +312,9 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
         { confirm = false; scope.launch { app.saving { app.turnOffRun(run.id) } } },
         stringResource(R.string.session_turn_off_body), stringResource(R.string.action_cancel),
     )
+    if (ending) androidx.compose.ui.window.Dialog({ ending = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        EndSession(app, run, host, onEnd = { ending = false; scope.launch { app.saving { app.turnOffRun(run.id) } } }, onCancel = { ending = false })
+    }
 }
 
 /** A schedule or an Always activation that isn't running now: when it next starts, and pause, resume or remove. */

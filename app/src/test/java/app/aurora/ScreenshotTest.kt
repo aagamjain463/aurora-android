@@ -372,6 +372,9 @@ class ScreenshotTest(private val variant: Variant) {
     }
 
     @Test fun strictMode() = capture("strict") { StrictModeScreen {} }
+    @Test fun diagnostics() = capture("diagnostics") {
+        app.aurora.ui.protect.ShieldDiagnostics(app.aurora.protect.ShieldTrace.Snapshot(0, 0, 0, 0, 0, 0, 0, 0, null, null, emptyList(), emptyList()), {})
+    }
 
     @Test fun focusRun() {
         library(running = true)

@@ -144,7 +144,7 @@ data class ConfigRun(
     fun covers(t: DeviceTime): Boolean = t.wall >= startAt(t) && !isOver(t)
 
     /**
-     * A strict run (Strict, Cooldown, Friction) can't be turned off in Aurora until it ends, or for
+     * A strict run (Strict, Cooldown, Friction) can't be turned off at once until it ends, or for
      * Strict on Free, until its committed part is over. An Always run (no end) made before strict
      * Cooldown and Friction stays cancellable: a permanent commitment is never made by accident.
      */
@@ -153,6 +153,12 @@ data class ConfigRun(
         shield.mode == Mode.AlwaysBlock -> committedUntil?.let { t.wall >= it } == true
         else -> false
     }
+
+    /**
+     * Friction and Cooldown end early only in Aurora, for the whole session: after the challenge, or after
+     * the wait sat out on that screen. Never from the Shield. Strict has no early end.
+     */
+    val endsAfterTask: Boolean get() = shield?.mode == Mode.Friction || shield?.mode == Mode.Cooldown
 
     fun restrictions(t: DeviceTime): List<Restriction> {
         val s = shield ?: return emptyList()

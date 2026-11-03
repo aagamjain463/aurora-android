@@ -28,8 +28,8 @@ class CopyTest {
             R.string.intent_step_use_body to "Use it intentionally for the time you actually want to.",
             R.string.protect_headline to "Never get distracted from what matters.",
             R.string.mode_flexible_desc to "Blocked until your timer ends, or you turn it off.",
-            R.string.mode_friction_desc to "Complete a challenge before getting access.",
-            R.string.mode_cooldown_desc to "Wait before you can open this app.",
+            R.string.mode_friction_desc to "Blocked until your timer ends. To end it early, complete a challenge in Aurora.",
+            R.string.mode_cooldown_desc to "Blocked until your timer ends. To end it early, wait it out in Aurora.",
             R.string.mode_always_block_desc to "No in-app early exit. Protection ends when your timer does.",
             R.string.always_block_confirm to "I'm ready to commit",
         )

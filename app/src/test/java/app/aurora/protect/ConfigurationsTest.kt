@@ -146,6 +146,10 @@ class ConfigurationsTest {
         assertTrue(!weak.cancellable(t(now + min)))
         assertTrue(weak.copy(shield = social.copy(mode = Mode.Flexible)).cancellable(t(now + min)))
         assertTrue(weak.copy(end = null).cancellable(t(now + min)))
+        // Friction and Cooldown end early in Aurora only, after the challenge or the wait, and still lock Settings meanwhile.
+        assertTrue(weak.endsAfterTask && weak.copy(shield = social.copy(mode = Mode.Cooldown)).endsAfterTask)
+        assertTrue(!committed.endsAfterTask)
+        assertTrue(weak.restrictions(t(now + min)).single().locks)
         assertTrue(committed.restrictions(t(now + min)).single().locks)
         assertTrue(weak.copy(shield = social.copy(mode = Mode.Flexible)).restrictions(t(now + min)).none { it.locks })
         val cooling = rules.copy(shields = rules.shields + social.copy(id = "cd", mode = Mode.Cooldown))

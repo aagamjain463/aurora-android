@@ -83,6 +83,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import app.aurora.ui.components.auroraSurface
+import app.aurora.ui.components.bleed
 import app.aurora.ui.components.glass
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -294,7 +295,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
         item(key = "data") {
             SectionLabel(stringResource(R.string.settings_privacy_data))
             RowGroup {
-                SettingRow(stringResource(R.string.settings_your_data_stays_yours), AuroraIcons.Data, subtitle = stringResource(R.string.settings_local_first_no_account_no_tracking_no_internet_permission), onClick = { sheet = Sheet.Privacy })
+                SettingRow(stringResource(R.string.settings_your_data_stays_yours), AuroraIcons.Data, onClick = { sheet = Sheet.Privacy })
                 RowDivider(Inset)
                 SettingRow(stringResource(R.string.settings_what_aurora_stores), AuroraIcons.Layers, onClick = { sheet = Sheet.Stored })
                 RowDivider(Inset)
@@ -349,30 +350,36 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
         }
         Sheet.Privacy -> AuroraDialog(
             title = stringResource(R.string.settings_your_data_stays_yours),
-            body = stringResource(R.string.settings_everything_aurora_keeps_is_stored_only_on_this_phone_your_protec) +
-                stringResource(R.string.settings_there_s_no_account_no_analytics_and_no_ads_and_aurora_doesn_t_ha) +
-                stringResource(R.string.settings_screen_time_is_read_from_android_when_you_open_insights_or_today) +
-                stringResource(R.string.settings_shield_reads_only_the_name_of_the_app_in_front_the_optional_web) +
-                stringResource(R.string.settings_purchases_go_through_google_play_which_aurora_asks_whether_you_h),
             confirmLabel = stringResource(R.string.settings_got_it),
             onConfirm = close,
             onDismiss = close,
-        )
+        ) {
+            Facts(
+                AuroraIcons.Data to (R.string.privacy_local_title to R.string.privacy_local_body),
+                AuroraIcons.Protect to (R.string.privacy_shield_title to R.string.privacy_shield_body),
+                AuroraIcons.Insights to (R.string.privacy_screen_title to R.string.privacy_screen_body),
+                AuroraIcons.Globe to (R.string.privacy_account_title to R.string.privacy_account_body),
+            )
+        }
         Sheet.Stored -> AuroraDialog(
             title = stringResource(R.string.settings_what_aurora_stores),
-            body = buildString {
-                append(stringResource(R.string.settings_stored_items , list?.items?.size ?: 0))
-                append(stringResource(R.string.settings_stored_rules , rules.shields.size, rules.intentPresets.size, rules.configs.count { it.custom }, rules.limits.size))
-                append(stringResource(R.string.settings_stored_profiles , rules.profiles.size, rules.trackGoals.size))
-                append(stringResource(R.string.settings_stored_history , history.days.size, history.focus.size))
-                if (rules.motivations.isNotEmpty()) append(stringResource(R.string.settings_stored_motivations , rules.motivations.joinToString(", ")))
-                append(stringResource(R.string.settings_theme_and_motion_preferences))
-                append(stringResource(R.string.settings_it_s_kept_in_aurora_s_private_storage_and_isn_t_included_in_clou))
-            },
+            body = stringResource(R.string.settings_it_s_kept_in_aurora_s_private_storage_and_isn_t_included_in_clou),
             confirmLabel = stringResource(R.string.action_close),
             onConfirm = close,
             onDismiss = close,
-        )
+        ) {
+            app.aurora.ui.components.MetricGrid(
+                listOf(
+                    "${list?.items?.size ?: 0}" to stringResource(R.string.stored_apps),
+                    "${rules.shields.size}" to stringResource(R.string.stored_shields),
+                    "${rules.configs.count { it.custom }}" to stringResource(R.string.stored_sessions),
+                    "${rules.limits.size}" to stringResource(R.string.stored_limits),
+                    "${history.days.size}" to stringResource(R.string.stored_days),
+                    "${history.focus.size}" to stringResource(R.string.stored_focus),
+                ),
+                Modifier.bleed(Space.Gutter),
+            )
+        }
         Sheet.ClearHistory -> AuroraDialog(
             title = stringResource(R.string.settings_clear_history_2),
             body = stringResource(R.string.settings_daily_counts_focus_history_xp_and_aurora_light_start_again_from),
@@ -392,16 +399,18 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
         )
         Sheet.Help -> AuroraDialog(
             title = stringResource(R.string.settings_if_shield_isn_t_stepping_in_2),
-            body = stringResource(R.string.settings_1_open_protect_and_check_the_status_at_the_top_it_says_exactly_w) +
-                stringResource(R.string.settings_2_if_it_says_shield_isn_t_running_turn_aurora_shield_off_and_on) +
-                stringResource(R.string.settings_3_some_phones_stop_background_apps_to_save_battery_allow_aurora) +
-                stringResource(R.string.settings_4_on_android_13_and_later_apps_installed_outside_the_play_store) +
-                stringResource(R.string.settings_5_after_a_restart_android_starts_shield_a_few_moments_after_you) +
-                stringResource(R.string.settings_shield_diagnostics_shows_what_aurora_can_see_on_this_phone),
-            confirmLabel = stringResource(R.string.action_close),
-            onConfirm = close,
+            confirmLabel = stringResource(R.string.help_run_diagnostics),
+            onConfirm = { sheet = Sheet.Diagnostics },
+            dismissLabel = stringResource(R.string.action_close),
             onDismiss = close,
-        )
+        ) {
+            Facts(
+                AuroraIcons.Home to (R.string.help_home_title to R.string.help_home_body),
+                AuroraIcons.Protect to (R.string.help_restart_title to R.string.help_restart_body),
+                AuroraIcons.Hourglass to (R.string.help_battery_title to R.string.help_battery_body),
+                AuroraIcons.Lock to (R.string.help_restricted_title to R.string.help_restricted_body),
+            )
+        }
         Sheet.Licenses -> AuroraDialog(
             title = stringResource(R.string.settings_open_source_licenses),
             body = stringResource(R.string.settings_manrope_typeface_the_manrope_project_authors_sil_open_font_licen) +
@@ -417,14 +426,16 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
             },
             onDismiss = close,
         )
-        Sheet.Diagnostics -> ShieldDiagnostics(
-            status = protection,
-            list = list,
-            active = list?.active(plan)?.size ?: 0,
-            trace = remember { ShieldService.trace.snapshot() },
-            onDismiss = close,
-        )
+        Sheet.Diagnostics -> ShieldDiagnostics(trace = remember { ShieldService.trace.snapshot() }, onDismiss = close)
         null -> Unit
+    }
+}
+
+/** A few (icon, title, one line) facts, spaced for a dialog. */
+@Composable
+private fun Facts(vararg facts: Pair<ImageVector, Pair<Int, Int>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.M)) {
+        for ((icon, text) in facts) app.aurora.ui.components.FactRow(icon, stringResource(text.first), body = stringResource(text.second))
     }
 }
 

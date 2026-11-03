@@ -458,7 +458,7 @@ private fun recordOf(run: ConfigRun, end: Long, turnedOff: Boolean, spans: List<
 
 /**
  * Turns off a running occurrence. Strict refuses until its committed part is over, whatever calls
- * this. Turning off Always ends it (its activation is switched off); a Later ends; a recurring schedule
+ * this. Friction and Cooldown come here only after their challenge or wait (EndSession). Turning off Always ends it (its activation is switched off); a Later ends; a recurring schedule
  * skips only this occurrence.
  */
 suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
@@ -467,7 +467,7 @@ suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
     var stopped: ConfigRun? = null
     runtime.update { rt ->
         val run = rt.runs.find { it.id == runId }
-        if (run == null || !run.cancellable(t)) rt
+        if (run == null || !(run.cancellable(t) || run.endsAfterTask)) rt
         else {
             stopped = run
             rt.copy(

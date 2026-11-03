@@ -13,8 +13,9 @@ package app.aurora.protect
  * Why the Shield appears, strongest first. Precedence follows this order: the strongest restriction that
  * covers an app decides, and nothing weaker can lift it.
  *
- * - [AlwaysBlock], [Flexible], [Focus], [Limit]: no way through from the Shield.
- * - [Cooldown]: a wait, then timed access. [Friction]: a task, then timed access.
+ * - [AlwaysBlock], [Flexible], [Focus], [Limit], [Cooldown], [Friction]: no way through from the Shield.
+ *   A session is ended in Aurora only: Flexible at once, Friction after its challenge, Cooldown after its
+ *   wait (EndSession in ShieldContent.kt), Strict never.
  * - [IntentCooldown]: closed after intentional use, until its timer ends.
  * - [Intent]: a deliberate decision and a chosen amount of time.
  * - [Locked]: Accessibility, Date & time or a package installer while a strict commitment runs.
@@ -31,13 +32,14 @@ enum class ShieldReason {
     Locked,
     ;
 
-    /** True when the Shield itself can lead to access (after a wait, a task or a decision). */
-    val canContinue: Boolean get() = this == Cooldown || this == Friction || this == Intent
+    /** True when the Shield itself can lead to access: only Intent's deliberate decision. */
+    val canContinue: Boolean get() = this == Intent
 }
 
 /**
- * Strict, Cooldown and Friction are strict: no early exit in aurora, and while one with an end runs,
- * Accessibility, Date & time and uninstalling are locked and the clock can't be moved under it. Only Flexible can be undone.
+ * Strict, Cooldown and Friction are strict: while one with an end runs, Accessibility, Date & time and
+ * uninstalling are locked and the clock can't be moved under it. Flexible turns off at once; Friction and
+ * Cooldown only in Aurora after their challenge or wait ([ConfigRun.endsAfterTask]); Strict never.
  */
 val Mode.strict: Boolean get() = this != Mode.Flexible
 

@@ -217,22 +217,6 @@ suspend fun AuroraApplication.migrateRuntime() {
 
 // ---- At the Shield -------------------------------------------------------------------------------
 
-/** A Friction task was completed, or a Cooldown wait finished: timed access at [level] for [minutes]. */
-suspend fun AuroraApplication.grantAccess(key: String, minutes: Int, level: Mode) {
-    val t = now()
-    runtime.update { r -> r.copy(access = r.access + (key to Grant(t.wall + minutes * 60_000L, level)), cooldownWaits = r.cooldownWaits - key).granted(key, t).pruned(t) }
-    record { it.copy(continued = it.continued + 1, grantedMinutes = it.grantedMinutes + minutes) }
-}
-
-/**
- * The Cooldown wait for [key] under [restriction]: the one already running, or a new one starting now.
- * Showing or recreating the Shield never restarts or skips it; a genuine new attempt does ([attempted]).
- */
-suspend fun AuroraApplication.cooldownWait(key: String, restriction: Restriction): Long {
-    val now = now().wall
-    return runtime.update { it.waitFor(key, restriction, now) }.cooldownWaits.getValue(key).readyAt
-}
-
 /** The reflection pause for [key]: continues one already running, or starts one. Returns its start. */
 suspend fun AuroraApplication.reflectionStart(key: String): Long {
     var start = 0L
