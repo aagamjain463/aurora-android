@@ -179,6 +179,7 @@ fun ConfigureScreen(
     }
 
     var deleting by remember { mutableStateOf<UsageConfig?>(null) }
+    var committing by remember { mutableStateOf(false) }
     LaunchedEffect(createdShield) { if (createdShield != null) shieldId = createdShield }
     LaunchedEffect(createdIntent) { if (createdIntent != null) intentId = createdIntent }
 
@@ -219,8 +220,8 @@ fun ConfigureScreen(
         if (saved.isNotEmpty() && !forGoal && !startSaved) add(Step.Saved)
         if (!fromSaved) { add(Step.Name); add(Step.Contents) }
         // Starting a saved session goes straight from its timing to Start: Review (Focus, message) is for editing it.
-        // It stays only when there's still something to do there: a strict commitment, or Shield to turn on.
-        if (!forGoal) { add(Step.When); if (whenKind != When.Always) add(Step.Timing); if (!fromSaved || strict || gate) add(Step.Review) } else add(Step.Focus)
+        // A strict one asks "I'm ready to commit" in a dialog; Shield setup shows on the last step only when it's needed.
+        if (!forGoal) { add(Step.When); if (whenKind != When.Always) add(Step.Timing); if (!fromSaved) add(Step.Review) } else add(Step.Focus)
     }
     // The step that starts the session: Review, or the last timing step when starting a saved session.
     val finish = !forGoal && step == steps.last()
@@ -228,7 +229,7 @@ fun ConfigureScreen(
     val back = { problem = null; if (index == 0) onBack() else step = steps[index - 1] }
     val hasContent = (shield?.keys?.isNotEmpty() == true) || (intent?.keys?.isNotEmpty() == true)
     val focusValid = !focusOn || focusWindow || focusMinutes != null
-    val ready = hasContent && shieldOn && (!strict || committed)
+    val ready = hasContent && shieldOn && (!strict || committed || fromSaved)
     val stepOk = when (step) {
         Step.Saved -> true
         Step.Name -> name.isNotBlank()
@@ -334,6 +335,7 @@ fun ConfigureScreen(
         onPrimary = {
             when {
                 step == Step.Focus && forGoal -> saveOnly()
+                finish && fromSaved && strict -> committing = true
                 finish -> confirm()
                 else -> step = steps[index + 1]
             }
@@ -519,7 +521,14 @@ fun ConfigureScreen(
                 if (strict) item(key = "commit") { CommitBlock(committed, { committed = it }, onStrict) }
             }
         }
+        if (fromSaved && finish && gate) item(key = "gate") { app.aurora.ui.protect.ShieldGate(hasSites, onOpenWeb) }
     }
+    if (committing) AuroraDialog(
+        configName, { committing = false },
+        stringResource(R.string.always_block_confirm), { committing = false; confirm() },
+        stringResource(R.string.start_commit_body) + "\n\n" + stringResource(R.string.start_commit_limits),
+        stringResource(R.string.action_cancel),
+    )
     deleting?.let { c ->
         val goals = d.rules.trackGoals.filter { it.configId == c.id }
         AuroraDialog(
