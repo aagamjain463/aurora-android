@@ -27,8 +27,8 @@ not restart the service. If so, the row fails until Aurora's warning brings the 
 1. Run `device-proof.sh profile` on a physical phone, and commit the new `app/src/main/baseline-prof.txt`.
 2. Run `device-proof.sh speed`. It fails above the 2.5 s limit in `scripts/check-startup.py`.
 
-The benchmark measures time to first frame. First Light then plays for about 5.5 s on a cold open, unless
-a session is running.
+The benchmark measures time to first frame. First Light then plays for about 2.2 s on a cold open (1.1 s with reduced
+motion), unless a session is running.
 
 ## Accessibility (step 16)
 

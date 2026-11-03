@@ -3,8 +3,10 @@
 Aurora is a premium digital-wellbeing app. It helps you take back control of your phone through
 intentional use.
 
-This repository is the native Android app: Kotlin and Jetpack Compose, local-first, with no
-account, no analytics and no `INTERNET` permission.
+This repository is the native Android app: Kotlin and Jetpack Compose. Blocking runs on the phone.
+A verified account (Google or email link) is required; the account service in `server/` holds identity,
+the Free allowance for Strict and Cooldown, and Plus. No analytics and no ads. Every field sent to the
+service is listed in [`docs/ACCOUNT_SYSTEM.md`](docs/ACCOUNT_SYSTEM.md).
 
 | Home | Home, reduced motion | Shield | Intent | Track |
 | --- | --- | --- | --- | --- |
@@ -22,9 +24,10 @@ account, no analytics and no `INTERNET` permission.
 - Shipping to Google Play (signing, declarations, data safety, review risks): [`docs/RELEASE.md`](docs/RELEASE.md),
   with the [store listing](docs/STORE_LISTING.md) and [privacy policy](docs/privacy-policy.html)
 
-## Status: configurations and Habits (`feat/aurora-configurations-habits`)
+## Status
 
-Home starts blocking in one tap, or from a saved Custom Session. Shield and Intent hold reusable presets;
+Home's one action is Start session: name, Shield, when, how long, review. Saved sessions start from their
+own cards. Shield and Intent hold reusable presets;
 Track has Progress (XP, session results), Goals and Usage (screen time). Sessions support
 starting now, later, on recurring schedules or Always, with optional Focus. Always Block keeps
 its commitment rules. Existing billing, data controls and optional Web & content protection remain.
@@ -73,6 +76,9 @@ locally before pushing:
 ./gradlew assembleDebug assembleRelease
 ```
 
+Installable builds need the sign-in configuration (`docs/ACCOUNT_SYSTEM.md`). CI has none, so it passes
+`-Paurora.skipSignInCheck=true`; APKs built that way can't sign anyone in, so never ship one.
+
 These need a device or the local baselines, so CI doesn't run them:
 
 ```sh
@@ -102,5 +108,5 @@ docs/              BRAND.md, ARCHITECTURE.md, ROADMAP.md, BUSINESS_MODEL.md, ENF
                    screenshots, font licence
 ```
 
-Cormorant Garamond and Geist are bundled under the SIL Open Font License (`docs/cormorant-OFL.txt` and
+Instrument Serif and Geist are bundled under the SIL Open Font License (`docs/instrument-serif-OFL.txt` and
 `docs/geist-OFL.txt`).

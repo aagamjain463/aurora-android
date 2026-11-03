@@ -109,9 +109,11 @@ bars in Chrome/Chrome Beta, Samsung Internet, Firefox, Edge, Brave, Opera and Du
 browsers and inaccessible address bars are not covered. Shorts/Reels exit remains experimental;
 current real-app versions and signed-in flows have not been validated.
 
-Free: five protected apps/sites, three Intent apps, three daily limits, one schedule, one Focus
-profile, 120 Strict minutes per day and Today/7-day Insights. Plus removes these limits and
-adds 30-day Insights. Paused items remain saved after downgrade; restoring them is explicit.
+Free (`FreeLimits` in `plan/Plan.kt` is the source): five protected apps/sites, three Intent apps, one
+active goal, 120 minutes of Strict and Cooldown per day shared across the account's devices, and Insights
+for today and this week. Schedules, presets, Focus and Flexible/Friction Shields are unlimited. Plus
+removes the limits and adds 30-day Insights. On Free, a Strict or Cooldown start needs the account
+service to confirm the allowance; without a connection it is refused and a scheduled one waits. Paused items remain saved after downgrade; restoring them is explicit.
 
 Play Billing uses the configured subscription products and Play-formatted prices. A purchase unlocks Plus only
 through a snapshot the verification server signs after asking Google (docs/BILLING.md). Pending purchases do
