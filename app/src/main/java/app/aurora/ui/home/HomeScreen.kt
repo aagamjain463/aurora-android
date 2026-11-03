@@ -255,7 +255,7 @@ fun HomeScreen(
                     label = "hero",
                 ) { running ->
                 val now = if (running) data?.let { leadRun(it, today.app) } else null
-                if (now != null) NowHero(now, data!!) else Column(Modifier.rise().padding(horizontal = Space.Gutter)) {
+                if (now != null) NowHero(now, data!!, onOpenFocus) else Column(Modifier.rise().padding(horizontal = Space.Gutter)) {
                     app.aurora.ui.components.HeroHeadline(stringResource(R.string.today_headline))
                     Text(stringResource(R.string.today_description), Modifier.padding(top = 12.dp), color = colors.textSecondary, style = AuroraType.Body)
                 }

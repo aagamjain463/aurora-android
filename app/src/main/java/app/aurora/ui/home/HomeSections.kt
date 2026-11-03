@@ -145,7 +145,7 @@ fun runProgress(run: ConfigRun, d: ProtectData): Float? {
 
 /** Home's hero while protection runs: the time left, large, over the lake; the ring above shows how far along it is. */
 @Composable
-fun NowHero(run: ConfigRun, d: ProtectData) {
+fun NowHero(run: ConfigRun, d: ProtectData, onOpenFocus: (String) -> Unit = {}) {
     val colors = Aurora.colors
     val end = run.endAt(d.time) ?: return
     val left = end - d.time.wall
@@ -158,6 +158,11 @@ fun NowHero(run: ConfigRun, d: ProtectData) {
             spoken = stringResource(R.string.home_now_spoken, app.aurora.data.spokenDuration(left)),
         )
         Text(stringResource(R.string.home_now_detail, run.name, clockTime(end)), color = colors.textSecondary, style = AuroraType.Body)
+        // A session with Focus opens its timer from right here, under the time left.
+        if (run.focus != null) AuroraButton(
+            stringResource(R.string.home_open_focus), { onOpenFocus(run.id) }, Modifier.padding(top = Space.M),
+            kind = ButtonKind.Secondary, compact = true, icon = AuroraIcons.Focus,
+        )
     }
 }
 
