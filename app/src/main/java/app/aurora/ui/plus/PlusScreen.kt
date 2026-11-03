@@ -59,11 +59,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.glass
 import app.aurora.ui.theme.Radius
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextDecoration
+import app.aurora.ui.components.HeroHeadline
+import app.aurora.ui.components.LitBadge
+import app.aurora.ui.components.dawnColors
 
 /**
  * Aurora Plus. Calm and honest: what Free already includes, what Plus adds, prices exactly as Google Play
@@ -119,7 +126,7 @@ fun PlusScreen(onBack: () -> Unit) {
                     plan == Plan.Plus || subscription?.state == "on_hold" -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
                     billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = colors.textSecondary, style = AuroraType.Secondary)
                     billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = colors.textSecondary, style = AuroraType.Secondary)
-                    else -> billing.offers.forEach { offer ->
+                    else -> billing.offers.sortedByDescending { it.yearly }.forEach { offer ->
                         AuroraButton(
                             stringResource(if (offer.yearly) R.string.plus_year_price else R.string.plus_month_price, offer.price),
                             { context.activity()?.let { app.billing.buy(it, offer) } },
@@ -200,58 +207,79 @@ fun PlusScreen(onBack: () -> Unit) {
 @Composable
 private fun FreeCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
-    Column(modifier.padding(horizontal = Space.Gutter).fillMaxWidth().glass(colors).padding(Space.L)) {
+    Column(modifier.padding(horizontal = Space.Gutter).fillMaxWidth().glass(colors).padding(horizontal = Space.L, vertical = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.plus_free_name), Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
+            AuroraMark(18.dp, Modifier.padding(end = 10.dp))
+            Text(stringResource(R.string.plus_free_name), Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 26.sp, lineHeight = 30.sp))
             if (current) PlanPill()
         }
         Text(stringResource(R.string.plus_free_tagline), Modifier.padding(top = Space.XS, bottom = Space.S), color = colors.textSecondary, style = AuroraType.Secondary)
         rows.forEach { (feature, free, _) ->
             RowDivider()
-            PlanRow(feature, free, colors.textSecondary, AuroraType.Secondary)
+            Row(Modifier.fillMaxWidth().padding(vertical = 11.dp).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
+                Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textSecondary, style = AuroraType.Secondary)
+                Text(free, color = colors.textPrimary, style = AuroraType.Caption, textAlign = TextAlign.End)
+            }
         }
     }
 }
 
 /**
- * Plus: the dawn card. It sits on the deepest tone with a gold edge, and the lit mark at its top. Lists only what Plus adds, then the way to get it ([actions]).
+ * Plus: the dawn card, the one object on the page that catches the sunrise. It sits on the deepest tone, its edge lit
+ * in gold from above and fading down the sides; a single thread of dawn runs under the name. The lit mark and the lit
+ * word "Plus" carry the brand. Each row says what Plus opens up, with Free's limit struck through beneath it, then the
+ * way to get it ([actions]).
  */
 @Composable
 private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier, actions: @Composable () -> Unit) {
     val colors = Aurora.colors
+    val edge = colors.glowTop
     Column(
         modifier.padding(horizontal = Space.Gutter).fillMaxWidth()
-            .clip(Radius.L).background(colors.dune)
-            .border(1.dp, colors.glowTop.copy(alpha = if (colors.isDark) 0.45f else 0.9f), Radius.L),
+            .then(if (colors.isDark) Modifier else Modifier.shadow(16.dp, Radius.L, ambientColor = DayShade, spotColor = DayShade))
+            .clip(Radius.L)
+            .background(if (colors.isDark) colors.sky else colors.surface)
+            .border(
+                if (colors.isDark) 1.dp else 1.5.dp,
+                Brush.verticalGradient(0f to edge.copy(alpha = if (colors.isDark) 0.85f else 1f), 0.55f to edge.copy(alpha = if (colors.isDark) 0.18f else 0.45f), 1f to colors.hairline),
+                Radius.L,
+            )
+            .padding(horizontal = Space.L, vertical = 26.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(120.dp).clipToBounds(), contentAlignment = Alignment.TopCenter) {
-            AuroraMark(42.dp, Modifier.padding(top = 52.dp), lit = true)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            AuroraMark(30.dp, lit = true)
+            Spacer(Modifier.weight(1f))
+            if (current) PlanPill()
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = Space.L), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(stringResource(R.string.plus_name), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center)
-            Text(stringResource(R.string.plus_plus_tagline), Modifier.padding(top = Space.XS), color = colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center)
-            if (current) PlanPill(Modifier.padding(top = Space.S))
-        }
-        Column(Modifier.fillMaxWidth().padding(Space.L)) {
-            Eyebrow(stringResource(R.string.plus_everything_in_free), Modifier.padding(bottom = Space.XS), color = colors.textTertiary)
-            rows.forEach { (feature, _, plus) ->
-                RowDivider()
-                PlanRow(feature, plus, colors.accent, AuroraType.BodyStrong, check = true)
+        HeroHeadline(stringResource(R.string.plus_name), Modifier.padding(top = 22.dp), style = AuroraType.DisplayXL.copy(fontSize = 50.sp, lineHeight = 52.sp))
+        Text(stringResource(R.string.plus_plus_tagline), Modifier.padding(top = Space.S), color = colors.textSecondary, style = AuroraType.Body)
+        // The horizon: one thread of dawn, brightest in the middle, gone at the ends.
+        val dawn = dawnColors()
+        Box(
+            Modifier.padding(vertical = 22.dp).fillMaxWidth().height(1.dp)
+                .background(Brush.horizontalGradient(listOf(Color.Transparent) + dawn.reversed().drop(1) + dawn.drop(1) + Color.Transparent)),
+        )
+        Eyebrow(stringResource(R.string.plus_everything_in_free), Modifier.padding(bottom = Space.XS), color = colors.textTertiary)
+        rows.forEach { (feature, free, plus) ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
+                LitBadge(AuroraIcons.Check, Modifier.padding(end = Space.S), size = 26)
+                Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textPrimary, style = AuroraType.Secondary)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(plus, color = colors.accent, style = AuroraType.BodyStrong, textAlign = TextAlign.End)
+                    // Free's limit, struck through: shown, not spoken (the Free card lists it for screen readers).
+                    if (!current) Text(
+                        free, Modifier.clearAndSetSemantics { }, color = colors.textTertiary, textAlign = TextAlign.End,
+                        style = AuroraType.Caption.copy(textDecoration = TextDecoration.LineThrough),
+                    )
+                }
             }
-            Column(Modifier.padding(top = Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) { actions() }
         }
+        Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) { actions() }
     }
 }
 
-@Composable
-private fun PlanRow(feature: String, value: String, valueColor: androidx.compose.ui.graphics.Color, valueStyle: androidx.compose.ui.text.TextStyle, check: Boolean = false) {
-    val colors = Aurora.colors
-    Row(Modifier.fillMaxWidth().padding(vertical = Space.S).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
-        if (check) Icon(AuroraIcons.Check, null, Modifier.padding(end = Space.S).size(18.dp), tint = colors.accent)
-        Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textPrimary, style = AuroraType.Secondary)
-        Text(value, color = valueColor, style = valueStyle, textAlign = TextAlign.End)
-    }
-}
+/** The day theme's warm shadow, as on [glass]: paper on paper. */
+private val DayShade = Color(0xFF6B4A2E).copy(alpha = 0.18f)
 
 @Composable
 private fun PlanPill(modifier: Modifier = Modifier) {
