@@ -52,7 +52,7 @@ data class IntentPreset(
 
 /** Focus tracked inside a configuration. [minutes] null: the configuration's own time window is the target. */
 @Serializable
-data class FocusPlan(val task: String, val description: String = "", val goal: String = "", val minutes: Int? = null)
+data class FocusPlan(val task: String, val description: String = "", val goal: String = "", val minutes: Int? = null, val goalId: String? = null)
 
 /**
  * A complete setup made on Home. A custom configuration ([custom]) references saved presets by id and can

@@ -41,6 +41,7 @@ import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Chip
+import app.aurora.ui.components.ChipFlow
 import app.aurora.ui.components.ChoiceCard
 import app.aurora.ui.components.ChoicePills
 import app.aurora.ui.components.DurationPicker
@@ -54,7 +55,7 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
 
 private enum class GoalStep { Name, Link, Session, Track, What, Apps, Limit }
-private enum class SessionTrack { Daily, Weekly, PerWeek }
+private enum class SessionTrack { Daily, Days, Weekly, PerWeek }
 
 private val DayPresets = listOf(30, 60, 120, 180)
 private val WeekPresets = listOf(120, 300, 600, 1200)
@@ -82,6 +83,7 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
     var configId by rememberSaveable { mutableStateOf<String?>(createdConfig) }
     var track by rememberSaveable { mutableStateOf<SessionTrack?>(null) }
     var perWeek by rememberSaveable { mutableIntStateOf(3) }
+    var days by rememberSaveable { mutableStateOf(setOf(3)) }
     var whole by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var keys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -119,7 +121,7 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
         GoalStep.Name -> name.isNotBlank()
         GoalStep.Link -> kind != null
         GoalStep.Session -> configs.any { it.id == configId }
-        GoalStep.Track -> track == SessionTrack.PerWeek || (track != null && minutes != null)
+        GoalStep.Track -> track == SessionTrack.PerWeek || (track != null && minutes != null && (track != SessionTrack.Days || days.isNotEmpty()))
         GoalStep.What -> whole != null
         GoalStep.Apps -> keys.isNotEmpty()
         GoalStep.Limit -> minutes != null
@@ -145,9 +147,10 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
                 } else {
                     Goal(
                         newId(), name.trim(), GoalKind.Session,
-                        if (track == SessionTrack.Daily) GoalPeriod.Daily else GoalPeriod.Weekly,
+                        if (track == SessionTrack.Daily || track == SessionTrack.Days) GoalPeriod.Daily else GoalPeriod.Weekly,
                         if (track == SessionTrack.PerWeek) 0 else minutes ?: 0,
                         configId = configId, sessions = perWeek.takeIf { track == SessionTrack.PerWeek }, createdAt = System.currentTimeMillis(),
+                        days = if (track == SessionTrack.Days) days else emptySet(),
                     )
                 }
                 vm.run {
@@ -160,12 +163,7 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
         when (step) {
             GoalStep.Name -> {
                 stepTitle(R.string.goal_name_title, null)
-                item(key = "name") { AuroraTextField(name, { name = it.take(40) }, stringResource(R.string.goal_name_placeholder), capitalization = KeyboardCapitalization.Sentences) }
-                item(key = "ideas") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        listOf("Daily Study", "Deep Work", "Less Instagram", "Less Screen Time").forEach { Chip(it, name == it) { name = it } }
-                    }
-                }
+                item(key = "name") { AuroraTextField(name, { name = it.take(40) }, "", capitalization = KeyboardCapitalization.Sentences) }
             }
             GoalStep.Link -> {
                 stepTitle(R.string.goal_link_title, null)
@@ -182,6 +180,14 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
                 stepTitle(R.string.goal_track_title, null)
                 item(key = "daily") { ChoiceCard(stringResource(R.string.goal_track_daily), stringResource(R.string.goal_track_daily_desc), track == SessionTrack.Daily, { track = SessionTrack.Daily; minutes = null }) }
                 if (track == SessionTrack.Daily) item(key = "daily-pick") { key(track) { DurationPicker(minutes, { minutes = it }, DayPresets, title = stringResource(R.string.goal_time_day)) } }
+                item(key = "days") { ChoiceCard(stringResource(R.string.goal_track_days), stringResource(R.string.goal_track_days_desc), track == SessionTrack.Days, { track = SessionTrack.Days; minutes = null }) }
+                if (track == SessionTrack.Days) item(key = "days-pick") {
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                        Text(stringResource(R.string.goal_days_pick), color = colors.textPrimary, style = AuroraType.Title)
+                        ChipFlow((1..7).toList(), days, { day -> days = if (day in days) days - day else days + day }, { app.aurora.ui.protect.dayShort(it) })
+                        key(track) { DurationPicker(minutes, { minutes = it }, DayPresets, title = stringResource(R.string.goal_time_day)) }
+                    }
+                }
                 item(key = "weekly") { ChoiceCard(stringResource(R.string.goal_track_weekly), stringResource(R.string.goal_track_weekly_desc), track == SessionTrack.Weekly, { track = SessionTrack.Weekly; minutes = null }) }
                 if (track == SessionTrack.Weekly) item(key = "weekly-pick") { key(track) { DurationPicker(minutes, { minutes = it }, WeekPresets, title = stringResource(R.string.goal_time_week), max = MaxWeekMinutes) } }
                 item(key = "per-week") { ChoiceCard(stringResource(R.string.goal_track_sessions), stringResource(R.string.goal_track_sessions_desc), track == SessionTrack.PerWeek, { track = SessionTrack.PerWeek }) }

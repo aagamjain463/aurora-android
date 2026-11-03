@@ -184,6 +184,8 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onOpenSettings = settings,
                     // Saved without starting: the goal flow is Configure's edit-and-save path.
                     onEditSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&goal=true") },
+                    // Start on a saved session asks when, like Start session: now, later or on a schedule.
+                    onStartSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&saved=true") },
                     onOpenGuide = guide,
                 )
             }
@@ -196,7 +198,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 )
             }
             composable("${Routes.ShieldEdit}?id={id}") { e ->
-                ShieldEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdShield", id) }, onPlus = plus)
+                ShieldEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdShield", id) }, onPlus = plus, onOpenWeb = { nav.navigate(ProtectRoutes.Web) })
             }
             composable(Routes.Intent) {
                 IntentLibraryScreen(onCreate = { nav.navigate(Routes.IntentEdit) }, onEdit = { id -> nav.navigate("${Routes.IntentEdit}?id=$id") }, onOpenSettings = settings, onOpenGuide = guide)
@@ -204,7 +206,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             composable("${Routes.IntentEdit}?id={id}") { e ->
                 IntentEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdIntent", id) }, onPlus = plus)
             }
-            composable("${Routes.Configure}?custom={custom}&config={config}&goal={goal}") { e ->
+            composable("${Routes.Configure}?custom={custom}&config={config}&goal={goal}&saved={saved}") { e ->
                 val handle = e.savedStateHandle
                 val createdShield by handle.getStateFlow<String?>("createdShield", null).collectAsStateWithLifecycle()
                 val createdIntent by handle.getStateFlow<String?>("createdIntent", null).collectAsStateWithLifecycle()
@@ -222,6 +224,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onStrict = { nav.navigate(Routes.Strict) },
                     onPlus = plus,
                     onOpenWeb = { nav.navigate(ProtectRoutes.Web) },
+                    startSaved = e.arguments?.getString("saved") == "true",
                 )
             }
             composable(Routes.Track) {

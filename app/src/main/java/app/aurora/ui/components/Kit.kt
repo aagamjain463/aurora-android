@@ -192,8 +192,8 @@ fun DurationPicker(
         if (endsFromNow && value != null) {
             Text(
                 stringResource(R.string.duration_ends_at, minutesText(value), clockTime(System.currentTimeMillis() + value * 60_000L)),
-                color = colors.accent,
-                style = AuroraType.BodyStrong,
+                color = colors.textSecondary,
+                style = AuroraType.Body,
             )
         }
     }

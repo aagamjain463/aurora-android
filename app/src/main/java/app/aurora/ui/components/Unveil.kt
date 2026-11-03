@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.imageResource
@@ -134,7 +133,7 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
         Opening.finish()
     }
     val mark = androidx.compose.ui.res.painterResource(R.drawable.ic_aurora_mark)
-    // The opening is always night, whatever the theme: the mark is lit by the dawn and the sun's glow gathers under it.
+    // The opening is always night, whatever the theme: the mark is lit by the dawn. No glow behind it.
     val dawnColors = app.aurora.ui.theme.DarkColors
     val night = colorResource(R.color.aurora_splash)
     Box(
@@ -149,12 +148,6 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
                 val dawn = androidx.compose.ui.graphics.Brush.verticalGradient(
                     listOf(dawnColors.light, dawnColors.glowTop, dawnColors.glowHot, dawnColors.glowCool), startY = 0f, endY = markSize.height,
                 )
-                val sun = Offset(size.width / 2f, top + markSize.height * 1.02f)
-                val glowR = 170f * density
-                val glow = androidx.compose.ui.graphics.Brush.radialGradient(
-                    0f to dawnColors.glowHot.copy(alpha = 0.42f), 0.45f to dawnColors.glowCool.copy(alpha = 0.14f), 1f to Color.Transparent,
-                    center = sun, radius = glowR,
-                )
                 onDrawBehind {
                     val v = p
                     val form = (v * TotalMs / FormMs).coerceIn(0f, 1f)
@@ -162,7 +155,6 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
                     drawRect(night, alpha = 1f - gone)
                     // The mark rises in from just below like the sun, lit by the dawn, holds, and lifts away with the night.
                     val shown = if (reduced) 1f else smooth(form)
-                    scale(1.7f, 0.8f, pivot = sun) { drawCircle(glow, glowR, sun, alpha = shown * (1f - gone)) }
                     translate(left, top + (1f - shown) * rise - gone * rise) {
                         val layer = androidx.compose.ui.graphics.Paint().apply { alpha = shown * (1f - gone) }
                         drawContext.canvas.saveLayer(androidx.compose.ui.geometry.Rect(Offset.Zero, markSize), layer)

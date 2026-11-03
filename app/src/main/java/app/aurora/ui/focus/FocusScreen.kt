@@ -201,7 +201,8 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
     ) {
         Box(Modifier.fillMaxWidth().height(60.dp).padding(start = Space.XS + 2.dp), contentAlignment = Alignment.CenterStart) {
             AuroraIconButton(if (phase == Phase.Setup) AuroraIcons.Close else AuroraIcons.Back, stringResource(R.string.action_close), onClose)
-            if (phase != Phase.Setup) Text(
+            // A running session shows only its goal and its timer: no title.
+            if (phase == Phase.Complete) Text(
                 stringResource(R.string.focus_name), Modifier.align(Alignment.Center).semantics { heading() },
                 color = colors.textPrimary, style = AuroraType.Bar,
             )
@@ -220,7 +221,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                             .verticalScroll(rememberScrollState())
                             .heightIn(min = maxHeight)
                             .padding(horizontal = Space.Gutter),
-                        verticalArrangement = Arrangement.Top,
+                        verticalArrangement = if (p == Phase.Running) Arrangement.Center else Arrangement.Top,
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         // `session` may already be cleared while an old phase animates out.
@@ -230,7 +231,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                                 protection, onEdit = { editing = it },
                                 onNew = { editing = FocusProfile(UUID.randomUUID().toString(), "", 25) },
                             )
-                            Phase.Running -> session?.let { Running(it, s, protection) }
+                            Phase.Running -> session?.let { Running(it, s) }
                             Phase.Complete -> session?.let { Complete(it, s) }
                         }
                     }
@@ -321,83 +322,30 @@ private fun Setup(
     AuroraTextField(
         value = intention,
         onValueChange = { if (it.length <= 60) onIntention(it) },
-        placeholder = stringResource(R.string.focus_what_s_this_time_for_optional),
+        placeholder = stringResource(R.string.cfg_focus_goal_placeholder),
         capitalization = KeyboardCapitalization.Sentences,
     )
     Spacer(Modifier.height(Space.M))
     Text(holds(s, profile.groupId, protection), color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center)
 }
 
+/** The goal, if one was typed, above the timer. Nothing else. */
 @Composable
-private fun Running(session: Session, s: FocusState, protection: ProtectionStatus?) {
-    val colors = Aurora.colors
+private fun Running(session: Session, s: FocusState) {
     val remaining = session.remaining(s.time)
-    val spokenRemaining = stringResource(R.string.focus_spoken_remaining , spokenDuration(remaining))
-    val keys = s.rules.cover(session.groupId, s.activeKeys).toList()
-    val holding = protection == ProtectionStatus.Active && keys.isNotEmpty()
     val progress = (1f - remaining.toFloat() / session.durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
-    // Whether Shield holds the apps back, honestly: "Timer only" when it can't. A quiet line, not a badge.
-    Row(
-        Modifier.padding(top = Space.S),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(
-            Modifier.size(6.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                .then(if (holding) Modifier.background(colors.glowTop) else Modifier.border(1.dp, colors.textTertiary, androidx.compose.foundation.shape.CircleShape)),
-        )
-        Text(
-            stringResource(if (holding) R.string.focus_shield_is_holding else R.string.focus_timer_only_shield_is_off),
-            color = colors.textTertiary, style = AuroraType.Caption,
-        )
-    }
-    // The ring reads the time gone; the clock inside it reads the time left.
+    if (session.intention.isNotBlank()) app.aurora.ui.components.FocusGoal(session.intention, Modifier.padding(bottom = Space.XL))
     FocusDial(
-        progress, formatClock(remaining), Modifier.padding(top = Space.L).fillMaxWidth(0.9f),
-        label = stringResource(R.string.focus_remaining),
-        caption = stringResource(R.string.focus_ends_at, clockTime(session.endWall(s.time))),
-        spoken = spokenRemaining,
+        progress, formatClock(remaining), Modifier.fillMaxWidth(0.92f),
+        spoken = stringResource(R.string.focus_spoken_remaining, spokenDuration(remaining)),
     )
-    // What this time is for, in the person's own words; the profile's name when they didn't give any.
-    Eyebrow(
-        if (session.intention.isNotBlank()) stringResource(R.string.focus_time_for) else stringResource(R.string.focus_name),
-        Modifier.padding(top = Space.XL), textAlign = TextAlign.Center,
-    )
-    Text(
-        session.intention.ifBlank { s.rules.profiles.find { it.id == session.profileId }?.name ?: stringResource(R.string.focus_focus_session) },
-        Modifier.padding(top = 4.dp).semantics { heading() },
-        // The person's own words, set in the serif's italic: the one thing on this screen that is theirs.
-        color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 30.sp, lineHeight = 34.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
-        textAlign = TextAlign.Center, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-    )
-    // What is held back: the faces of the apps and one line, no card.
-    if (keys.isNotEmpty()) {
-        val group = session.groupId?.let { id -> s.rules.groups.find { it.id == id }?.name }
-        Row(
-            Modifier.padding(top = Space.L),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
-                keys.take(4).forEach { key ->
-                    Box(Modifier.size(24.dp).clip(androidx.compose.foundation.shape.CircleShape).border(1.5.dp, colors.background, androidx.compose.foundation.shape.CircleShape)) {
-                        app.aurora.ui.protect.ItemIcon(key, null, size = 24.dp)
-                    }
-                }
-            }
-            Text(
-                androidx.compose.ui.res.pluralStringResource(R.plurals.focus_apps_protected, keys.size, keys.size) + " · " + (group ?: stringResource(R.string.focus_all_protected)),
-                color = colors.textSecondary, style = AuroraType.Caption,
-            )
-        }
-    }
 }
 
 @Composable
 private fun Complete(session: Session, s: FocusState) {
     val colors = Aurora.colors
     val minutes = session.durationMs / 60_000
-    // A full sunrise: every tick lit.
+    // A closed ring of dawn.
     FocusDial(1f, "$minutes", Modifier.padding(top = Space.L).fillMaxWidth(0.9f), caption = stringResource(R.string.focus_minutes_focused))
     Text(stringResource(R.string.focus_time_well_spent), Modifier.padding(top = Space.L).semantics { heading() }, color = colors.headlineLead, style = AuroraType.DisplayS, textAlign = TextAlign.Center)
     Spacer(Modifier.height(Space.S))

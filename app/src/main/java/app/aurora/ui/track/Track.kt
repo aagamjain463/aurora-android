@@ -417,7 +417,7 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
     val p = row.progress
     val failed = p.state == GoalState.Failed
     val amount = g.sessions?.let { pluralStringResource(R.plurals.goal_sessions_per_week, it, it) }
-        ?: stringResource(if (g.period == GoalPeriod.Daily) R.string.limits_per_day else R.string.goal_per_week, formatDuration(g.target))
+        ?: if (g.days.isNotEmpty()) stringResource(R.string.goal_on_days, formatDuration(g.target), app.aurora.ui.protect.daysText(g.days)) else stringResource(if (g.period == GoalPeriod.Daily) R.string.limits_per_day else R.string.goal_per_week, formatDuration(g.target))
     Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 12.dp, top = 12.dp, bottom = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(top = 8.dp)) {

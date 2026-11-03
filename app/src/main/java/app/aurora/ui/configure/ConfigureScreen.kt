@@ -2,7 +2,18 @@ package app.aurora.ui.configure
 
 import app.aurora.protect.needsContentShield
 import app.aurora.ui.components.Eyebrow
+import app.aurora.ui.components.RowDivider
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import app.aurora.ui.components.glass
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -21,7 +32,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -58,7 +68,6 @@ import app.aurora.ui.components.AuroraSwitch
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Chip
-import app.aurora.ui.components.ChipFlow
 import app.aurora.ui.components.ChoiceCard
 import app.aurora.ui.components.DurationPicker
 import app.aurora.ui.components.SelectionMark
@@ -76,7 +85,6 @@ import app.aurora.ui.protect.ProtectData
 import app.aurora.ui.protect.ProtectModel
 import app.aurora.ui.protect.ProtectionPresets
 import app.aurora.ui.protect.TimeEntry
-import app.aurora.ui.protect.dayShort
 import app.aurora.ui.protect.daysText
 import app.aurora.ui.protect.intentSummary
 import app.aurora.ui.protect.minuteOfDay
@@ -124,6 +132,8 @@ fun ConfigureScreen(
     /** Screenshots only: open on a later step, with a timing chosen. */
     startStep: String? = null,
     startWhen: When? = null,
+    /** Home's Start on a saved session: [configId] is started as saved, beginning at When. */
+    startSaved: Boolean = false,
 ) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
@@ -145,22 +155,28 @@ fun ConfigureScreen(
     var laterMinute by rememberSaveable { mutableIntStateOf(7 * 60) }
     var days by rememberSaveable { mutableStateOf(setOf(1, 2, 3, 4, 5)) }
     var recurMinute by rememberSaveable { mutableIntStateOf(9 * 60) }
-    var until by rememberSaveable { mutableStateOf<String?>(null) }
 
     var save by rememberSaveable { mutableStateOf(custom || forGoal) }
     // A saved session was picked: it starts as saved, so Name and Contents are skipped.
-    var fromSaved by rememberSaveable { mutableStateOf(false) }
+    var fromSaved by rememberSaveable { mutableStateOf(startSaved && start != null) }
     var note by rememberSaveable { mutableStateOf(start?.note.orEmpty()) }
     var messageOn by rememberSaveable { mutableStateOf(start?.note?.isNotBlank() == true) }
     var focusOn by rememberSaveable { mutableStateOf(start?.focus != null) }
-    var task by rememberSaveable { mutableStateOf(start?.focus?.task.orEmpty()) }
-    var description by rememberSaveable { mutableStateOf(start?.focus?.description.orEmpty()) }
+    // What this Focus is for, in the person's own words: shown above the timer while it runs.
     var goal by rememberSaveable { mutableStateOf(start?.focus?.goal.orEmpty()) }
     var focusWindow by rememberSaveable { mutableStateOf(start?.focus?.minutes == null) }
     var focusMinutes by rememberSaveable { mutableStateOf(start?.focus?.minutes) }
     var committed by rememberSaveable { mutableStateOf(false) }
     var problem by rememberSaveable { mutableStateOf<ActivationProblem?>(null) }
-    var step by rememberSaveable { mutableStateOf(startStep?.let { Step.valueOf(it) } ?: if (start == null && saved.isNotEmpty() && !forGoal) Step.Saved else Step.Name) }
+    var step by rememberSaveable {
+        mutableStateOf(
+            startStep?.let { Step.valueOf(it) } ?: when {
+                fromSaved -> Step.When
+                start == null && saved.isNotEmpty() && !forGoal -> Step.Saved
+                else -> Step.Name
+            },
+        )
+    }
 
     var deleting by remember { mutableStateOf<UsageConfig?>(null) }
     LaunchedEffect(createdShield) { if (createdShield != null) shieldId = createdShield }
@@ -171,8 +187,9 @@ fun ConfigureScreen(
     val intent: IntentPreset? = intentId?.let { s -> d.rules.intentPresets.find { it.id == s } }
     val keep = save || fromSaved
     val configName = name.trim().ifEmpty { listOfNotNull(shield?.name, intent?.name).joinToString(" + ").ifEmpty { stringResource(R.string.home_normal_title) } }
-    // The Focus timer is a yes or no here; its task is the session's name unless a saved one named it.
-    val focus = if (focusOn && whenKind != When.Always) FocusPlan(task.trim().ifEmpty { configName }, description.trim(), goal.trim(), if (focusWindow) null else focusMinutes) else null
+    // The Focus timer is a yes or no, with an optional goal typed in; it carries the session's name.
+    val focusPlan = if (focusOn) FocusPlan(configName, goal = goal.trim(), minutes = if (focusWindow) null else focusMinutes) else null
+    val focus = focusPlan.takeIf { whenKind != When.Always }
     val config = UsageConfig(
         id, configName, keep,
         shieldId = if (keep) shield?.id else null, intentId = if (keep) intent?.id else null,
@@ -186,7 +203,8 @@ fun ConfigureScreen(
     val timing: Timing? = when (whenKind) {
         When.Now -> minutes?.let { Timing.Now(it) }
         When.Later -> minutes?.let { Timing.Later(laterStart, it) }
-        When.Recurring -> minutes?.let { Timing.Recurring(days, recurMinute, it, until) }
+        // A schedule has no last date: it runs until it's deleted.
+        When.Recurring -> minutes?.let { Timing.Recurring(days, recurMinute, it) }
         When.Always -> Timing.Always
         null -> null
     }
@@ -198,15 +216,20 @@ fun ConfigureScreen(
     val hasSites = needsContentShield(shield?.keys.orEmpty())
     val gate = app.aurora.ui.protect.shieldGateNeeded(hasSites)
     val steps = buildList {
-        if (saved.isNotEmpty() && !forGoal) add(Step.Saved)
+        if (saved.isNotEmpty() && !forGoal && !startSaved) add(Step.Saved)
         if (!fromSaved) { add(Step.Name); add(Step.Contents) }
-        if (!forGoal) { add(Step.When); if (whenKind != When.Always) add(Step.Timing); add(Step.Review) } else add(Step.Focus)
+        // Starting a saved session goes straight from its timing to Start: Review (Focus, message) is for editing it.
+        // It stays only when there's still something to do there: a strict commitment, or Shield to turn on.
+        if (!forGoal) { add(Step.When); if (whenKind != When.Always) add(Step.Timing); if (!fromSaved || strict || gate) add(Step.Review) } else add(Step.Focus)
     }
+    // The step that starts the session: Review, or the last timing step when starting a saved session.
+    val finish = !forGoal && step == steps.last()
     val index = steps.indexOf(step).coerceAtLeast(0)
     val back = { problem = null; if (index == 0) onBack() else step = steps[index - 1] }
     val hasContent = (shield?.keys?.isNotEmpty() == true) || (intent?.keys?.isNotEmpty() == true)
-    val focusValid = !focusOn || (task.isNotBlank() && (focusWindow || focusMinutes != null))
-    val canNext = when (step) {
+    val focusValid = !focusOn || focusWindow || focusMinutes != null
+    val ready = hasContent && shieldOn && (!strict || committed)
+    val stepOk = when (step) {
         Step.Saved -> true
         Step.Name -> name.isNotBlank()
         Step.Contents -> shield != null || intent != null
@@ -217,12 +240,13 @@ fun ConfigureScreen(
         }
         Step.Focus -> focusValid
         // Without Shield this would only be a timer, so nothing starts until it's on.
-        Step.Review -> hasContent && shieldOn && (!strict || committed)
+        Step.Review -> true
     }
+    val canNext = stepOk && (!finish || ready)
     // Both run in the ViewModel's scope (the main thread), so navigating afterwards is always safe.
     val saveOnly = {
         vm.run {
-            if (vm.app.saveConfig(config.copy(focus = if (focusOn && task.isNotBlank()) FocusPlan(task.trim(), description.trim(), goal.trim(), if (focusWindow) null else focusMinutes) else null)) == null) onDone(config.id)
+            if (vm.app.saveConfig(config.copy(focus = focusPlan)) == null) onDone(config.id)
         }
     }
     // The first time protection starts, ask to show it in the notification shade (Android 13+).
@@ -253,9 +277,7 @@ fun ConfigureScreen(
             }
         }
         if (focusOn) {
-            item(key = "task") { AuroraTextField(task, { task = it.take(80) }, stringResource(R.string.cfg_focus_task), capitalization = KeyboardCapitalization.Sentences) }
-            item(key = "desc") { AuroraTextField(description, { description = it.take(200) }, stringResource(R.string.cfg_focus_desc), capitalization = KeyboardCapitalization.Sentences, singleLine = false) }
-            item(key = "goal") { AuroraTextField(goal, { goal = it.take(120) }, stringResource(R.string.cfg_focus_goal), capitalization = KeyboardCapitalization.Sentences) }
+            item(key = "goal") { GoalField(goal) { goal = it } }
             item(key = "window") {
                 Row(
                     Modifier.fillMaxWidth().auroraSurface(colors).toggleable(focusWindow, role = Role.Checkbox) { focusWindow = it }.padding(Space.M),
@@ -270,18 +292,33 @@ fun ConfigureScreen(
             }
         }
     }
+    // The motivational message sits with Focus: added, changed or turned off in the same place.
+    val messageItem: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+        item(key = "message") {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                ToggleRow(stringResource(R.string.cfg_message_on), stringResource(R.string.cfg_message_body), messageOn, { messageOn = it })
+                if (messageOn) AuroraTextField(note, { note = it.take(140) }, stringResource(R.string.cfg_message_placeholder), capitalization = KeyboardCapitalization.Sentences, singleLine = false)
+            }
+        }
+    }
 
     StepFlow(
         steps.size, index, back,
         primary = when {
             step == Step.Focus && forGoal -> stringResource(R.string.action_save)
-            step != Step.Review -> stringResource(R.string.action_next)
+            !finish -> stringResource(R.string.action_next)
             whenKind == When.Now -> stringResource(R.string.cfg_start)
             whenKind == When.Always -> stringResource(R.string.cfg_turn_on)
             else -> stringResource(R.string.cfg_schedule)
         },
         primaryEnabled = canNext,
-        whyDisabled = when (step) {
+        whyDisabled = if (stepOk) stringResource(
+            when {
+                !hasContent -> R.string.cfg_problem_empty
+                !shieldOn -> R.string.need_shield
+                else -> R.string.need_commit
+            },
+        ) else when (step) {
             Step.Saved -> null
             Step.Name -> stringResource(R.string.need_name)
             Step.Contents -> stringResource(R.string.cfg_problem_empty)
@@ -291,19 +328,13 @@ fun ConfigureScreen(
                 whenKind == When.Recurring -> stringResource(R.string.cfg_problem_days)
                 else -> null // A start in the past is already said beside the date.
             }
-            Step.Focus -> stringResource(R.string.need_task)
-            Step.Review -> stringResource(
-                when {
-                    !hasContent -> R.string.cfg_problem_empty
-                    !shieldOn -> R.string.need_shield
-                    else -> R.string.need_commit
-                },
-            )
+            Step.Focus -> stringResource(R.string.need_time)
+            Step.Review -> null
         },
         onPrimary = {
             when {
                 step == Step.Focus && forGoal -> saveOnly()
-                step == Step.Review -> confirm()
+                finish -> confirm()
                 else -> step = steps[index + 1]
             }
         },
@@ -318,25 +349,27 @@ fun ConfigureScreen(
         when (step) {
             Step.Saved -> {
                 stepTitle(R.string.cfg_saved_title, R.string.cfg_saved_body)
+                // New first, then everything saved under its own heading.
+                item(key = "new") {
+                    AuroraButton(stringResource(R.string.cfg_new), {
+                        id = newId(); name = ""; shieldId = null; intentId = null; note = ""; messageOn = false
+                        focusOn = false; goal = ""; focusWindow = true; focusMinutes = null
+                        fromSaved = false; step = Step.Name
+                    }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Plus)
+                }
+                item(key = "saved-label") { Label(stringResource(R.string.cfg_saved_heading)) }
                 items(saved, key = { "cfg-" + it.id }) { c ->
                     val s = d.rules.shieldOf(c)
                     val i = d.rules.intentOf(c)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                     PickRow(c.name, listOfNotNull(s?.name, i?.name, c.focus?.task).joinToString(" · "), id == c.id, modifier = Modifier.weight(1f), onClick = {
                         id = c.id; name = c.name; shieldId = c.shieldId; intentId = c.intentId; note = c.note
-                        focusOn = c.focus != null; task = c.focus?.task.orEmpty(); description = c.focus?.description.orEmpty()
-                        goal = c.focus?.goal.orEmpty(); focusWindow = c.focus?.minutes == null; focusMinutes = c.focus?.minutes
+                        focusOn = c.focus != null; goal = c.focus?.goal.orEmpty()
+                        focusWindow = c.focus?.minutes == null; focusMinutes = c.focus?.minutes
                         messageOn = c.note.isNotBlank(); fromSaved = true; step = Step.When
                     }, leading = { IconStack((s?.keys.orEmpty() + i?.keys.orEmpty()).distinct(), d, max = 3, size = 28.dp) })
                     AuroraIconButton(AuroraIcons.Trash, stringResource(R.string.config_delete_title, c.name), { deleting = c })
                     }
-                }
-                item(key = "new") {
-                    AuroraButton(stringResource(R.string.cfg_new), {
-                        id = newId(); name = ""; shieldId = null; intentId = null; note = ""; messageOn = false
-                        focusOn = false; task = ""; description = ""; goal = ""; focusWindow = true; focusMinutes = null
-                        fromSaved = false; step = Step.Name
-                    }, Modifier.fillMaxWidth().padding(top = Space.S), kind = ButtonKind.Secondary)
                 }
             }
             Step.Name -> {
@@ -383,7 +416,7 @@ fun ConfigureScreen(
                 }
             }
             Step.Timing -> {
-                // The chosen timing's settings, on their own page.
+                // The chosen timing's settings, on their own page: the answer first, large, then only the questions.
                 stepTitle(
                     when (whenKind) {
                         When.Later -> R.string.when_later
@@ -394,85 +427,96 @@ fun ConfigureScreen(
                 )
                 val allowance = if (shield?.mode?.usesQuota == true && whenKind == When.Now) vm.app.committedMinutesLeft() else null
                 val max = allowance ?: (24 * 60)
+                item(key = "answer") {
+                    val m = minutes
+                    val past = whenKind == When.Later && laterStart <= System.currentTimeMillis()
+                    TimingAnswer(
+                        m,
+                        when {
+                            past -> stringResource(R.string.later_in_past)
+                            m == null -> null
+                            whenKind == When.Now -> stringResource(R.string.focus_ends_at, clockTime(System.currentTimeMillis() + m * 60_000L))
+                            whenKind == When.Later -> stringResource(R.string.later_ends, dateTime(laterStart + m * 60_000L))
+                            else -> listOf(daysText(days), minuteOfDay(recurMinute) + " – " + minuteOfDay(recurMinute + m)).filter { it.isNotEmpty() }.joinToString(" · ")
+                        },
+                        warn = past,
+                    )
+                }
                 if (whenKind == When.Later) {
                     item(key = "date") { DateChoice(laterDay) { laterDay = it } }
-                    item(key = "time") { TimeEntry(stringResource(R.string.later_time), laterMinute) { laterMinute = it } }
+                    item(key = "time") {
+                        Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                            Label(stringResource(R.string.later_time))
+                            TimeEntry(null, laterMinute, echo = false) { laterMinute = it }
+                        }
+                    }
                 }
                 if (whenKind == When.Recurring) {
                     item(key = "days") {
                         Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                            Text(stringResource(R.string.recurring_days), color = colors.textPrimary, style = AuroraType.Title)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                                Chip(stringResource(R.string.recurring_every_day), days == (1..7).toSet()) { days = (1..7).toSet() }
-                                Chip(stringResource(R.string.recurring_weekdays), days == setOf(1, 2, 3, 4, 5)) { days = setOf(1, 2, 3, 4, 5) }
-                                Chip(stringResource(R.string.recurring_weekends), days == setOf(6, 7)) { days = setOf(6, 7) }
-                            }
-                            ChipFlow((1..7).toList(), days, { day -> days = if (day in days) days - day else days + day }, { dayShort(it) })
+                            Label(stringResource(R.string.recurring_days))
+                            DayRow(days) { days = it }
                         }
                     }
-                    item(key = "time") { TimeEntry(stringResource(R.string.later_time), recurMinute) { recurMinute = it } }
+                    item(key = "time") {
+                        Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                            Label(stringResource(R.string.later_time))
+                            TimeEntry(null, recurMinute, echo = false) { recurMinute = it }
+                        }
+                    }
                 }
                 item(key = "duration") {
-                    DurationPicker(
-                        minutes, { minutes = it }, ProtectionPresets.filter { it <= max }.let { if (whenKind == When.Now) listOf(15, 30, 60, 360).filter { m -> m <= max } else it },
-                        title = stringResource(R.string.cfg_how_long), hint = stringResource(R.string.cfg_how_long_hint, minutesText(max.coerceAtLeast(1))),
-                        max = max.coerceAtLeast(1), endsFromNow = whenKind == When.Now,
-                        customInitially = custom,
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                        Label(stringResource(R.string.cfg_how_long))
+                        DurationPicker(
+                            minutes, { minutes = it }, ProtectionPresets.filter { it <= max }.let { if (whenKind == When.Now) listOf(15, 30, 60, 360).filter { m -> m <= max } else it },
+                            max = max.coerceAtLeast(1), customInitially = custom,
+                        )
+                    }
                 }
                 if (allowance != null) item(key = "allowance") {
-                    Text(stringResource(R.string.start_always_block_allowance, minutesText(allowance)), color = colors.violetText, style = AuroraType.Secondary)
-                }
-                if (whenKind == When.Later) item(key = "later-end") {
-                    val m = minutes
-                    if (laterStart <= System.currentTimeMillis()) Text(stringResource(R.string.later_in_past), color = colors.danger, style = AuroraType.Secondary)
-                    else if (m != null) Text(stringResource(R.string.later_ends, dateTime(laterStart + m * 60_000L)), color = colors.accent, style = AuroraType.BodyStrong)
-                    Text(stringResource(R.string.later_zone_note), Modifier.padding(top = Space.XS), color = colors.textTertiary, style = AuroraType.Caption)
-                }
-                if (whenKind == When.Recurring) item(key = "until") {
-                    Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        Text(stringResource(R.string.recurring_end), color = colors.textPrimary, style = AuroraType.Title)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                            Chip(stringResource(R.string.recurring_no_end), until == null) { until = null }
-                            listOf(4, 8, 12).forEach { w ->
-                                val date = LocalDate.now().plusWeeks(w.toLong()).toString()
-                                Chip(pluralStringResource(R.plurals.recurring_in_weeks, w, w), until == date) { until = date }
-                            }
-                        }
-                        Text(stringResource(R.string.recurring_note), color = colors.textTertiary, style = AuroraType.Caption)
-                    }
+                    Text(stringResource(R.string.start_always_block_allowance, minutesText(allowance)), color = colors.textTertiary, style = AuroraType.Caption)
                 }
             }
             Step.Focus -> {
                 stepTitle(R.string.cfg_focus_title, R.string.cfg_focus_body)
                 focusItems()
+                messageItem()
             }
             Step.Review -> {
                 stepTitle(R.string.cfg_review_title, null)
-                // This step's two questions come first; what the session is follows.
-                if (whenKind != When.Always) item(key = "focus") {
-                    ToggleRow(stringResource(R.string.cfg_focus_timer), stringResource(R.string.cfg_focus_timer_body), focusOn, { focusOn = it })
+                // The session as one card, then the two optional extras together, then only what still needs doing.
+                val allowance = if (shield?.mode?.usesQuota == true) vm.app.committedMinutesLeft() else null
+                item(key = "summary") {
+                    val allowanceNote = when {
+                        allowance == null -> null
+                        d.plan == app.aurora.plan.Plan.Free && whenKind == When.Recurring -> stringResource(R.string.committed_schedule_note)
+                        else -> stringResource(R.string.start_always_block_allowance, minutesText(allowance))
+                    }
+                    Summary(d, configName, shield, intent, timing, zone, allowanceNote)
                 }
-                item(key = "message") {
-                    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                item(key = "extras") {
+                    Column(Modifier.fillMaxWidth().auroraSurface(colors)) {
+                        if (whenKind != When.Always) {
+                            ToggleRow(stringResource(R.string.cfg_focus_timer), stringResource(R.string.cfg_focus_timer_body), focusOn, { focusOn = it })
+                            if (focusOn) GoalField(goal, Modifier.padding(start = 18.dp, end = 18.dp, bottom = Space.M)) { goal = it }
+                            RowDivider()
+                        }
                         ToggleRow(stringResource(R.string.cfg_message_on), stringResource(R.string.cfg_message_body), messageOn, { messageOn = it })
-                        if (messageOn) AuroraTextField(note, { note = it.take(140) }, stringResource(R.string.cfg_message_placeholder), capitalization = KeyboardCapitalization.Sentences, singleLine = false)
+                        if (messageOn) AuroraTextField(
+                            note, { note = it.take(140) }, stringResource(R.string.cfg_message_placeholder),
+                            Modifier.padding(start = 18.dp, end = 18.dp, bottom = Space.M), capitalization = KeyboardCapitalization.Sentences, singleLine = false,
+                        )
                     }
                 }
                 if (gate) item(key = "gate") { app.aurora.ui.protect.ShieldGate(hasSites, onOpenWeb) }
-                item(key = "summary") { Summary(d, configName, shield, intent, focus, timing, zone) }
                 val overlap = d.rules.copy(shields = d.rules.shields + listOfNotNull(shield), intentPresets = d.rules.intentPresets + listOfNotNull(intent))
                     .overlaps(config, vm.app.runsNow(d.time))
                 if (overlap.isNotEmpty()) item(key = "overlap") {
-                    Text(stringResource(R.string.cfg_overlap, overlap.joinToString(", ") { d.label(it).ifBlank { it.removePrefix("web:") } }), color = colors.textSecondary, style = AuroraType.Secondary)
+                    Text(stringResource(R.string.cfg_overlap, overlap.joinToString(", ") { d.label(it).ifBlank { it.removePrefix("web:") } }), color = colors.textTertiary, style = AuroraType.Caption)
                 }
+                // The commitment last: everything to read first, "I'm ready to commit" at the end.
                 if (strict) item(key = "commit") { CommitBlock(committed, { committed = it }, onStrict) }
-                if (shield?.mode?.usesQuota == true) item(key = "allowance") {
-                    Column(Modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        CommittedAllowance(d)
-                        if (d.plan == app.aurora.plan.Plan.Free && whenKind == When.Recurring) Text(stringResource(R.string.committed_schedule_note), color = colors.textSecondary, style = AuroraType.Caption)
-                    }
-                }
             }
         }
     }
@@ -491,28 +535,17 @@ fun ConfigureScreen(
     }
 }
 
-/** The commitment every strict session asks for, wherever it is started. */
-@Composable
-fun CommittedAllowance(d: app.aurora.ui.protect.ProtectData) {
-    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as app.aurora.AuroraApplication
-    val status = d.runtime.quotaToday(d.plan, d.time, java.time.ZoneId.systemDefault())
-    val left = app.serverAdjustedRemainingMs(status.remainingMs) ?: return
-    val colors = Aurora.colors
-    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        Text(stringResource(R.string.committed_today_title), color = colors.textPrimary, style = AuroraType.BodyStrong)
-        Text(
-            stringResource(R.string.committed_today_body, minutesText((status.usedMs / 60_000).toInt()), minutesText((left / 60_000).toInt()), minutesText(((status.limitMs ?: 0) / 60_000).toInt()), clockTime(status.resetAt)),
-            color = colors.textSecondary, style = AuroraType.Secondary,
-        )
-        Text(stringResource(R.string.committed_today_note), color = colors.textTertiary, style = AuroraType.Caption)
-    }
-}
-
+/** What a strict session locks, read as one group, then "I'm ready to commit" below all of it. */
 @Composable
 fun CommitBlock(committed: Boolean, onChange: (Boolean) -> Unit, onStrict: (() -> Unit)?) {
     val colors = Aurora.colors
     Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
-        Text(stringResource(R.string.start_commit_body), color = colors.textSecondary, style = AuroraType.Body)
+        Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+            Text(stringResource(R.string.start_commit_body), color = colors.textPrimary, style = AuroraType.Body)
+            Text(stringResource(R.string.start_commit_limits), color = colors.textSecondary, style = AuroraType.Secondary)
+            if (onStrict != null) AuroraButton(stringResource(R.string.cfg_strict_link), onStrict, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet, compact = true)
+        }
+        UninstallProtection()
         Row(
             Modifier.fillMaxWidth().auroraSurface(colors, warm = committed).toggleable(committed, role = Role.Checkbox, onValueChange = onChange).padding(Space.M),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M),
@@ -520,10 +553,13 @@ fun CommitBlock(committed: Boolean, onChange: (Boolean) -> Unit, onStrict: (() -
             SelectionMark(committed)
             Text(stringResource(R.string.always_block_confirm), color = colors.textPrimary, style = AuroraType.BodyStrong)
         }
-        Text(stringResource(R.string.start_commit_limits), color = colors.textTertiary, style = AuroraType.Caption)
-        UninstallProtection()
-        if (onStrict != null) AuroraButton(stringResource(R.string.cfg_strict_link), onStrict, kind = ButtonKind.Quiet)
     }
+}
+
+/** What a Focus timer is for, typed in. Optional; shown above the timer while it runs. */
+@Composable
+private fun GoalField(goal: String, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+    AuroraTextField(goal, { onChange(it.take(60)) }, stringResource(R.string.cfg_focus_goal_placeholder), modifier, capitalization = KeyboardCapitalization.Sentences)
 }
 
 @Composable
@@ -535,21 +571,99 @@ private fun Label(text: String, none: Boolean? = null, onNone: () -> Unit = {}) 
     }
 }
 
-/** Today, tomorrow and the next twelve days as chips: enough for "tomorrow at 7" and next week. */
-@OptIn(ExperimentalLayoutApi::class)
+/** Today, Tomorrow, or Custom: any later date from the calendar. A custom date shows on its chip. */
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun DateChoice(value: String, onChange: (String) -> Unit) {
     val today = LocalDate.now()
+    val chosen = LocalDate.parse(value)
+    val custom = chosen != today && chosen != today.plusDays(1)
+    var picking by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        Text(stringResource(R.string.later_date), color = Aurora.colors.textPrimary, style = AuroraType.Title)
+        Label(stringResource(R.string.later_date))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-            (0L..13L).map { today.plusDays(it) }.forEach { date ->
-                val label = when (date) {
-                    today -> stringResource(R.string.later_today)
-                    today.plusDays(1) -> stringResource(R.string.later_tomorrow)
-                    else -> date.format(DateTimeFormatter.ofPattern("EEE d MMM"))
-                }
-                Chip(label, value == date.toString()) { onChange(date.toString()) }
+            Chip(stringResource(R.string.later_today), chosen == today) { onChange(today.toString()) }
+            Chip(stringResource(R.string.later_tomorrow), chosen == today.plusDays(1)) { onChange(today.plusDays(1).toString()) }
+            Chip(if (custom) chosen.format(DateTimeFormatter.ofPattern("EEE d MMM")) else stringResource(R.string.later_custom_date), custom) { picking = true }
+        }
+    }
+    if (picking) {
+        // The picker works in UTC midnights; only today and later can be picked.
+        val utc = java.time.ZoneOffset.UTC
+        val state = androidx.compose.material3.rememberDatePickerState(
+            initialSelectedDateMillis = chosen.atStartOfDay(utc).toInstant().toEpochMilli(),
+            selectableDates = object : androidx.compose.material3.SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long) = !Instant.ofEpochMilli(utcTimeMillis).atZone(utc).toLocalDate().isBefore(today)
+                override fun isSelectableYear(year: Int) = year >= today.year
+            },
+        )
+        androidx.compose.material3.DatePickerDialog(
+            onDismissRequest = { picking = false },
+            confirmButton = {
+                AuroraButton(stringResource(R.string.action_ok), {
+                    state.selectedDateMillis?.let { onChange(Instant.ofEpochMilli(it).atZone(utc).toLocalDate().toString()) }
+                    picking = false
+                }, kind = ButtonKind.Quiet, compact = true)
+            },
+            dismissButton = { AuroraButton(stringResource(R.string.action_cancel), { picking = false }, kind = ButtonKind.Quiet, compact = true) },
+            colors = androidx.compose.material3.DatePickerDefaults.colors(containerColor = Aurora.colors.elevated),
+        ) {
+            androidx.compose.material3.DatePicker(state, showModeToggle = false, colors = androidx.compose.material3.DatePickerDefaults.colors(containerColor = Aurora.colors.elevated))
+        }
+    }
+}
+
+/**
+ * The timing page's answer, said once and large: the length in light tabular Geist (numbers big, units small) on a lit
+ * card, and one line under it saying when it ends or runs. [warn] sets that line in the danger colour.
+ */
+@Composable
+private fun TimingAnswer(minutes: Int?, line: String?, warn: Boolean = false) {
+    val colors = Aurora.colors
+    val big = AuroraType.Metric.toSpanStyle()
+    val unit = AuroraType.Title.toSpanStyle().copy(color = colors.textSecondary, fontSize = androidx.compose.ui.unit.TextUnit(24f, androidx.compose.ui.unit.TextUnitType.Sp))
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        if (minutes == null) { pushStyle(big); append("–"); pop(); return@buildAnnotatedString }
+        val h = minutes / 60
+        val m = minutes % 60
+        if (h > 0) { pushStyle(big); append("$h"); pop(); pushStyle(unit); append(" h"); pop() }
+        if (h > 0 && m > 0) append("  ")
+        if (m > 0 || h == 0) { pushStyle(big); append("$m"); pop(); pushStyle(unit); append(" min"); pop() }
+    }
+    Column(
+        Modifier.fillMaxWidth().glass(colors).padding(horizontal = 22.dp, vertical = 22.dp)
+            .semantics(mergeDescendants = true) { },
+        verticalArrangement = Arrangement.spacedBy(Space.XS),
+    ) {
+        Text(text, color = colors.textPrimary, style = AuroraType.Metric)
+        line?.let { Text(it, color = if (warn) colors.danger else colors.textSecondary, style = AuroraType.Body) }
+    }
+}
+
+/** The week as one row of round days, Monday first: tap to add or take a day away. */
+@Composable
+private fun DayRow(days: Set<Int>, onChange: (Set<Int>) -> Unit) {
+    val colors = Aurora.colors
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        (1..7).forEach { day ->
+            val on = day in days
+            val dow = java.time.DayOfWeek.of(day)
+            val full = dow.getDisplayName(java.time.format.TextStyle.FULL, locale)
+            androidx.compose.foundation.layout.Box(
+                Modifier.weight(1f).heightIn(min = 44.dp).aspectRatio(1f, matchHeightConstraintsFirst = false)
+                    .clip(CircleShape)
+                    .background(if (on) colors.accent else androidx.compose.ui.graphics.Color.Transparent)
+                    .then(if (on) Modifier else Modifier.border(1.dp, colors.hairlineStrong, CircleShape))
+                    .toggleable(on, role = Role.Checkbox) { onChange(if (it) days + day else days - day) }
+                    .semantics { contentDescription = full },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    dow.getDisplayName(java.time.format.TextStyle.NARROW, locale),
+                    color = if (on) colors.onAccent else colors.textSecondary,
+                    style = if (on) AuroraType.Choice.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(600)) else AuroraType.Choice,
+                )
             }
         }
     }
@@ -559,22 +673,23 @@ private fun dateTime(ms: Long): String =
     Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
 
 /** The review card: what will be enforced, when, and the Focus task. */
+/** The session at a glance: its name and kind, the faces of what it holds back, and when it runs. */
 @Composable
-private fun Summary(d: ProtectData, name: String, shield: ShieldPreset?, intent: IntentPreset?, focus: FocusPlan?, timing: Timing?, zone: ZoneId) {
+private fun Summary(d: ProtectData, name: String, shield: ShieldPreset?, intent: IntentPreset?, timing: Timing?, zone: ZoneId, note: String?) {
     val colors = Aurora.colors
-    Column(Modifier.fillMaxWidth().auroraSurface(colors, edge = shield?.let { modeColor(it.mode) }).padding(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-        Text(name, color = colors.textPrimary, style = AuroraType.Headline)
-        if (shield != null) {
-            ModeChip(shield.mode)
-            if (shield.name != name) Text(shield.name, color = colors.textPrimary, style = AuroraType.BodyStrong)
-            IconStack(shield.keys, d, max = 7)
+    val keys = (shield?.keys.orEmpty() + intent?.keys.orEmpty()).distinct()
+    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(22.dp), verticalArrangement = Arrangement.spacedBy(Space.M)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+            Text(name, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Headline, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            shield?.let { ModeChip(it.mode) }
         }
-        if (intent != null) {
-            Text(intent.name + " · " + intentSummary(intent.config), color = colors.textSecondary, style = AuroraType.Secondary)
-            IconStack(intent.keys, d, max = 7)
+        if (keys.isNotEmpty()) IconStack(keys, d, max = 7)
+        intent?.let { Text(intentSummary(it.config), color = colors.textSecondary, style = AuroraType.Secondary) }
+        timing?.let {
+            RowDivider()
+            Text(timingText(it, zone), color = colors.textPrimary, style = AuroraType.BodyStrong)
         }
-        timing?.let { Text(timingText(it, zone), color = colors.accent, style = AuroraType.BodyStrong) }
-        focus?.let { Text(stringResource(R.string.cfg_review_focus, it.task), color = colors.textSecondary, style = AuroraType.Secondary) }
+        note?.let { Text(it, color = colors.textTertiary, style = AuroraType.Caption) }
     }
 }
 

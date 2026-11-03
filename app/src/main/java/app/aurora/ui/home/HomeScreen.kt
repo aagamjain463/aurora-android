@@ -206,6 +206,7 @@ fun HomeScreen(
     onOpenLegacyFocus: () -> Unit,
     onOpenSettings: () -> Unit,
     onEditSession: (configId: String) -> Unit = {},
+    onStartSession: (configId: String) -> Unit = {},
     onOpenGuide: () -> Unit = {},
 ) {
     val today = auroraViewModel { TodayModel(it) }
@@ -309,7 +310,7 @@ fun HomeScreen(
         }
         // Then what is running, finishing or needs attention: Home shows what matters now.
         if (d != null) homeNow(d, today.app, onOpenFocus, onOpenLegacyFocus)
-        if (d != null && ready.isNotEmpty()) item(key = "ready") { Column(Modifier.animateItem()) { QuickStart(ready, d, today.app, busy, onEditSession) } }
+        if (d != null && ready.isNotEmpty()) item(key = "ready") { Column(Modifier.animateItem()) { QuickStart(ready, d, today.app, busy, onEditSession, onStartSession) } }
         // What is scheduled, always on and recent.
         if (d != null) homeLater(d, today.app, onOpenFocus)
     }

@@ -117,9 +117,12 @@ fun daysText(days: Set<Int>): String = when (days) {
 
 private enum class ScheduleStep { Name, Days, Times, Apps, Mode, Settings, Summary }
 
-/** A time of day typed as hour and minute, with an AM/PM switch in 12-hour locales. */
+/**
+ * A time of day typed as hour and minute, with an AM/PM switch in 12-hour locales. Without [label] the caller labels it;
+ * [echo] repeats the time below in the person's clock format.
+ */
 @Composable
-fun TimeEntry(label: String, minute: Int, onChange: (Int) -> Unit) {
+fun TimeEntry(label: String?, minute: Int, echo: Boolean = true, onChange: (Int) -> Unit) {
     val colors = Aurora.colors
     val context = androidx.compose.ui.platform.LocalContext.current
     val h24 = android.text.format.DateFormat.is24HourFormat(context)
@@ -140,7 +143,7 @@ fun TimeEntry(label: String, minute: Int, onChange: (Int) -> Unit) {
         h24value?.let { onChange(it * 60 + min) }
     }
     Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        Text(label, color = colors.textPrimary, style = AuroraType.Title)
+        if (label != null) Text(label, color = colors.textPrimary, style = AuroraType.Title)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
             AuroraTextField(hourText, { hourText = it.filter(Char::isDigit).take(2); commit(hourText, minText) }, "9", Modifier.weight(1f),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
@@ -152,7 +155,7 @@ fun TimeEntry(label: String, minute: Int, onChange: (Int) -> Unit) {
                 Chip("PM", pm) { commit(hourText, minText, isPm = true) }
             }
         }
-        Text(minuteOfDay(minute), color = colors.textSecondary, style = AuroraType.Caption)
+        if (echo) Text(minuteOfDay(minute), color = colors.textSecondary, style = AuroraType.Caption)
     }
 }
 

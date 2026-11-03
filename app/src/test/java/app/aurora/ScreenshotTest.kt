@@ -278,6 +278,12 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun normalUse() = capture("configure_normal") { Configure(custom = false) }
 
+    /** Create or Choose a Session: New first, then Saved Sessions. */
+    @Test fun savedSessions() {
+        library()
+        capture("configure_saved") { Configure(custom = false, step = "Saved") }
+    }
+
     @Test fun onboardingShield() {
         runBlocking { application.preferences.setOnboardingStep(3) }
         capture("onboarding_shield") { OnboardingScreen(onFinish = {}) }
@@ -327,6 +333,8 @@ class ScreenshotTest(private val variant: Variant) {
         capture("configure_when_always_block") { Configure(custom = true, config = "c2", step = "When") }
     }
 
+    // Tall, so the whole commitment group and "I'm ready to commit" below it are in the picture.
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun alwaysBlockCommitment() {
         library()
         capture("configure_commit") { Configure(custom = true, config = "c2", step = "Review", timing = When.Now) }

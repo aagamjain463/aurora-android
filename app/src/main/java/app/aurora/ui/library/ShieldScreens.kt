@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -170,20 +171,20 @@ private enum class ShieldStep { Name, Apps, Sites, Parts, Type, Review }
  * it. [onSaved] gets the preset's id, so a Home flow that sent the person here can select it.
  */
 @Composable
-fun ShieldEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0, onPlus: (() -> Unit)? = null) {
+fun ShieldEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0, onPlus: (() -> Unit)? = null, onOpenWeb: () -> Unit = {}) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     val d = data ?: return
     // A new preset keeps one id for the whole flow, however often the screen recomposes.
     val fresh = rememberSaveable { newId() }
     val existing = id?.let { i -> d.rules.shields.find { it.id == i } }
-    ShieldEditor(vm, existing ?: ShieldPreset(fresh, "", mode = d.rules.defaultRule.mode, createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
+    ShieldEditor(vm, existing ?: ShieldPreset(fresh, "", mode = d.rules.defaultRule.mode, createdAt = System.currentTimeMillis()), onBack, onSaved, startStep, onOpenWeb)
     LimitNoticeDialog(vm, onPlus)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int) {
+private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int, onOpenWeb: () -> Unit) {
     val apps by vm.apps.collectAsStateWithLifecycle()
     val exempt by vm.exempt.collectAsStateWithLifecycle()
     val colors = Aurora.colors
@@ -276,10 +277,15 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                         }
                     }
                 }
-                item(key = "parts-note") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
-                        app.aurora.ui.components.Tag(stringResource(R.string.web_experimental))
-                        Text(stringResource(R.string.web_experimental_body), color = colors.textTertiary, style = AuroraType.Caption)
+                item(key = "parts-permission") {
+                    // Whether Web & content is on, said plainly, with the way to turn it on from here.
+                    val on = app.aurora.rememberAccess(app.aurora.data.Access.Content) == app.aurora.data.AccessState.Granted
+                    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = !on).padding(horizontal = 22.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(Space.S), verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Icon(if (on) AuroraIcons.Check else AuroraIcons.Protect, null, tint = if (on) colors.accent else colors.textSecondary, modifier = Modifier.size(18.dp))
+                            Text(stringResource(if (on) R.string.parts_permission_on else R.string.parts_permission_off), Modifier.weight(1f), color = if (on) colors.textPrimary else colors.textSecondary, style = AuroraType.Secondary)
+                        }
+                        if (!on) AuroraButton(stringResource(R.string.parts_permission_enable), onOpenWeb, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
                     }
                 }
             }

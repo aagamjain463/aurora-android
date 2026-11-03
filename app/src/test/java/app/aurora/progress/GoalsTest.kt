@@ -35,6 +35,15 @@ class GoalsTest {
 
     private fun days(vararg back: Pair<Long, Long>) = back.associate { (b, ms) -> today.minusDays(b).toString() to ms }
 
+    @Test fun aGoalOnCertainDaysOnlyCountsThoseDays() {
+        // Wednesdays only: today (Wed) is pending, Tuesday is a rest day, last Wednesday with nothing done is missed.
+        val p = progress(session(minutes = 60).copy(days = setOf(3)))
+        assertEquals(DayMark.Pending, p.record.last().second)
+        assertEquals(DayMark.Rest, p.record[p.record.size - 2].second)
+        assertEquals(DayMark.Missed, p.record[p.record.size - 8].second)
+        assertEquals(1, p.failed)
+    }
+
     @Test fun limitUnderIsOnTrackUntilTheDayEnds() {
         val p = progress(limit(), usage = days(0L to 18 * m))
         assertEquals(18 * m, p.value)

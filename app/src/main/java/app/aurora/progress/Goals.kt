@@ -55,6 +55,8 @@ data class Goal(
     val createdAt: Long = 0,
     val status: GoalStatus = GoalStatus.Active,
     val pauses: List<GoalPause> = emptyList(),
+    /** Daily only: the ISO days of the week (1 Monday .. 7 Sunday) it counts on. Empty: every day. */
+    val days: Set<Int> = emptySet(),
 ) {
     /** This Goal with a pause opened or closed so that it is measured exactly when [measuring]. */
     fun withMeasuring(measuring: Boolean, now: Long): Goal {
@@ -133,6 +135,8 @@ fun goalProgress(
     }
 
     fun mark(start: LocalDate, value: Long?): DayMark = when {
+        // A day the goal doesn't repeat on neither earns nor breaks a streak.
+        goal.period == GoalPeriod.Daily && goal.days.isNotEmpty() && start.dayOfWeek.value !in goal.days -> DayMark.Rest
         // A period touched by a pause neither earns nor breaks a streak, unless it was already met.
         paused(start) && !(goal.kind == GoalKind.Session && value != null && value >= goal.target) -> DayMark.Rest
         goal.kind == GoalKind.Limit -> when {

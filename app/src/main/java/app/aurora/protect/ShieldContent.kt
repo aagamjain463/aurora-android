@@ -233,7 +233,7 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, on
             } else {
                 app.aurora.ui.components.AuroraMark(26.dp, Modifier.padding(top = 34.dp), lit = true)
                 Spacer(Modifier.weight(0.62f).heightIn(min = Space.L))
-                AppTile(label, icon, 76.dp, 22.dp)
+                AppTile(label, icon, 64.dp, 18.dp)
                 // The icon names an app; a website has only its name.
                 if (showName) Text(label, Modifier.padding(top = Space.S), color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(22.dp))
@@ -261,18 +261,13 @@ private fun AppTile(label: String, icon: ImageBitmap?, size: androidx.compose.ui
     }
 }
 
-/** When the moment ends, on a quiet pill under the headline. */
+/** When the moment ends: one quiet line under the headline, no pill and no icon. */
 @Composable
 private fun EndsPill(text: String) {
-    val colors = Aurora.colors
-    Row(
-        Modifier.padding(top = 18.dp).heightIn(min = 32.dp).clip(Radius.Pill).background(colors.elevated).padding(horizontal = 14.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        androidx.compose.material3.Icon(AuroraIcons.Clock, null, tint = colors.textSecondary, modifier = Modifier.size(15.dp))
-        Text(text, color = colors.textSecondary, style = AuroraType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)))
-    }
+    Text(
+        text, Modifier.fillMaxWidth().padding(top = 14.dp),
+        color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+    )
 }
 
 /** A small-capital label over a part of the Intent page ("YOUR REASON"). */
@@ -297,20 +292,19 @@ private fun Headline(text: String, highlight: String? = null) {
     LocalSessionNote.current?.let { SessionNote(it) }
 }
 
-/** The reason the person wrote when starting the session, in their words, on a flat card. */
+/** The reason the person wrote when starting the session, in their own words: the serif's italic, no card. */
 @Composable
 private fun SessionNote(text: String) {
     val colors = Aurora.colors
     val start = LocalStartAligned.current
-    val shape = RoundedCornerShape(18.dp)
-    Column(
-        Modifier.padding(top = 18.dp).fillMaxWidth().clip(shape).background(colors.field).border(1.dp, colors.hairline, shape)
-            .padding(horizontal = 18.dp, vertical = 14.dp).semantics(mergeDescendants = true) { },
-        horizontalAlignment = if (start) Alignment.Start else Alignment.CenterHorizontally,
-    ) {
-        Text(stringResource(R.string.session_note_label).uppercase(), color = colors.textTertiary, style = AuroraType.Eyebrow)
-        Text(text, Modifier.padding(top = 6.dp), color = colors.textPrimary, style = AuroraType.Body, textAlign = if (start) TextAlign.Start else TextAlign.Center)
-    }
+    val label = stringResource(R.string.session_note_label)
+    Text(
+        "\u201C" + text + "\u201D",
+        Modifier.padding(top = 26.dp).fillMaxWidth().semantics { contentDescription = "$label: $text" },
+        color = colors.textPrimary,
+        style = AuroraType.DisplayS.copy(fontSize = 22.sp, lineHeight = 28.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+        textAlign = if (start) TextAlign.Start else TextAlign.Center,
+    )
 }
 
 @Composable
@@ -403,12 +397,10 @@ private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Dec
         ShieldReason.AlwaysBlock -> {
             Headline(stringResource(R.string.shield_blocked_title, label), label)
             ends?.let { EndsPill(it) }
-            Body(stringResource(R.string.mode_always_block_desc))
         }
         ShieldReason.Flexible -> {
             Headline(stringResource(R.string.shield_blocked_title, label), label)
             ends?.let { EndsPill(it) }
-            Body(stringResource(R.string.shield_flexible_how_to_off))
         }
         ShieldReason.Focus -> {
             Headline(stringResource(R.string.shield_focus_title))
@@ -423,7 +415,6 @@ private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Dec
         ShieldReason.Limit -> {
             Headline(stringResource(R.string.shield_limit_title, label), label)
             ends?.let { EndsPill(it) }
-            Body(stringResource(R.string.shield_limit_body))
         }
         else -> {
             Headline(stringResource(R.string.shield_intent_cooldown_title))

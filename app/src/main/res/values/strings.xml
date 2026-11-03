@@ -50,13 +50,11 @@
     <string name="shield_return_home">Return home</string>
     <string name="shield_open_app">Open %1$s</string>
     <string name="shield_blocked_title">%1$s is blocked.</string>
-    <string name="shield_flexible_how_to_off">To turn it off, open Aurora and go to Home.</string>
     <string name="shield_ends_at">Protection ends at %1$s</string>
     <string name="shield_always_block_ends">Protection ends automatically at %1$s</string>
     <string name="shield_focus_title">You\'re in Focus.</string>
     <string name="shield_focus_body">%1$s opens again when your Focus session ends.</string>
     <string name="shield_limit_title">Today\'s time with %1$s is used.</string>
-    <string name="shield_limit_body">Your daily limit is reached. It resets at midnight.</string>
     <string name="shield_limit_resets">Resets at midnight</string>
     <string name="shield_intent_cooldown_title">Your cooldown is active.</string>
     <string name="shield_intent_cooldown_body">You chose a cooldown after using %1$s. You can decide again when it ends.</string>
@@ -308,26 +306,18 @@
     <string name="settings_appearance">Appearance</string>
     <string name="settings_reduce_motion">Reduce motion</string>
     <string name="settings_on_because_animations_are_off_in_android_settings">On, because animations are off in Android settings.</string>
-    <string name="settings_no_ambient_movement_or_sliding_transitions">No ambient movement or sliding transitions.</string>
     <string name="settings_preferred_mode_for_new_apps">Preferred mode for new Shields</string>
-    <string name="settings_what_aurora_can_see_about_shield_on_this_phone">What Aurora can see about Shield on this phone.</string>
     <string name="settings_permissions">Permissions</string>
     <string name="settings_turned_off_in_android_settings_insights_and_daily_limits_need_it">Turned off in Android Settings. Track needs it.</string>
-    <string name="settings_powers_insights_goals_and_daily_limits_read_on_this_phone_only">Powers Track and goals. Read on this phone only.</string>
     <string name="settings_notifications">Notifications</string>
-    <string name="settings_aurora_doesn_t_send_notifications_yet">A quiet notice while protection runs</string>
     <string name="settings_privacy_data">Privacy &amp; data</string>
     <string name="settings_your_data_stays_yours">Your data stays yours</string>
     <string name="settings_local_first_no_account_no_tracking_no_internet_permission">Your usage stays on this phone. Your account holds only what sign-in, Plus and the daily allowance need.</string>
     <string name="settings_what_aurora_stores">What Aurora stores</string>
-    <string name="settings_see_everything_kept_on_this_phone">See everything kept on this phone.</string>
     <string name="settings_clear_history">Clear history</string>
-    <string name="settings_daily_counts_focus_history_and_xp">Daily counts, Focus history and XP.</string>
     <string name="settings_delete_all_data">Delete all data</string>
-    <string name="settings_start_again_from_the_beginning">Start again from the beginning.</string>
     <string name="settings_help_about">Help &amp; about</string>
     <string name="settings_troubleshooting">Troubleshooting</string>
-    <string name="settings_if_shield_isn_t_stepping_in">If Shield isn\'t stepping in.</string>
     <string name="settings_replay_introduction">Replay introduction</string>
     <string name="settings_open_source_licenses">Open-source licenses</string>
     <string name="settings_version">Version</string>
@@ -373,15 +363,6 @@
     <string name="focus_end_this_session">End this session?</string>
     <string name="focus_keep_going">Keep going</string>
     <string name="focus_new_profile">New profile</string>
-    <string name="focus_what_s_this_time_for_optional">What\'s this time for? (optional)</string>
-    <string name="focus_time_for">This time is for</string>
-    <plurals name="focus_apps_protected">
-        <item quantity="one">%d app protected</item>
-        <item quantity="other">%d apps protected</item>
-    </plurals>
-    <string name="focus_shield_is_holding">Shield is holding</string>
-    <string name="focus_timer_only_shield_is_off">Timer only · Shield is off</string>
-    <string name="focus_focus_session">Focus session</string>
     <string name="focus_minutes_focused">minutes focused</string>
     <string name="focus_time_well_spent">Time well spent.</string>
     <string name="focus_edit_profile">Edit profile</string>
@@ -415,7 +396,6 @@
     <string name="focus_more_time_for">More time for %1$s.</string>
     <string name="focus_this_group">This group</string>
     <string name="focus_spoken_remaining">%1$s remaining</string>
-    <string name="focus_remaining">Remaining</string>
     <string name="settings_stored_items">• Protected apps and sites: %1$d\n</string>
     <string name="settings_stored_rules">• Shields: %1$d · Intents: %2$d · saved sessions: %3$d · daily limits: %4$d\n</string>
     <string name="settings_stored_profiles">• Focus profiles: %1$d · goals: %2$d\n</string>
@@ -468,10 +448,8 @@
     <string name="part_ig_search_body">Search and Explore are covered.</string>
     <string name="shield_go_back">Go back</string>
     <string name="shield_parts_title">Parts of apps</string>
-    <string name="shield_parts_body">Hold back one part and keep the rest of the app. Needs Web &amp; content.</string>
+    <string name="shield_parts_body">Hold back one part and keep the rest of the app. Needs Web &amp; content permissions.</string>
     <string name="web_parts_moved">Shorts, Reels, Instagram posts and Search are blocked from a Shield now: add them under Parts of apps.</string>
-    <string name="web_experimental">experimental</string>
-    <string name="web_experimental_body">These apps change often, so this can stop working after an update. It isn\'t tested on every version.</string>
     <string name="web_disclosure_title">Turn on Web &amp; content Shield</string>
     <string name="web_open_settings">Open settings</string>
     <string name="web_supported_browsers">Works in %1$s. Other browsers, in-app browsers and some private tabs aren\'t covered.</string>
@@ -498,7 +476,6 @@
     <string name="home_start_title">Start session</string>
     <string name="need_name">Give it a name to continue.</string>
     <string name="need_when">Choose when it starts.</string>
-    <string name="need_task">Add a task to focus on, and a target time if you set one.</string>
     <string name="need_shield">Turn on Shield to start.</string>
     <string name="need_commit">Tick “I\'m ready to commit” to start.</string>
     <string name="need_apps">Choose at least one app.</string>
@@ -532,8 +509,8 @@
     <string name="outcome_unverified">Unverified</string>
 
     <!-- Configure (Home) -->
-    <string name="cfg_saved_title">Your sessions</string>
-    <string name="cfg_saved_body">Start one again, or build a new one.</string>
+    <string name="cfg_saved_title">Create or Choose a Session</string>
+    <string name="cfg_saved_body">Start a new session or a saved one.</string>
     <string name="cfg_new">New session</string>
     <string name="cfg_contents_title">What should it include?</string>
     <string name="cfg_contents_body">At most one Shield and one Intent.</string>
@@ -549,43 +526,29 @@
     <string name="when_now">Start now</string>
     <string name="when_now_desc">Starts immediately, for as long as you choose.</string>
     <string name="when_later">Start later</string>
-    <string name="when_later_desc">Once, from a date and time you pick.</string>
+    <string name="when_later_desc">Starts automatically at a date and time you pick.</string>
     <string name="when_recurring">Recurring schedule</string>
     <string name="when_recurring_desc">On the days you choose, every week.</string>
     <string name="when_always">Always</string>
     <string name="when_always_desc">Applies until you turn it off.</string>
     <string name="when_always_blocked">Not available with a Strict, Cooldown or Friction Shield. A permanent commitment can\'t be made by accident: choose a finite time or a schedule.</string>
     <string name="cfg_how_long">How long?</string>
-    <string name="cfg_how_long_hint">A custom time can be any length up to %1$s.</string>
     <string name="later_date">Date</string>
     <string name="later_time">Start time</string>
     <string name="later_today">Today</string>
     <string name="later_tomorrow">Tomorrow</string>
     <string name="later_ends">Ends %1$s</string>
     <string name="later_in_past">That time has already passed. Choose a later start.</string>
-    <string name="later_zone_note">The start is a fixed moment: if you change time zone before it, it starts at the same moment, at a different local time.</string>
     <string name="recurring_days">Days</string>
-    <string name="recurring_every_day">Every day</string>
-    <string name="recurring_weekdays">Weekdays</string>
-    <string name="recurring_weekends">Weekends</string>
-    <string name="recurring_end">Last date</string>
-    <string name="recurring_no_end">No end</string>
-    <plurals name="recurring_in_weeks">
-        <item quantity="one">In %d week</item>
-        <item quantity="other">In %d weeks</item>
-    </plurals>
-    <string name="recurring_note">Windows keep their local clock times across daylight-saving changes and time zones. A schedule starts with its next window.</string>
     <string name="cfg_focus_title">Would you like to track Focus during this session?</string>
-    <string name="cfg_focus_body">Optional. Name the task; at the end you say how it went.</string>
+    <string name="cfg_focus_body">Optional. Link it to one of your goals if you like.</string>
     <string name="cfg_focus_timer">Focus timer</string>
-    <string name="cfg_focus_timer_body">Time this session as focus. At the end, say how it went.</string>
+    <string name="cfg_focus_goal_placeholder">Your goal, e.g. Finish chapter 4</string>
+    <string name="cfg_focus_timer_body">Just time this session as focus.</string>
     <string name="cfg_message_on">Motivational message</string>
     <string name="cfg_message_body">Shown whenever you open a blocked app.</string>
     <string name="cfg_message_placeholder">e.g. Future you will thank you</string>
     <string name="cfg_focus_on">Track a Focus session</string>
-    <string name="cfg_focus_task">Task, e.g. Study mathematics</string>
-    <string name="cfg_focus_desc">Description (optional)</string>
-    <string name="cfg_focus_goal">Goal (optional)</string>
     <string name="cfg_focus_use_window">Use the session\'s time as the target</string>
     <string name="cfg_focus_custom_target">Focus target</string>
     <string name="cfg_review_title">Review</string>
@@ -593,11 +556,9 @@
     <string name="cfg_review_when_later">%1$s, for %2$s</string>
     <string name="cfg_review_when_recurring">%1$s at %2$s, for %3$s</string>
     <string name="cfg_review_when_always">Always, until you turn it off</string>
-    <string name="cfg_review_focus">Focus: %1$s</string>
     <string name="cfg_overlap">Also covered by something already running: %s. All rules apply; the strongest decides.</string>
     <string name="cfg_start">Start</string>
     <string name="home_ready_title">Saved Sessions</string>
-    <string name="home_ready_confirm">Start %1$s for %2$s?</string>
     <string name="cfg_save_for_later">Save without starting</string>
     <string name="cfg_schedule">Schedule</string>
     <string name="cfg_turn_on">Turn on</string>
@@ -697,7 +658,6 @@
     <string name="goal_delete">Delete goal</string>
     <string name="goal_delete_body">Its track record is removed. Your sessions and apps aren\'t affected.</string>
     <string name="goal_name_title">Name your goal</string>
-    <string name="goal_name_placeholder">e.g. Daily Study</string>
     <string name="goal_link_title">What is this goal for?</string>
     <string name="goal_link_session">A custom session</string>
     <string name="goal_link_session_desc">Track how much you complete and how often you succeed.</string>
@@ -763,8 +723,6 @@
     <string name="settings_strict_row">Strict protection</string>
 
     <!-- Focus inside a session -->
-    <string name="focusrun_target">Target %1$s</string>
-    <string name="focusrun_protection">Protection ends at %1$s</string>
     <!-- Outside the app: the ongoing notification, the widget and the Quick Settings tile. -->
     <string name="notif_channel">Protection running</string>
     <string name="notif_channel_desc">A quiet, ongoing notice while a session or Focus is running, with the time left.</string>
@@ -831,9 +789,6 @@
     <string name="plus_devices_body">This subscription is already on the most phones it can be. Plus isn\'t active on this one.</string>
     <string name="plus_verifying_title">Confirming your purchase</string>
     <string name="plus_verifying_body">Google Play has your purchase. Aurora is confirming it and Plus starts as soon as it does. You don\'t need to pay again or restart.</string>
-    <string name="committed_today_title">Committed time today</string>
-    <string name="committed_today_body">%1$s used or reserved, %2$s left of %3$s. Starts again at %4$s.</string>
-    <string name="committed_today_note">Cooldown and Strict share this time. Time they overlap counts once. Intent\'s cooldown after use doesn\'t count.</string>
     <string name="committed_schedule_note">Schedules are unlimited, but this one needs today\'s committed time each time it runs. If there isn\'t enough, that run doesn\'t start and Aurora tells you. It never swaps in a softer Shield.</string>
     <string name="limit_committed_shorter">Cooldown and Strict share %1$s a day on Aurora Free. %2$s left today, and it starts again at %3$s.</string>
     <string name="limit_committed_used">Cooldown and Strict share %1$s a day on Aurora Free. Today\'s is used, and it starts again at %2$s.</string>
@@ -976,7 +931,6 @@
     <string name="guide_title">How Aurora works</string>
     <string name="guide_subtitle">Everything Aurora does, in four places.</string>
     <string name="guide_see_all">How Aurora works</string>
-    <string name="guide_settings_body">What each tab does, in plain words.</string>
     <string name="guide_flow_title">How it fits together</string>
     <string name="guide_flow_body">Create Shields and Intents, start them from Home, and see how it went in Track.</string>
     <string name="guide_home_title">Home</string>
@@ -1018,4 +972,13 @@
     <string name="detail_ended_early">Turned off early</string>
     <string name="detail_bypassed">Shield was switched off outside Aurora</string>
     <string name="usage_most_used_per_day">Most used · average per day</string>
+    <string name="cfg_saved_heading">Saved Sessions</string>
+    <string name="later_custom_date">Custom</string>
+    <string name="parts_permission_on">Web &amp; content permissions are on</string>
+    <string name="parts_permission_off">Web &amp; content permissions are off. Parts of apps aren\'t held back until you turn them on.</string>
+    <string name="parts_permission_enable">Enable permissions</string>
+    <string name="goal_track_days">On certain days</string>
+    <string name="goal_track_days_desc">Complete a set amount of time on the days you choose, every week.</string>
+    <string name="goal_days_pick">Which days?</string>
+    <string name="goal_on_days">%1$s on %2$s</string>
 </resources>

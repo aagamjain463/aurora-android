@@ -2,12 +2,10 @@ package app.aurora.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.aurora.AuroraApplication
@@ -35,6 +33,8 @@ class HomeCustomDurationTest {
     @get:Rule val rule = createComposeRule()
     private val app get() = ApplicationProvider.getApplicationContext<AuroraApplication>()
 
+    private var started: String? = null
+
     private fun show(mode: Mode = Mode.Flexible) {
         val shield = ShieldPreset("shield", "Shield", listOf("com.instagram.android"), mode)
         val config = UsageConfig("study", "Study", shieldId = shield.id)
@@ -51,7 +51,7 @@ class HomeCustomDurationTest {
         )
         rule.setContent {
             AuroraTheme(reduceMotion = true) {
-                Column { QuickStart(listOf(config), data, app) }
+                Column { QuickStart(listOf(config), data, app, onStart = { started = it }) }
             }
         }
     }
@@ -62,37 +62,13 @@ class HomeCustomDurationTest {
         rule.onNodeWithText("Start").assertIsEnabled()
     }
 
-    @Test fun homeStartsWithTheExactCustomTimeAndNoPresets() {
-        show()
-        rule.onNodeWithText("Start").performClick()
-        rule.onNodeWithText("30m").assertDoesNotExist()
-        rule.onNodeWithText("1h").assertDoesNotExist()
-        rule.onNodeWithText("2h").assertDoesNotExist()
-        rule.onNodeWithText("Custom").assertDoesNotExist()
-        rule.onNodeWithText("Start session").assertIsNotEnabled()
-        rule.onNodeWithContentDescription("hours").performTextReplacement("0")
-        rule.onNodeWithContentDescription("minutes").performTextReplacement("0")
-        rule.onNodeWithText("Start session").assertIsNotEnabled()
-        rule.onNodeWithContentDescription("hours").performTextReplacement("25")
-        rule.onNodeWithText("Start session").assertIsNotEnabled()
-        rule.onNodeWithContentDescription("hours").performTextReplacement("1")
-        rule.onNodeWithContentDescription("minutes").performTextReplacement("17")
-        rule.onNodeWithText("Start session").assertIsEnabled().performClick()
-        rule.waitForIdle()
-        rule.waitUntil(5_000) { app.runtime.value?.runs?.size == 1 }
-        assertEquals(77 * 60_000L, app.runtime.value!!.runs.single().time!!.durationMs)
-    }
-
-    @Test fun strictSessionStillRequiresCommitmentForTheChosenTime() {
+    /** Start on a saved session goes to the When step (now, later or a schedule); it never starts here. */
+    @Test fun homeStartAsksWhenInsteadOfStarting() {
         show(Mode.Cooldown)
         rule.onNodeWithText("Start").performClick()
-        rule.onNodeWithContentDescription("minutes").performTextReplacement("7")
-        rule.onNodeWithText("Start session").performClick()
         rule.waitForIdle()
+        assertEquals("study", started)
+        rule.onNodeWithContentDescription("hours").assertDoesNotExist()
         assertTrue(app.runtime.value!!.runs.isEmpty())
-        rule.onNodeWithText("I'm ready to commit").performClick()
-        rule.waitForIdle()
-        rule.waitUntil(5_000) { app.runtime.value?.runs?.size == 1 }
-        assertEquals(7 * 60_000L, app.runtime.value!!.runs.single().time!!.durationMs)
     }
 }

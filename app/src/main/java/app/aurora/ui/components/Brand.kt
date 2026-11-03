@@ -257,12 +257,22 @@ fun TwoToneHeadline(
     )
 }
 
+/** A running Focus's goal, in the person's own words: the serif's italic, above the timer. */
+@Composable
+fun FocusGoal(goal: String, modifier: Modifier = Modifier) {
+    Text(
+        goal, modifier.fillMaxWidth().semantics { heading() },
+        color = Aurora.colors.textPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        style = AuroraType.DisplayS.copy(fontSize = 32.sp, lineHeight = 38.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+    )
+}
+
 /**
- * The Focus dial, shared by both Focus timers: an instrument, not a decoration. Sixty hairline ticks make a precision
- * bezel around a single hairline track. The time held is drawn on the track in the dawn (rose where it began, warming
- * through ember and gold to the light at its head, where a small sun rides) and every tick it has passed is lit the
- * same way, so a finished session is a full sunrise. Inside: a tracked [label], the light tabular [clock] and one
- * quiet [caption]. Nothing else. [progress] is 0..1 of the time held.
+ * The Focus dial, shared by both Focus timers: one clean ring, nothing coming off it. A quiet track; the time held is
+ * drawn on it in the dawn (rose where it began, warming through ember and gold to the light at its head, where a point
+ * of first light rides), so a finished session is a closed ring of dawn. No ticks, no glow. Inside: the lit mark, a
+ * tracked [label], the light tabular [clock] and one quiet [caption]. [progress] is 0..1 of the time held.
  */
 @Composable
 fun FocusDial(
@@ -279,58 +289,29 @@ fun FocusDial(
     Box(modifier.widthIn(max = 340.dp).aspectRatio(1f), contentAlignment = androidx.compose.ui.Alignment.Center) {
         Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
             val c = center
-            val outer = size.minDimension / 2f - 2.dp.toPx()
-            val major = 11.dp.toPx()
-            val minor = 5.dp.toPx()
-            val track = outer - major - 12.dp.toPx()
-            // Depth: a faint warm well inside the track that deepens as the time is held.
-            drawCircle(
-                androidx.compose.ui.graphics.Brush.radialGradient(
-                    listOf(colors.glowDeep.copy(alpha = (if (colors.isDark) 0.10f else 0.05f) + 0.14f * fill), Color.Transparent),
-                    c, track,
-                ),
-                track, c,
-            )
-            // The bezel: every minute a hairline, every fifth a longer one. Passed ticks take the dawn.
-            for (i in 0 until 60) {
-                val t = i / 60f
-                val isMajor = i % 5 == 0
-                val a = Math.toRadians(i * 6.0 - 90.0)
-                val dx = cos(a).toFloat()
-                val dy = sin(a).toFloat()
-                val inner = outer - if (isMajor) major else minor
-                val lit = fill > 0f && t <= fill
-                val color = if (lit) androidx.compose.ui.graphics.lerp(colors.glowCool, colors.glowTop, (t / fill).coerceIn(0f, 1f))
-                else colors.textTertiary.copy(alpha = if (isMajor) 0.55f else 0.24f)
-                drawLine(
-                    color, Offset(c.x + inner * dx, c.y + inner * dy), Offset(c.x + outer * dx, c.y + outer * dy),
-                    strokeWidth = (if (isMajor) 1.6f else 1f).dp.toPx(), cap = StrokeCap.Round,
-                )
-            }
-            val topLeft = Offset(c.x - track, c.y - track)
-            val arcSize = Size(2 * track, 2 * track)
-            drawCircle(colors.hairline, track, c, style = Stroke(1.dp.toPx()))
+            val stroke = 3.dp.toPx()
+            val r = size.minDimension / 2f - 8.dp.toPx()
+            drawCircle(colors.hairline, r, c, style = Stroke(stroke))
             if (fill > 0f) rotate(-90f, c) {
                 val dawn = androidx.compose.ui.graphics.Brush.sweepGradient(
                     0f to colors.glowCool, (fill * 0.5f) to colors.glowHot, (fill * 0.85f).coerceAtLeast(0.001f) to colors.glowTop,
                     fill.coerceAtLeast(0.002f) to colors.light, 1f to colors.light,
                     center = c,
                 )
-                drawArc(dawn, 0f, 360f * fill, false, topLeft, arcSize, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+                drawArc(dawn, 0f, 360f * fill, false, Offset(c.x - r, c.y - r), Size(2 * r, 2 * r), style = Stroke(stroke, cap = StrokeCap.Round))
+                // The round cap at the start reaches back past 0 degrees, where the sweep wraps to the light: keep it rose.
+                drawCircle(colors.glowCool, stroke / 2f, Offset(c.x + r, c.y))
                 val a = Math.toRadians(360.0 * fill)
-                val sun = Offset(c.x + track * cos(a).toFloat(), c.y + track * sin(a).toFloat())
-                drawCircle(
-                    androidx.compose.ui.graphics.Brush.radialGradient(listOf(colors.glowTop.copy(alpha = 0.5f), Color.Transparent), sun, 18.dp.toPx()),
-                    18.dp.toPx(), sun,
-                )
-                drawCircle(colors.background, 6.dp.toPx(), sun)
-                drawCircle(colors.light, 4.dp.toPx(), sun)
+                val head = Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat())
+                drawCircle(colors.background, 7.dp.toPx(), head)
+                drawCircle(colors.light, 4.5.dp.toPx(), head)
             }
         }
         androidx.compose.foundation.layout.Column(
             Modifier.fillMaxWidth(0.66f),
             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         ) {
+            AuroraMark(18.dp, Modifier.padding(bottom = 14.dp), lit = true)
             label?.let { Eyebrow(it, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             RollingClock(clock, colors.textPrimary, AuroraType.Hero, Modifier.fillMaxWidth().padding(vertical = 6.dp), spoken = spoken)
             caption?.let { Text(it, color = colors.textTertiary, style = AuroraType.Caption, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }

@@ -5,7 +5,6 @@ import app.aurora.ui.components.glass
 import app.aurora.ui.components.sunlit
 import app.aurora.ui.components.RollingClock
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.foundation.border
@@ -26,7 +25,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,14 +54,9 @@ import app.aurora.protect.ConfigRun
 import app.aurora.protect.ShieldService
 import app.aurora.protect.Timing
 import app.aurora.protect.UsageConfig
-import app.aurora.protect.ActivationProblem
 import app.aurora.protect.shieldOf
 import app.aurora.protect.strict
 import app.aurora.protect.intentOf
-import app.aurora.activate
-import app.aurora.SessionNotification
-import app.aurora.ui.components.minutesText
-import app.aurora.ui.configure.problemText
 import app.aurora.protect.entitledActivations
 import app.aurora.protect.nextStart
 import app.aurora.rememberAccess
@@ -75,7 +68,6 @@ import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.ButtonKind
-import app.aurora.ui.components.DurationPicker
 import app.aurora.ui.components.LitBadge
 import app.aurora.ui.components.ProgressLine
 import app.aurora.ui.components.auroraSurface
@@ -102,7 +94,6 @@ import app.aurora.ui.library.ItemMenuItems
 import app.aurora.ui.library.DetailsDialog
 import app.aurora.ui.library.keyRows
 import app.aurora.ui.protect.intentSummary
-import java.io.IOException
 import java.time.ZoneId
 import app.aurora.data.formatDuration
 import app.aurora.ui.components.pressable
@@ -397,43 +388,19 @@ fun OutcomeTag(o: Outcome) {
 }
 
 /**
- * Saved custom sessions start now for the person's chosen duration.
- * Strict ones (Strict, Cooldown, Friction) still ask for the commitment first.
+ * Saved custom sessions. Start opens the same When step as Start session: now, later or on a schedule,
+ * then Review (Focus, message and, for a strict Shield, the commitment).
  */
 @Composable
-fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplication, busy: Boolean = false, onEdit: (String) -> Unit = {}) {
+fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplication, busy: Boolean = false, onEdit: (String) -> Unit = {}, onStart: (String) -> Unit = {}) {
     val colors = Aurora.colors
     val context = LocalContext.current
-    val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val access = rememberAccess(Access.Accessibility)
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    var pending by remember { mutableStateOf<Pair<UsageConfig, Int>?>(null) }
     // Without Shield a session is only a timer: nothing starts until it's on.
     var disclosure by remember { mutableStateOf(false) }
-    var problem by remember { mutableStateOf<Pair<String, ActivationProblem>?>(null) }
     var viewing by remember { mutableStateOf<UsageConfig?>(null) }
     var deleting by remember { mutableStateOf<UsageConfig?>(null) }
-    fun start(c: UsageConfig, minutes: Int) {
-        // Asked first: this card leaves Home as soon as the run starts. The first time protection starts,
-        // Aurora asks to show it in the notification shade (Android 13+).
-        if (android.os.Build.VERSION.SDK_INT >= 33 && !SessionNotification.allowed(context)) {
-            runCatching { notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
-        }
-        // The application's scope, so leaving Home can't cancel a start halfway.
-        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
-        app.scope.launch {
-            val p = try {
-                app.activate(c, Timing.Now(minutes))?.problem
-            } catch (_: IOException) {
-                app.saveFailed.value = true
-                return@launch
-            }
-            problem = p?.let { c.id to it }
-        }
-    }
     HomeLabel(stringResource(R.string.home_ready_title))
-    // How long is asked in a dialog once Start is tapped, so every card keeps the same shape.
-    var asking by remember { mutableStateOf<UsageConfig?>(null) }
     configs.forEach { c ->
         key(c.id) {
             val shield = d.rules.shieldOf(c)
@@ -480,33 +447,9 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
                 // While a session runs, the note at the top says why nothing here starts.
                 if (!busy) AuroraButton(
                     stringResource(R.string.cfg_start),
-                    { if (access != AccessState.Granted) disclosure = true else asking = c },
+                    { if (access != AccessState.Granted) disclosure = true else onStart(c.id) },
                     Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Play,
                 )
-                problem?.takeIf { it.first == c.id && !it.second.overLimit }?.let { (_, p) ->
-                    Text(problemText(p), color = colors.danger, style = AuroraType.Secondary)
-                }
-            }
-        }
-    }
-    asking?.let { c ->
-        var minutes by rememberSaveable(c.id) { mutableStateOf<Int?>(null) }
-        AuroraDialog(
-            c.name, { asking = null },
-            stringResource(R.string.home_start_title),
-            {
-                val m = minutes ?: return@AuroraDialog
-                asking = null
-                if (d.rules.shieldOf(c)?.mode?.strict == true) pending = c to m else start(c, m)
-            },
-            dismissLabel = stringResource(R.string.action_cancel),
-            confirmEnabled = minutes != null,
-            scrollContent = false,
-        ) {
-            // The dialog would hand its first focus to the hours box and throw the keyboard over the choice: the
-            // wrapper takes that focus instead, so the keyboard waits for a tap.
-            Column(Modifier.focusable()) {
-                DurationPicker(minutes, { minutes = it }, emptyList(), title = stringResource(R.string.cfg_how_long), endsFromNow = true)
             }
         }
     }
@@ -525,13 +468,6 @@ fun QuickStart(configs: List<UsageConfig>, d: ProtectData, app: AuroraApplicatio
         )
     }
     if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
-    pending?.let { (c, m) ->
-        AuroraDialog(
-            stringResource(R.string.home_ready_confirm, c.name, minutesText(m)), { pending = null },
-            stringResource(R.string.always_block_confirm), { pending = null; start(c, m) },
-            stringResource(R.string.start_commit_body) + "\n\n" + stringResource(R.string.start_commit_limits), stringResource(R.string.action_cancel),
-        )
-    }
 }
 
 /** A saved session in full: its Shield and Intent, its Focus and note, and everything it covers. */

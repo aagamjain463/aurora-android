@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.stringResource
@@ -82,6 +83,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import app.aurora.ui.components.auroraSurface
+import app.aurora.ui.components.glass
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
     val prefs: StateFlow<UserPreferences?> =
@@ -135,135 +143,118 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
     val colors = Aurora.colors
 
     @Composable
-    fun Allowed(on: Boolean) {
-        Text(if (on) stringResource(R.string.settings_allowed) else stringResource(R.string.intent_off), color = if (on) colors.accent else colors.textSecondary, style = AuroraType.Secondary)
+    fun Value(text: String, on: Boolean = false) {
+        Text(text, color = if (on) colors.accent else colors.textTertiary, style = AuroraType.Secondary)
         Chevron()
     }
 
-    AuroraScreen(title = stringResource(R.string.settings_title), onBack = onBack) {
+    @Composable
+    fun Allowed(on: Boolean) = Value(if (on) stringResource(R.string.settings_allowed) else stringResource(R.string.intent_off), on)
+
+    val authState by (context.applicationContext as AuroraApplication).account.state.collectAsStateWithLifecycle()
+    val user = (authState as? app.aurora.account.AuthState.SignedIn)?.user
+    val userName = user?.displayName?.takeIf { it.isNotBlank() } ?: user?.email.orEmpty()
+
+    AuroraScreen(
+        title = stringResource(R.string.settings_title),
+        onBack = onBack,
+        header = {
+            Text(
+                stringResource(R.string.settings_title),
+                Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS, bottom = Space.L).semantics { heading() },
+                color = colors.textPrimary,
+                style = AuroraType.DisplayXL,
+            )
+        },
+    ) {
+        item(key = "profile") {
+            // Who is signed in, then the plan: the page opens on the person, and Plus is the one lit card.
+            Row(
+                Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().pressable(Radius.L, onClick = onAccount).padding(vertical = Space.XS),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.M),
+            ) {
+                Box(Modifier.size(56.dp).glass(colors, Radius.Pill), contentAlignment = Alignment.Center) {
+                    Text(
+                        userName.firstOrNull()?.uppercase() ?: "A",
+                        color = colors.textPrimary,
+                        style = AuroraType.DisplayS.copy(fontSize = 28.sp, lineHeight = 30.sp),
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(userName.ifBlank { stringResource(R.string.account_title) }, color = colors.textPrimary, style = AuroraType.Headline, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(R.string.account_row_subtitle), Modifier.padding(top = 2.dp), color = colors.textTertiary, style = AuroraType.Secondary)
+                }
+                Chevron()
+            }
+        }
         item(key = "plan") {
-            // The plan leads the page as the one filled card: Cream on ink, Charcoal on paper.
             val plus = plan == Plan.Plus
             Row(
                 Modifier
                     .padding(horizontal = Space.Gutter)
-                    .padding(top = 14.dp)
+                    .padding(top = Space.M)
                     .fillMaxWidth()
                     .pressable(Radius.L, onClick = onPlus)
                     .clip(Radius.L)
                     .sunlit(colors)
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 androidx.compose.material3.Icon(
                     androidx.compose.ui.res.painterResource(R.drawable.ic_aurora_mark), null,
-                    Modifier.size(width = 28.dp, height = 22.dp), tint = colors.onAccent,
+                    Modifier.size(width = 26.dp, height = 20.dp), tint = colors.onAccent,
                 )
                 Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.plus_name), color = colors.onAccent, style = AuroraType.DisplayS.copy(fontSize = 26.sp, lineHeight = 30.sp))
+                    Text(stringResource(R.string.plus_name), color = colors.onAccent, style = AuroraType.DisplayS.copy(fontSize = 24.sp, lineHeight = 28.sp))
                     Text(
                         stringResource(if (plus) R.string.settings_plus_card_active else R.string.settings_plus_card_body),
-                        Modifier.padding(top = 2.dp), color = colors.onAccent.copy(alpha = 0.7f), style = AuroraType.Secondary,
+                        color = colors.onAccent.copy(alpha = 0.7f), style = AuroraType.Secondary,
                     )
                 }
                 androidx.compose.material3.Icon(AuroraIcons.Chevron, null, tint = colors.onAccent, modifier = Modifier.size(18.dp))
             }
         }
-        item(key = "account") {
-            SectionLabel(stringResource(R.string.account_title))
-            val authState by (LocalContext.current.applicationContext as app.aurora.AuroraApplication).account.state.collectAsStateWithLifecycle()
-            val user = (authState as? app.aurora.account.AuthState.SignedIn)?.user
-            RowGroup {
-                AuroraRow(
-                    title = user?.displayName?.takeIf { it.isNotBlank() } ?: user?.email.orEmpty(),
-                    subtitle = stringResource(R.string.account_row_subtitle),
-                    icon = AuroraIcons.Lock,
-                    onClick = onAccount,
-                    trailing = { Chevron() },
-                )
-            }
-        }
-        item(key = "appearance") {
-            SectionLabel(stringResource(R.string.settings_appearance))
-            RowGroup {
-                Column(Modifier.padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                    Text(stringResource(R.string.settings_theme), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                    val themeNames = mapOf(
-                        app.aurora.data.ThemeMode.Dark to stringResource(R.string.settings_theme_dark),
-                        app.aurora.data.ThemeMode.Light to stringResource(R.string.settings_theme_light),
-                        app.aurora.data.ThemeMode.System to stringResource(R.string.settings_theme_system),
-                    )
-                    app.aurora.ui.components.ChoicePills(
-                        options = themeNames.keys.toList(), selected = prefs.themeMode, onSelect = vm::setThemeMode,
-                        label = { themeNames.getValue(it) }, fill = true, segmented = true,
-                    )
-                }
-                RowDivider()
-                ToggleRow(
-                    title = stringResource(R.string.settings_reduce_motion),
-                    subtitle = if (systemReduced) stringResource(R.string.settings_on_because_animations_are_off_in_android_settings) else stringResource(R.string.settings_no_ambient_movement_or_sliding_transitions),
-                    checked = prefs.reduceMotion || systemReduced,
-                    enabled = !systemReduced,
-                    onCheckedChange = vm::setReduceMotion,
-                )
-            }
-        }
         item(key = "protection") {
-            SectionLabel(stringResource(R.string.today_protection_title))
+            SectionLabel(stringResource(R.string.today_protection_title), Modifier.padding(top = Space.S))
             RowGroup {
-                AuroraRow(
-                    title = stringResource(R.string.settings_preferred_mode_for_new_apps),
-                    subtitle = modeName(rules.defaultRule.mode),
-                    icon = AuroraIcons.Protect,
-                    onClick = { sheet = Sheet.DefaultMode },
-                    trailing = { Chevron() },
-                )
-                RowDivider()
-                AuroraRow(
+                SettingRow(
                     title = stringResource(R.string.onb_shield_eyebrow),
                     subtitle = when {
                         protection == null -> Access.Accessibility.why
                         protection == ProtectionStatus.Off && shieldAccess != AccessState.Granted -> Access.Accessibility.why
                         else -> protection.summary()
                     },
-                    icon = AuroraIcons.Lock,
+                    icon = AuroraIcons.Protect,
                     // Before sending anyone to Accessibility settings, aurora says what it would read.
                     onClick = { if (shieldAccess == AccessState.Granted) openAccessSettings(context, Access.Accessibility) else sheet = Sheet.Disclosure },
                     trailing = { Allowed(shieldAccess == AccessState.Granted) },
                 )
-                RowDivider()
-                AuroraRow(
-                    title = stringResource(R.string.diagnostics_title),
-                    subtitle = stringResource(R.string.settings_what_aurora_can_see_about_shield_on_this_phone),
-                    icon = AuroraIcons.Insights,
-                    onClick = { sheet = Sheet.Diagnostics },
-                    trailing = { Chevron() },
+                RowDivider(Inset)
+                SettingRow(
+                    title = stringResource(R.string.settings_preferred_mode_for_new_apps),
+                    icon = app.aurora.ui.protect.modeIcon(rules.defaultRule.mode),
+                    onClick = { sheet = Sheet.DefaultMode },
+                    trailing = { Value(modeName(rules.defaultRule.mode)) },
                 )
-                RowDivider()
-                AuroraRow(
-                    title = stringResource(R.string.settings_strict_row),
-                    subtitle = stringResource(R.string.strict_body),
-                    icon = AuroraIcons.Lock,
-                    onClick = onOpenStrict,
-                    trailing = { Chevron() },
-                )
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.settings_strict_row), AuroraIcons.Lock, onClick = onOpenStrict)
             }
         }
         item(key = "permissions") {
             SectionLabel(stringResource(R.string.settings_permissions))
             RowGroup {
-                AuroraRow(
+                SettingRow(
                     title = Access.Usage.title,
-                    subtitle = if (usageAccess == AccessState.Revoked) stringResource(R.string.settings_turned_off_in_android_settings_insights_and_daily_limits_need_it) else stringResource(R.string.settings_powers_insights_goals_and_daily_limits_read_on_this_phone_only),
+                    subtitle = if (usageAccess == AccessState.Revoked) stringResource(R.string.settings_turned_off_in_android_settings_insights_and_daily_limits_need_it) else null,
                     icon = AuroraIcons.Insights,
                     onClick = { openAccessSettings(context, Access.Usage) },
                     trailing = { Allowed(usageAccess == AccessState.Granted) },
                 )
-                RowDivider()
-                AuroraRow(
+                RowDivider(Inset)
+                SettingRow(
                     title = stringResource(R.string.settings_notifications),
-                    subtitle = stringResource(R.string.settings_aurora_doesn_t_send_notifications_yet),
                     icon = AuroraIcons.Bell,
                     onClick = {
                         context.startActivity(
@@ -275,39 +266,70 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
                 )
             }
         }
+        item(key = "appearance") {
+            SectionLabel(stringResource(R.string.settings_appearance))
+            RowGroup {
+                Column(Modifier.padding(horizontal = 18.dp, vertical = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                    Text(stringResource(R.string.settings_theme), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                    val themeNames = mapOf(
+                        app.aurora.data.ThemeMode.Dark to stringResource(R.string.settings_theme_dark),
+                        app.aurora.data.ThemeMode.Light to stringResource(R.string.settings_theme_light),
+                        app.aurora.data.ThemeMode.System to stringResource(R.string.settings_theme_system),
+                    )
+                    ChoicePills(
+                        options = themeNames.keys.toList(), selected = prefs.themeMode, onSelect = vm::setThemeMode,
+                        label = { themeNames.getValue(it) }, fill = true, segmented = true,
+                    )
+                }
+                RowDivider()
+                ToggleRow(
+                    title = stringResource(R.string.settings_reduce_motion),
+                    subtitle = if (systemReduced) stringResource(R.string.settings_on_because_animations_are_off_in_android_settings) else null,
+                    checked = prefs.reduceMotion || systemReduced,
+                    enabled = !systemReduced,
+                    onCheckedChange = vm::setReduceMotion,
+                )
+            }
+        }
         item(key = "data") {
             SectionLabel(stringResource(R.string.settings_privacy_data))
             RowGroup {
-                AuroraRow(stringResource(R.string.settings_your_data_stays_yours), subtitle = stringResource(R.string.settings_local_first_no_account_no_tracking_no_internet_permission), icon = AuroraIcons.Data, onClick = { sheet = Sheet.Privacy }, trailing = { Chevron() })
-                RowDivider()
-                AuroraRow(stringResource(R.string.settings_what_aurora_stores), subtitle = stringResource(R.string.settings_see_everything_kept_on_this_phone), onClick = { sheet = Sheet.Stored }, trailing = { Chevron() }, leading = { Spacer(Modifier.height(1.dp).padding(start = 24.dp)) })
-                RowDivider()
-                AuroraRow(stringResource(R.string.settings_clear_history), subtitle = stringResource(R.string.settings_daily_counts_focus_history_and_xp), onClick = { sheet = Sheet.ClearHistory }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
-                RowDivider()
-                AuroraRow(stringResource(R.string.settings_delete_all_data), subtitle = stringResource(R.string.settings_start_again_from_the_beginning), onClick = { sheet = Sheet.DeleteAll }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
+                SettingRow(stringResource(R.string.settings_your_data_stays_yours), AuroraIcons.Data, subtitle = stringResource(R.string.settings_local_first_no_account_no_tracking_no_internet_permission), onClick = { sheet = Sheet.Privacy })
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.settings_what_aurora_stores), AuroraIcons.Layers, onClick = { sheet = Sheet.Stored })
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.settings_clear_history), AuroraIcons.Clock, onClick = { sheet = Sheet.ClearHistory })
             }
         }
         item(key = "about") {
             SectionLabel(stringResource(R.string.settings_help_about))
             RowGroup {
-                AuroraRow(stringResource(R.string.guide_see_all), subtitle = stringResource(R.string.guide_settings_body), icon = AuroraIcons.Info, onClick = onOpenGuide, trailing = { Chevron() })
-                RowDivider()
-                AuroraRow(stringResource(R.string.settings_troubleshooting), subtitle = stringResource(R.string.settings_if_shield_isn_t_stepping_in), icon = AuroraIcons.Help, onClick = { sheet = Sheet.Help }, trailing = { Chevron() })
-                RowDivider()
-                AuroraRow(stringResource(R.string.settings_replay_introduction), onClick = onReplayIntro, trailing = { Chevron() }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
-                RowDivider()
-                AuroraRow(stringResource(R.string.settings_open_source_licenses), onClick = { sheet = Sheet.Licenses }, trailing = { Chevron() }, leading = { Spacer(Modifier.padding(start = 24.dp)) })
-                RowDivider()
-                AuroraRow(stringResource(R.string.settings_version), leading = { Spacer(Modifier.padding(start = 24.dp)) }, trailing = {
-                    Text(BuildConfig.VERSION_NAME, color = colors.textSecondary, style = AuroraType.Secondary)
-                })
+                SettingRow(stringResource(R.string.guide_see_all), AuroraIcons.Info, onClick = onOpenGuide)
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.settings_troubleshooting), AuroraIcons.Help, onClick = { sheet = Sheet.Help })
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.diagnostics_title), AuroraIcons.Insights, onClick = { sheet = Sheet.Diagnostics })
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.settings_replay_introduction), AuroraIcons.Play, onClick = onReplayIntro)
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.settings_open_source_licenses), AuroraIcons.Quote, onClick = { sheet = Sheet.Licenses })
+            }
+        }
+        item(key = "danger") {
+            // Set apart so it is never tapped on the way to something else.
+            RowGroup(Modifier.padding(top = Space.L)) {
+                SettingRow(stringResource(R.string.settings_delete_all_data), AuroraIcons.Trash, onClick = { sheet = Sheet.DeleteAll }, tint = colors.danger, trailing = {})
             }
         }
         item(key = "signature") {
             Column(Modifier.fillMaxWidth().padding(top = Space.XXL), horizontalAlignment = Alignment.CenterHorizontally) {
-                app.aurora.ui.components.AuroraLogo(112.dp)
+                AuroraMark(36.dp, lit = true)
                 Spacer(Modifier.height(Space.S))
-                Text(stringResource(R.string.settings_tagline), color = colors.textTertiary, style = AuroraType.Caption)
+                Text(stringResource(R.string.settings_tagline), color = colors.textSecondary, style = AuroraType.DisplayS.copy(fontSize = 20.sp, lineHeight = 24.sp))
+                Text(
+                    stringResource(R.string.settings_version) + " " + BuildConfig.VERSION_NAME,
+                    Modifier.padding(top = Space.XS), color = colors.textTertiary, style = AuroraType.Caption,
+                )
             }
         }
     }
@@ -403,5 +425,37 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
             onDismiss = close,
         )
         null -> Unit
+    }
+}
+
+/** Where row hairlines start: past the icon tile, so each group reads as one list. */
+private val Inset = 64.dp
+
+/** A settings row: its icon in a small tile, the title, and a value or a chevron on the right. */
+@Composable
+private fun SettingRow(
+    title: String,
+    icon: ImageVector,
+    subtitle: String? = null,
+    onClick: () -> Unit,
+    tint: Color = Aurora.colors.textPrimary,
+    trailing: @Composable RowScope.() -> Unit = { Chevron() },
+) {
+    val colors = Aurora.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 58.dp)
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(tint.copy(alpha = if (colors.isDark) 0.08f else 0.06f)), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(icon, null, tint = tint, modifier = Modifier.size(17.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = tint, style = AuroraType.BodyStrong)
+            if (subtitle != null) Text(subtitle, color = colors.textTertiary, style = AuroraType.Secondary.copy(fontSize = 12.5.sp, lineHeight = 17.sp))
+        }
+        trailing()
     }
 }

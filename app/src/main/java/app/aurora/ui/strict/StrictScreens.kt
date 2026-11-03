@@ -2,6 +2,9 @@ package app.aurora.ui.strict
 
 import app.aurora.ui.components.FocusDial
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -107,53 +110,33 @@ fun UninstallProtection(modifier: Modifier = Modifier) {
 }
 
 /**
- * Focus inside a running configuration: the task, the light ring over its target, and the person's own
- * word on how it went. The configuration's protection keeps running either way.
+ * Focus inside a running configuration: the goal, if one was typed, and the timer. Nothing else.
+ * The configuration's protection keeps running either way.
  */
 @Composable
 fun FocusRunScreen(runId: String, onBack: () -> Unit) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
-    val colors = Aurora.colors
     val d = data
     val run = d?.let { vm.app.runsNow(it.time).find { r -> r.id == runId } }
     val focus = run?.focus
-    AuroraScreen(
-        title = focus?.task.orEmpty(), onBack = onBack, art = ArtTier.Immersive,
-        // Centred and quiet: the session it belongs to, then the task in the serif.
-        header = {
-            Column(Modifier.fillMaxWidth().padding(horizontal = Space.Gutter).padding(top = Space.M), horizontalAlignment = Alignment.CenterHorizontally) {
-                run?.name?.let { app.aurora.ui.components.Eyebrow(it, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                Text(
-                    focus?.task.orEmpty(), Modifier.padding(top = Space.XS), color = colors.headlineLead, style = AuroraType.DisplayS,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
-            }
-        },
-    ) {
+    // An empty header: no title, no session name.
+    AuroraScreen(title = "", onBack = onBack, art = ArtTier.Immersive, header = {}) {
         if (d == null || run == null || focus == null) return@AuroraScreen
         val end = run.endAt(d.time)
         val start = run.startAt(d.time)
         val target = focus.minutes?.let { it * 60_000L } ?: ((end ?: d.time.wall) - start)
         val elapsed = (d.time.wall - start).coerceIn(0, target.coerceAtLeast(1))
-        item(key = "ring") {
-            Column(Modifier.fillMaxWidth().padding(top = Space.L), horizontalAlignment = Alignment.CenterHorizontally) {
+        item(key = "focus") {
+            Column(
+                Modifier.fillParentMaxHeight(0.8f).fillMaxWidth().padding(horizontal = Space.Gutter),
+                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                focus.goal.takeIf { it.isNotBlank() }?.let { app.aurora.ui.components.FocusGoal(it, Modifier.padding(bottom = Space.XL)) }
                 FocusDial(
-                    elapsed.toFloat() / target.coerceAtLeast(1), formatClock(target - elapsed), Modifier.fillMaxWidth(0.86f),
-                    label = stringResource(R.string.focus_remaining),
-                    caption = stringResource(R.string.focusrun_target, minutesText((target / 60_000).toInt())),
+                    elapsed.toFloat() / target.coerceAtLeast(1), formatClock(target - elapsed), Modifier.fillMaxWidth(0.92f),
                     spoken = stringResource(R.string.focus_spoken_remaining, app.aurora.data.spokenDuration(target - elapsed)),
                 )
-            }
-        }
-        item(key = "words") {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = Space.Gutter).padding(top = Space.XL),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.S),
-            ) {
-                if (focus.goal.isNotBlank()) Text(focus.goal, color = colors.textPrimary, style = AuroraType.BodyStrong, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                if (focus.description.isNotBlank()) Text(focus.description, color = colors.textSecondary, style = AuroraType.Body, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                end?.let { Text(stringResource(R.string.focusrun_protection, clockTime(it)), Modifier.padding(top = Space.XS), color = colors.textTertiary, style = AuroraType.Caption) }
             }
         }
     }
