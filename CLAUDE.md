@@ -11,7 +11,8 @@ this design system unless the founder explicitly requests a redesign.**
   The approved look is `app/src/test/screenshots/` (`*_Dark.png`, `*_Light.png`).
 - The one colour Aurora owns is the dawn (gold, ember, rose, plum) over a violet-black night or warm paper. Use it only
   through the system: the sunlit filled action (`sunlit`, `AuroraButton` Primary), the lit
-  mark (`AuroraMark(lit = true)`) and the Focus ring. No other gradients, no glassmorphism, no blur.
+  mark (`AuroraMark(lit = true)`), the Focus ring and the last word of the hero headline ("control.", `HeroHeadline`;
+  founder, 2026-11-03). No other gradients, no glassmorphism, no blur.
 - No glow, Horizon or stars behind pages. The founder had the bottom glow (`PageGlow`) removed from every screen on
   2026-11-03 ("it looks weird and is not necessary"); don't bring back any page-level glow or backdrop art. Protection
   state is said in words (`EnforcementStatus`), not in light.

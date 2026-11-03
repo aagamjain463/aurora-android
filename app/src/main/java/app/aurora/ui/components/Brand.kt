@@ -110,7 +110,7 @@ fun Wordmark(modifier: Modifier = Modifier) {
 @Composable
 fun AuroraMark(size: Dp, modifier: Modifier = Modifier, lit: Boolean = false) {
     val colors = Aurora.colors
-    val dawn = if (colors.isDark) listOf(colors.light, colors.glowTop, colors.glowHot, colors.glowCool) else listOf(colors.glowHot, colors.light, colors.rose)
+    val dawn = dawnColors()
     androidx.compose.material3.Icon(
         androidx.compose.ui.res.painterResource(app.aurora.R.drawable.ic_aurora_mark),
         null,
@@ -204,14 +204,28 @@ fun GreetingHeadline(text: String, modifier: Modifier = Modifier, tailWords: Int
     }
 }
 
+/** The dawn that lights the mark, top to bottom: pale light at the peak, through gold and ember to rose. */
+@Composable
+fun dawnColors(): List<androidx.compose.ui.graphics.Color> {
+    val colors = Aurora.colors
+    return if (colors.isDark) listOf(colors.light, colors.glowTop, colors.glowHot, colors.glowCool) else listOf(colors.glowHot, colors.light, colors.rose)
+}
+
 /**
- * The hero headline ("Take back control."): one voice, the serif in full white, set large and left to wrap
- * as a headline would. No two-tone split: the line reads as one promise.
+ * The hero headline ("Take back control."): one serif voice in full white, set large and left to wrap as a
+ * headline would. The last word is the emphasis, lit by the same dawn as the mark (founder, 2026-11-03).
  */
 @Composable
 fun HeroHeadline(text: String, modifier: Modifier = Modifier, style: androidx.compose.ui.text.TextStyle = AuroraType.HeroBold) {
+    val colors = Aurora.colors
+    val cut = text.trimEnd().lastIndexOf(' ') + 1
+    val dawn = androidx.compose.ui.graphics.Brush.horizontalGradient(dawnColors().let { if (colors.isDark) it.drop(1) else it })
+    val annotated = androidx.compose.ui.text.buildAnnotatedString {
+        append(text.substring(0, cut))
+        pushStyle(androidx.compose.ui.text.SpanStyle(brush = dawn)); append(text.substring(cut)); pop()
+    }
     Text(
-        text, modifier.semantics { heading() }, color = Aurora.colors.textPrimary,
+        annotated, modifier.semantics { heading() }, color = colors.textPrimary,
         style = style.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
     )
 }
