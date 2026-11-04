@@ -77,8 +77,6 @@ class ContentService : AccessibilityService() {
         if (decision.reason.canContinue) present(key, decision, owner, SystemClock.uptimeMillis(), back = false)
         else say(if (says != 0) says else coverSays(key))
     }
-    /** When YouTube started showing a video from a channel that isn't chosen, 0 when it isn't. */
-    private var otherChannelSince = 0L
     /** The video in the small player is one judged to be from a channel that isn't chosen. */
     private var otherPlaying = false
     private var noPlayerSince = 0L
@@ -198,6 +196,11 @@ class ContentService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
         val now = SystemClock.uptimeMillis()
+        // A list in YouTube moved: the catchers on its cards move with it at once, before the next look.
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && pkg == YouTube && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val list = event.source?.let(::boundsOf)
+            buttonCovers.filter { it.showing && it.key.startsWith(PartYouTubeChannels) }.forEach { it.moveBy(-event.scrollDeltaX, -event.scrollDeltaY, list) }
+        }
         // After Return home at a website Shield, the browser leaving the front means the person is already
         // somewhere else: clearing is done, and there is no need to send them home from there.
         if (clearing != null && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != clearing && pkg != packageName && pkg != "com.android.systemui") {
@@ -335,7 +338,9 @@ class ContentService : AccessibilityService() {
     private class Button(val bounds: Rect, val key: String, val decision: Decision.Shield, @StringRes val says: Int = 0)
 
     /** Keeps one clear cover on each of [buttons], and takes the rest away. */
-    private fun keepButtons(owner: String, buttons: List<Button>) {
+    private fun keepButtons(owner: String, buttons: List<Button>, keepOthers: Boolean = false) {
+        // [keepOthers]: an early, partial update (only some catchers known yet) adds and moves, never takes away.
+        if (keepOthers && buttons.size < buttonCovers.count { it.showing }) return
         val shown = buttons.filterNot { it.bounds.isEmpty }
         while (buttonCovers.size < shown.size) buttonCovers += Cover(this, onCoverTap, clear = true)
         buttonCovers.forEachIndexed { i, c -> shown.getOrNull(i)?.let { c.show(it.bounds, owner, it.key, it.decision, it.says) } ?: c.hide() }
@@ -518,6 +523,16 @@ class ContentService : AccessibilityService() {
             key to channelShields.map { channelsOf(it.first) }.reduce { a, b -> a.filter { c -> b.any { it.equals(c, ignoreCase = true) } } }
         }
         val m = resources.displayMetrics
+        // Cards from other channels first, and up at once: a card that has just scrolled into sight is caught
+        // before the rest of the screen is read.
+        val floating = if (channels != null) shownIn(root, YouTube, "floaty_bar_controls_view").firstOrNull()?.let(::boundsOf) else null
+        val cardCatchers = if (channels != null && channelShields.isNotEmpty()) {
+            // Never over the small player, which floats above the list: it stays tappable.
+            otherChannelCards(root, channels.second).map { card ->
+                if (floating != null && Rect.intersects(card, floating)) Rect(card.left, card.top, minOf(card.right, floating.left), card.bottom) else card
+            }.filter { it.width() > 0 }.map { Button(it, channels.first, channelShields.first().second, R.string.part_no_video) }
+        } else emptyList()
+        if (cardCatchers.isNotEmpty()) ui { keepButtons(YouTube, cardCatchers, keepOthers = true) }
         val screen = if (shorts != null || feed != null || channels != null) readYouTube(root) else null
         val verdict = screen?.let { youTubeVerdict(it, shorts != null, feed != null, channels, m.widthPixels, m.heightPixels) } ?: YouTubeVerdict.Allow
         val c = verdict as? YouTubeVerdict.Cover
@@ -536,24 +551,17 @@ class ContentService : AccessibilityService() {
             shownIn(root, YouTube, "pivot_bar").firstOrNull()?.let(::pivotTabs)?.firstOrNull { textOf(it).equals("Shorts", ignoreCase = true) }?.let(::boundsOf)
         }
         val channelShield = channelShields.firstOrNull()?.second
-        val floating = screen?.miniplayer?.let { Rect(it[0], it[1], it[2], it[3]) }
         val buttons = buildList {
             shortsTab?.let { add(Button(it, if (shorts != null) PartShorts else PartYouTubeFeed, tabShield!!, R.string.part_no_shorts)) }
             // Only chosen channels: a video from any other channel doesn't open from a list. Its card stays in
             // sight; a tap on it does nothing and says why.
-            if (channels != null && channelShield != null) {
-                // Never over the small player, which floats above the list: it stays tappable.
-                otherChannelCards(root, channels.second).map { card ->
-                    if (floating != null && Rect.intersects(card, floating)) Rect(card.left, card.top, minOf(card.right, floating.left), card.bottom) else card
-                }.filter { it.width() > 0 }.forEach { add(Button(it, channels.first, channelShield, R.string.part_no_video)) }
-            }
+            addAll(cardCatchers)
         }
-        // A video from another channel that opens anyway (a link, a playlist, a Short whose card names no
-        // channel) is blank at once. Once YouTube has settled on it (the page may still name the last video's
-        // channel for a moment), it's paused, the open video goes back, and the small player is closed.
+        // A video from another channel that opens anyway (a link, a playlist, a card that names no channel) is
+        // paused and sent back at once, and the small player it shrinks into is closed.
+        // Only judged once the page names its channel for certain, so it's acted on at once.
         val other = verdict as? YouTubeVerdict.NotFromChannel
-        if (other == null) otherChannelSince = 0L else if (otherChannelSince == 0L) otherChannelSince = now
-        val settledOther = other != null && now - otherChannelSince >= SettleMs
+        val settledOther = other != null
         val mini = screen?.miniplayer?.let { Rect(it[0], it[1], it[2], it[3]) }
         // The small player names no channel, so the video judged before it shrank is remembered: still another
         // channel's until a video from a chosen one is open, or no player is left.
@@ -761,7 +769,6 @@ class ContentService : AccessibilityService() {
         private const val LookAgainMs = 40L
         private const val LookAgainTries = 25
         private const val OpeningMs = 1_500L
-        private const val SettleMs = 600L
         /** How YouTube labels the button on a video's card that leads to its channel (English). */
         private const val GoToChannel = "Go to channel"
         private const val MaxNodes = 600
@@ -804,7 +811,9 @@ private class Cover(
     private val clear: Boolean = false,
 ) {
     private val windows = service.getSystemService(WindowManager::class.java)
-    private var key = ""
+    /** The part it holds back. */
+    var key = ""
+        private set
     private var decision: Decision.Shield? = null
     @StringRes private var says = 0
     private var added = false
@@ -889,6 +898,18 @@ private class Cover(
             // The service was unbound or the window refused: nothing shows.
             if (added) hide()
         }
+    }
+
+    /** Moves by [dx], [dy] with the list it sits on, kept inside [within]; gone once nothing of it is left there. */
+    fun moveBy(dx: Int, dy: Int, within: Rect?) {
+        if (!added || dx == 0 && dy == 0) return
+        val moved = Rect(params.x + dx, params.y + dy, params.x + dx + params.width, params.y + dy + params.height)
+        if (within != null && !moved.intersect(within)) return hide()
+        params.x = moved.left
+        params.y = moved.top
+        params.width = moved.width()
+        params.height = moved.height()
+        try { windows.updateViewLayout(view, params) } catch (_: RuntimeException) { hide() }
     }
 
     /** A real tap at [at], through this cover, to the app under it. */

@@ -66,6 +66,19 @@ fun fromChannels(texts: List<String>, channels: List<String>): Boolean = channel
     texts.any { whole.containsMatchIn(normal(it)) }
 }
 
+/**
+ * The channels [texts] name for certain: a handle ("@veritasium"), or YouTube's "Subscribe to Veritasium." button
+ * (English). A title, a view count or an ad names none: a page still loading isn't judged by them.
+ */
+fun channelsNamed(texts: List<String>): List<String> = texts.mapNotNull { text ->
+    val t = text.trim()
+    when {
+        Regex("^@[\\p{L}\\p{N}._\\-]+$").matches(t) -> t
+        t.startsWith("Subscribe to ") -> t.removePrefix("Subscribe to ").trimEnd('.').trim().takeIf(String::isNotEmpty)
+        else -> null
+    }
+}
+
 /** The old global switches ([Rules.content]) and the parts each one becomes. */
 val LegacyContent = mapOf(
     "youtube_shorts" to listOf(PartShorts),
@@ -251,8 +264,9 @@ fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: P
     return when {
         s.shorts && shorts && s.shortsTab -> YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts)
         s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts)
-        // Nothing to read yet (still loading, or full screen): judged once it shows.
-        channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) ->
+        // Judged only once the page names its channel for certain: while it loads (only a title, a view count,
+        // an ad) an allowed video is never held back.
+        channels != null && playing && channelsNamed(s.texts).isNotEmpty() && !fromChannels(s.texts, channels.second) ->
             YouTubeVerdict.NotFromChannel(channels.first, R.string.part_no_video)
         // Under the video: its details and comments stay, every suggestion after them is blank, the playlist bar
         // stays usable, and the list can't be scrolled. An open panel (description, comments) is left alone.

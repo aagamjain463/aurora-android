@@ -131,7 +131,12 @@ class WebTest {
         val watch = listOf(0, 90, 1080, 700)
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch, texts = listOf("Why gravity is not a force", "Veritasium · 17M subscribers"))))
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true, texts = listOf("@mkbhd", "Subscribe"))))
-        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("Some video", "Other Channel"))))
+        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("Some video", "@otherchannel"))))
+        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("Some video", "Subscribe to Other Channel."))))
+        // While the page loads (a title, a view count, an ad panel), nothing names the channel: never held back.
+        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch, texts = listOf("What Everyone Gets Wrong About Gravity", "1.5 crore"))))
+        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch, texts = listOf("Close ad panel", "Amazon Music: Songs & Podcasts", "Install"))))
+        assertEquals(listOf("@veritasium", "Veritasium"), channelsNamed(listOf("@veritasium  ", "Subscribe to Veritasium.", "4.6 lakh likes")))
         assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(shorts = true, texts = listOf("@mkbhdclips"))))
         // Still loading, or full screen: nothing to judge yet.
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch)))
