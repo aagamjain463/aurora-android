@@ -292,15 +292,10 @@ class ScreenshotTest(private val variant: Variant) {
         capture("onboarding_shield") { OnboardingScreen(onFinish = {}) }
     }
 
-    /** The tour, one page per tab. */
-    @Test fun onboardingTourShield() = tour(1, "onboarding_tour_shield")
-    @Test fun onboardingTourIntent() = tour(2, "onboarding_tour_intent")
-    @Test fun onboardingTourHome() = tour(3, "onboarding_tour_home")
-    @Test fun onboardingTourTrack() = tour(4, "onboarding_tour_track")
-
-    private fun tour(step: Int, name: String) {
-        runBlocking { application.preferences.setOnboardingStep(step) }
-        capture(name) { OnboardingScreen(onFinish = {}) }
+    /** How Aurora works: the four tabs on one card. */
+    @Test fun onboardingHow() {
+        runBlocking { application.preferences.setOnboardingStep(1) }
+        capture("onboarding_how") { OnboardingScreen(onFinish = {}) }
     }
 
     /** Habits completed move to History, with their results. */
