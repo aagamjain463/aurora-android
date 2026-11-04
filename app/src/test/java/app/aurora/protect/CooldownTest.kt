@@ -98,6 +98,25 @@ class CooldownTest {
         assertEquals(0, settled.relapsed("insta", DeviceTime(free + IntentQuietMs, 0, -1)).runs.single().intentRelapses)
     }
 
+    /** When its session ends, an Intent app loses its timer, cooldown and pause; another session's stay. */
+    @Test
+    fun endingASessionDropsItsIntentState() {
+        val rt = Runtime(
+            intentUses = mapOf("insta" to IntentUse(min), "clock" to IntentUse(min)),
+            intentCooldowns = mapOf("insta" to 5L, "clock" to 6L),
+            intentCooldownLengths = mapOf("insta" to 5L, "clock" to 6L),
+            reflections = mapOf("insta" to 1L, "clock" to 2L),
+        )
+        val ended = rt.intentsEnded(listOf("insta"), still = emptySet())
+        assertEquals(setOf("clock"), ended.intentUses.keys)
+        assertEquals(setOf("clock"), ended.intentCooldowns.keys)
+        assertEquals(setOf("clock"), ended.intentCooldownLengths.keys)
+        assertEquals(setOf("clock"), ended.reflections.keys)
+        // An app another running session still asks about keeps everything.
+        assertEquals(rt, rt.intentsEnded(listOf("insta"), still = setOf("insta", "clock")))
+        assertEquals(rt, rt.intentsEnded(emptyList(), still = setOf("clock")))
+    }
+
     @Test
     fun aGrantCountsOnTheRunsShieldingThatApp() {
         val run = ConfigRun("run", "c", "Work", shield = ShieldPreset("s", "Social", listOf("clock"), Mode.Friction), start = 0, end = Long.MAX_VALUE)

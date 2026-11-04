@@ -52,8 +52,12 @@ enum class Mode {
     AlwaysBlock,
 }
 
+/** [Reflection] is retired (founder, 2026-11-04): Shields saved with it end with a math problem. */
 @Serializable
 enum class FrictionTask { Math, Intention, Reflection }
+
+/** The challenges a Friction Shield can be made with: a math problem, or writing the words set beforehand. */
+val FrictionTasks = listOf(FrictionTask.Math, FrictionTask.Intention)
 
 @Serializable
 enum class Difficulty { Easy, Medium, Hard }
@@ -62,9 +66,17 @@ enum class Difficulty { Easy, Medium, Hard }
 data class FrictionSettings(
     val task: FrictionTask = FrictionTask.Math,
     val difficulty: Difficulty = Difficulty.Medium,
-    /** The waiting part of the reflection task. */
+    /** The waiting part of the retired reflection task. */
     val reflectionSeconds: Int = 20,
+    /** For [FrictionTask.Intention]: the words, set when the Shield is made, that must be typed to end the session. */
+    val phrase: String = "",
 )
+
+/** The written challenge is met: [typed] is [phrase], ignoring case and extra spaces. */
+fun phraseMatches(phrase: String, typed: String): Boolean {
+    fun norm(s: String) = s.trim().replace(Regex("\\s+"), " ").lowercase()
+    return phrase.isNotBlank() && norm(phrase) == norm(typed)
+}
 
 /** What happens when the time chosen at an intentional opening is used up. */
 @Serializable
@@ -311,12 +323,6 @@ data class Runtime(
     /** Scheduled occurrences the day's allowance couldn't cover: run id to window end. They don't start late. */
     val quotaDenied: Map<String, Long> = emptyMap(),
 ) {
-    /** The reflection pause for [key], continuing one that began within [ReflectionReuseMs]. */
-    fun reflectionFor(key: String, now: Long): Pair<Runtime, Long> {
-        val existing = reflections[key]?.takeIf { now - it in 0 until ReflectionReuseMs }
-        return if (existing != null) this to existing else copy(reflections = reflections + (key to now)) to now
-    }
-
     /** Drops what has ended, and ledger entries older than a week. */
     fun pruned(t: DeviceTime): Runtime {
         val now = t.wall
@@ -474,8 +480,9 @@ fun policyState(
         limits = limits,
         usedToday = usedToday,
         intents = intents,
-        intentUses = runtime.intentUses,
-        intentCooldowns = runtime.intentCooldowns,
+        // Intent belongs to its session: once no running session asks about an app, its timer and cooldown are over too.
+        intentUses = runtime.intentUses.filterKeys { it in intents },
+        intentCooldowns = runtime.intentCooldowns.filterKeys { it in intents },
         midnight = nextMidnight(now, zone),
     )
 }

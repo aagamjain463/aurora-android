@@ -38,6 +38,17 @@ class FrictionTest {
     }
 
     @Test
+    fun onlyTheExactPhraseEndsTheWritingTask() {
+        assertTrue(phraseMatches("I choose focus", "I choose focus"))
+        assertTrue(phraseMatches("I choose focus", "  i   CHOOSE\tfocus "))
+        assertFalse(phraseMatches("I choose focus", "I choose focus."))
+        assertFalse(phraseMatches("I choose focus", "focus"))
+        // A Shield saved without words can never be ended by typing nothing.
+        assertFalse(phraseMatches("", ""))
+        assertFalse(phraseMatches("   ", "   "))
+    }
+
+    @Test
     fun harderProblemsHaveBiggerAnswers() {
         val random = Random(7)
         val easy = (1..100).map { mathProblem(Difficulty.Easy, random).answer }.average()

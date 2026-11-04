@@ -333,11 +333,13 @@ fun DetailsDialog(title: String, rows: List<Pair<String, String>>, onDismiss: ()
         { onDismiss(); onEdit?.invoke() },
         dismissLabel = if (onEdit != null) stringResource(R.string.action_close) else null,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(Space.M)) {
-            rows.filter { it.second.isNotBlank() }.forEach { (label, value) ->
-                Column(Modifier.semantics(mergeDescendants = true) { }) {
-                    Text(label, color = colors.textTertiary, style = AuroraType.Caption)
-                    Text(value, Modifier.padding(top = 2.dp), color = colors.textPrimary, style = AuroraType.Body)
+        // One quiet panel of label-over-value lines, split by hairlines.
+        Column(Modifier.fillMaxWidth().clip(Radius.M).background(colors.field)) {
+            rows.filter { it.second.isNotBlank() }.forEachIndexed { i, (label, value) ->
+                if (i > 0) app.aurora.ui.components.RowDivider()
+                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp).semantics(mergeDescendants = true) { }) {
+                    Text(label.uppercase(), color = colors.textTertiary, style = AuroraType.Eyebrow)
+                    Text(value, Modifier.padding(top = 4.dp), color = colors.textPrimary, style = AuroraType.Body)
                 }
             }
         }

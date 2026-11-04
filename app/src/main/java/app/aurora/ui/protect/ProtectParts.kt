@@ -108,18 +108,16 @@ fun modeDescription(mode: Mode): String = stringResource(
 @Composable
 fun taskName(task: FrictionTask): String = stringResource(
     when (task) {
-        FrictionTask.Math -> R.string.friction_task_math
+        FrictionTask.Math, FrictionTask.Reflection -> R.string.friction_task_math
         FrictionTask.Intention -> R.string.friction_task_intention
-        FrictionTask.Reflection -> R.string.friction_task_reflection
     },
 )
 
 @Composable
 fun taskDescription(task: FrictionTask): String = stringResource(
     when (task) {
-        FrictionTask.Math -> R.string.friction_task_math_desc
+        FrictionTask.Math, FrictionTask.Reflection -> R.string.friction_task_math_desc
         FrictionTask.Intention -> R.string.friction_task_intention_desc
-        FrictionTask.Reflection -> R.string.friction_task_reflection_desc
     },
 )
 

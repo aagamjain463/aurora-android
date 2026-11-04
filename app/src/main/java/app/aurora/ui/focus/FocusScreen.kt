@@ -1,5 +1,38 @@
 package app.aurora.ui.focus
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.composed
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.ImeAction
+import app.aurora.ui.components.chipText
+import app.aurora.ui.components.minutesSpoken
+import app.aurora.ui.theme.Radius
+import app.aurora.ui.theme.auroraTween
+import kotlin.math.atan2
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
@@ -221,7 +254,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                             .verticalScroll(rememberScrollState())
                             .heightIn(min = maxHeight)
                             .padding(horizontal = Space.Gutter),
-                        verticalArrangement = if (p == Phase.Running) Arrangement.Center else Arrangement.Top,
+                        verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         // `session` may already be cleared while an old phase animates out.
@@ -242,7 +275,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                             vm.start(minutes, profile, intention)
                         }, Modifier.fillMaxWidth(), icon = AuroraIcons.Play)
-                        Phase.Running -> AuroraButton(stringResource(R.string.focus_end_session), { confirmEnd = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+                        Phase.Running -> AuroraButton(stringResource(R.string.focus_end_session), { confirmEnd = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                         Phase.Complete -> AuroraButton(stringResource(R.string.settings_done), { vm.done(onClose) }, Modifier.fillMaxWidth())
                     }
                 }
@@ -299,45 +332,187 @@ private fun Setup(
     onNew: () -> Unit,
 ) {
     val colors = Aurora.colors
-    // The dial at rest previews the time chosen: the same instrument the session will run on.
-    Text(stringResource(R.string.focus_name), Modifier.padding(top = Space.S).semantics { heading() }, color = colors.headlineLead, style = AuroraType.DisplayS)
-    FocusDial(
-        0f, formatClock(minutes * 60_000L), Modifier.padding(top = Space.M).fillMaxWidth(0.8f),
-        spoken = app.aurora.ui.components.minutesText(minutes),
-    )
-    Spacer(Modifier.height(Space.L))
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-        ChoicePills(profiles, profile, onProfile, label = { it.name }, modifier = Modifier.weight(1f, fill = false))
-        AuroraIconButton(AuroraIcons.Edit, stringResource(R.string.focus_edit_profile_label , profile.name), { onEdit(profile) })
-        AuroraIconButton(AuroraIcons.Plus, stringResource(R.string.focus_new_profile), onNew)
+    var custom by remember { mutableStateOf(false) }
+    Text(stringResource(R.string.focus_name), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS)
+    Row(Modifier.padding(top = Space.XXS), verticalAlignment = Alignment.CenterVertically) {
+        LightTabs(profiles, profile, onProfile, label = { it.name }, modifier = Modifier.weight(1f, fill = false))
+        // Lifted to the words' line, above the tabs' point of light.
+        QuietIcon(AuroraIcons.Edit, stringResource(R.string.focus_edit_profile_label, profile.name), Modifier.padding(bottom = 10.dp)) { onEdit(profile) }
+        QuietIcon(AuroraIcons.Plus, stringResource(R.string.focus_new_profile), Modifier.padding(bottom = 10.dp), onNew)
     }
-    Spacer(Modifier.height(Space.M))
-    app.aurora.ui.components.DurationPicker(
-        minutes, { it?.let(onMinutes) }, FocusLengths,
-        Modifier.fillMaxWidth(),
-        title = androidx.compose.ui.res.stringResource(app.aurora.R.string.focus_length_prompt),
-        max = 8 * 60,
+    // The dial at rest is the time chosen, on the instrument the session will run on. Turn it to set the length.
+    FocusDial(
+        minutes.coerceAtMost(DialMinutes) / DialMinutes.toFloat(), formatClock(minutes * 60_000L),
+        Modifier.padding(top = Space.L).fillMaxWidth(0.9f).dialInput(minutes, onMinutes),
+        caption = stringResource(R.string.focus_ends_at, clockTime(System.currentTimeMillis() + minutes * 60_000L)),
+        spoken = app.aurora.ui.components.minutesText(minutes),
+        follow = tween(Motion.Standard, easing = Motion.Ease),
     )
-    Spacer(Modifier.height(Space.L))
-    AuroraTextField(
-        value = intention,
-        onValueChange = { if (it.length <= 60) onIntention(it) },
-        placeholder = stringResource(R.string.cfg_focus_goal_placeholder),
-        capitalization = KeyboardCapitalization.Sentences,
+    val customLabel = stringResource(R.string.duration_custom)
+    LightTabs(
+        FocusLengths + Custom, if (minutes in FocusLengths) minutes else Custom,
+        { if (it == Custom) custom = true else onMinutes(it) },
+        label = { if (it == Custom) customLabel else chipText(it) },
+        spoken = { if (it == Custom) customLabel else minutesSpoken(it) },
+        modifier = Modifier.padding(top = Space.L),
     )
-    Spacer(Modifier.height(Space.M))
-    Text(holds(s, profile.groupId, protection), color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center)
+    GoalField(intention, onIntention, Modifier.padding(top = Space.L))
+    Text(
+        holds(s, profile.groupId, protection), Modifier.padding(top = Space.M),
+        color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center,
+    )
+    if (custom) {
+        var typed by remember { mutableStateOf<Int?>(minutes) }
+        AuroraDialog(
+            title = stringResource(R.string.focus_length_prompt),
+            confirmLabel = stringResource(R.string.action_save),
+            onConfirm = { typed?.let(onMinutes); custom = false },
+            confirmEnabled = typed != null,
+            dismissLabel = stringResource(R.string.action_cancel),
+            onDismiss = { custom = false },
+        ) {
+            app.aurora.ui.components.DurationPicker(typed, { typed = it }, emptyList(), max = 8 * 60)
+        }
+    }
 }
 
-/** The goal, if one was typed, above the timer. Nothing else. */
+/** The dial's scale while choosing: one turn is two hours. */
+private const val DialMinutes = 120
+private const val Custom = -1
+
+/**
+ * Turning the dial: a finger on the ring sets the length to where it points, in 5-minute steps, with a tick under
+ * the finger at each one. It stops at the top instead of wrapping past it. The centre is left to the page, so the
+ * screen still scrolls; TalkBack adjusts it as a slider.
+ */
+private fun Modifier.dialInput(minutes: Int, onMinutes: (Int) -> Unit): Modifier = composed {
+    val haptics = LocalHapticFeedback.current
+    val now by rememberUpdatedState(minutes)
+    val set by rememberUpdatedState(onMinutes)
+    semantics {
+        progressBarRangeInfo = ProgressBarRangeInfo(minutes.toFloat(), 5f..DialMinutes.toFloat(), steps = DialMinutes / 5 - 2)
+        setProgress { set((it / 5).roundToInt().times(5).coerceIn(5, DialMinutes)); true }
+    }.pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown()
+            val c = Offset(size.width / 2f, size.height / 2f)
+            if ((down.position - c).getDistance() < size.width * 0.28f) return@awaitEachGesture
+            var last = now
+            var change: PointerInputChange? = down
+            while (change != null && change.pressed) {
+                change.consume()
+                val v = change.position - c
+                val turn = ((Math.toDegrees(atan2(v.x, -v.y).toDouble()) + 360) % 360) / 360
+                var m = ((turn * DialMinutes / 5).roundToInt() * 5).coerceIn(5, DialMinutes)
+                if (last >= DialMinutes * 3 / 4 && m <= DialMinutes / 4) m = DialMinutes
+                if (last <= DialMinutes / 4 && m >= DialMinutes * 3 / 4) m = 5
+                if (m != last) {
+                    last = m
+                    set(m)
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                }
+                change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+            }
+        }
+    }
+}
+
+/** Choices as words, the chosen one marked by a point of first light under it, as the dock marks its tab. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun <T> LightTabs(
+    options: List<T>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    label: (T) -> String,
+    modifier: Modifier = Modifier,
+    spoken: (T) -> String = label,
+) {
+    val colors = Aurora.colors
+    val haptics = LocalHapticFeedback.current
+    // Large text wraps the choices onto a second line, centred, rather than sliding them off the edge.
+    androidx.compose.foundation.layout.FlowRow(modifier, horizontalArrangement = Arrangement.Center) {
+        options.forEach { o ->
+            val on = o == selected
+            val tint by animateColorAsState(if (on) colors.textPrimary else colors.textTertiary, auroraTween(), label = "tab")
+            val dot by animateFloatAsState(if (on) 1f else 0f, auroraTween(), label = "dot")
+            Column(
+                Modifier
+                    .heightIn(min = 48.dp)
+                    .clip(Radius.Pill)
+                    .selectable(on, role = Role.RadioButton, onClick = {
+                        if (!on) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                        onSelect(o)
+                    })
+                    .semantics { contentDescription = spoken(o) }
+                    .padding(horizontal = 11.dp, vertical = Space.XS),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(label(o), color = tint, style = AuroraType.Choice, maxLines = 1)
+                Box(
+                    Modifier.padding(top = 6.dp).size(4.dp)
+                        .graphicsLayer { alpha = dot; scaleX = dot; scaleY = dot }
+                        .clip(CircleShape).background(if (colors.isDark) colors.glowTop else colors.light),
+                )
+            }
+        }
+    }
+}
+
+/** A small icon action that sits beside words without outweighing them. */
+@Composable
+private fun QuietIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(modifier.size(44.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, label, tint = Aurora.colors.textTertiary, modifier = Modifier.size(17.dp))
+    }
+}
+
+/**
+ * The goal, typed in the voice it will be shown in while the session runs: the serif's italic, centred over a
+ * hairline that lights up while you write.
+ */
+@Composable
+private fun GoalField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    val colors = Aurora.colors
+    val focus = LocalFocusManager.current
+    var focused by remember { mutableStateOf(false) }
+    val line by animateColorAsState(if (focused) colors.textSecondary else colors.hairlineStrong, auroraTween(), label = "line")
+    val style = AuroraType.DisplayS.copy(fontSize = 24.sp, lineHeight = 30.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center, color = colors.textPrimary)
+    BasicTextField(
+        value, { if (it.length <= 60) onValueChange(it) },
+        modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        textStyle = style,
+        singleLine = true,
+        cursorBrush = SolidColor(colors.accent),
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+        decorationBox = { inner ->
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
+                    if (value.isEmpty()) Text(stringResource(R.string.cfg_focus_goal_placeholder), color = colors.textTertiary, style = style.copy(color = colors.textTertiary))
+                    inner()
+                }
+                Box(Modifier.padding(top = Space.XS).fillMaxWidth(0.7f).height(1.dp).background(line))
+            }
+        },
+    )
+}
+
+/** What the session is called, if it has a profile, and the goal if one was typed, above the timer. Nothing else. */
 @Composable
 private fun Running(session: Session, s: FocusState) {
     val remaining = session.remaining(s.time)
     val progress = (1f - remaining.toFloat() / session.durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+    s.rules.profiles.find { it.id == session.profileId }?.let {
+        app.aurora.ui.components.Eyebrow(it.name, Modifier.padding(bottom = Space.S), textAlign = TextAlign.Center)
+    }
     if (session.intention.isNotBlank()) app.aurora.ui.components.FocusGoal(session.intention, Modifier.padding(bottom = Space.XL))
     FocusDial(
         progress, formatClock(remaining), Modifier.fillMaxWidth(0.92f),
+        caption = stringResource(R.string.focus_ends_at, clockTime(session.endWall(s.time))),
         spoken = stringResource(R.string.focus_spoken_remaining, spokenDuration(remaining)),
+        live = true,
     )
 }
 
@@ -346,8 +521,11 @@ private fun Complete(session: Session, s: FocusState) {
     val colors = Aurora.colors
     val minutes = session.durationMs / 60_000
     // A closed ring of dawn.
-    FocusDial(1f, "$minutes", Modifier.padding(top = Space.L).fillMaxWidth(0.9f), caption = stringResource(R.string.focus_minutes_focused))
-    Text(stringResource(R.string.focus_time_well_spent), Modifier.padding(top = Space.L).semantics { heading() }, color = colors.headlineLead, style = AuroraType.DisplayS, textAlign = TextAlign.Center)
+    FocusDial(1f, "$minutes", Modifier.padding(top = Space.L).fillMaxWidth(0.86f), caption = stringResource(R.string.focus_minutes_focused))
+    Text(
+        stringResource(R.string.focus_time_well_spent), Modifier.padding(top = Space.XL).semantics { heading() },
+        color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center,
+    )
     Spacer(Modifier.height(Space.S))
     Text(
         if (session.intention.isBlank()) stringResource(R.string.focus_complete_body , app.aurora.ui.components.minutesText(minutes.toInt()))
@@ -358,7 +536,7 @@ private fun Complete(session: Session, s: FocusState) {
     )
     s.rules.motivations.firstOrNull()?.let {
         Spacer(Modifier.height(Space.S))
-        Text(stringResource(R.string.focus_more_time_for , it.lowercase()), color = colors.violetText, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+        Text(stringResource(R.string.focus_more_time_for , it.lowercase()), color = colors.textTertiary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
     }
 }
 

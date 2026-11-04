@@ -34,6 +34,7 @@ import app.aurora.protect.runsRefusedByQuota
 import app.aurora.protect.targetsRefusal
 import app.aurora.protect.usesQuota
 import app.aurora.protect.ConfigRun
+import app.aurora.protect.intentsEnded
 import app.aurora.protect.Decision
 import app.aurora.protect.DeviceTime
 import app.aurora.protect.IntentPreset
@@ -401,6 +402,7 @@ private suspend fun AuroraApplication.syncLocked() {
         ended += next.runs.filter { it.isOver(t) }
         if (ended.isEmpty() && started.isEmpty() && next.runs == rt.runs && next.quotaDenied == rt.quotaDenied && next.authorizations == rt.authorizations) rt
         else next.copy(runs = next.runs - ended.toSet(), closed = next.closed + ended.map { it.id to (it.endAt(t) ?: t.wall) })
+            .intentsEnded(ended.flatMap { it.intent?.keys.orEmpty() }, (next.runs - ended.toSet()).flatMap { it.intent?.keys.orEmpty() }.toSet())
     }
     refused.forEach { SessionNotification.quotaRefused(this, it.name) }
     answers.waiting.forEach { SessionNotification.authorizationWaiting(this, it.id, it.name) }
@@ -474,7 +476,7 @@ suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
                 runs = rt.runs - run,
                 closed = rt.closed + (run.id to (run.endAt(t) ?: (t.wall + 86_400_000L))),
                 cooldownWaits = rt.cooldownWaits.filterValues { it.restrictionId != run.id && it.restrictionId != "${run.id}:flex" },
-            )
+            ).intentsEnded(run.intent?.keys.orEmpty(), (rt.runs - run).flatMap { it.intent?.keys.orEmpty() }.toSet())
         }
     }
     val run = stopped ?: return false

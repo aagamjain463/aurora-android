@@ -263,6 +263,12 @@ fun ConfigureScreen(
             }
         }
     }
+    // Friction, Cooldown and Always Block never start without uninstall protection: ask, turn it on, then start.
+    var guardAsk by remember { mutableStateOf(false) }
+    val guardLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
+        if (app.aurora.protect.UninstallGuard.active(context)) confirm()
+    }
+    val begin = { if (strict && !app.aurora.protect.UninstallGuard.active(context)) guardAsk = true else confirm() }
 
     // Focus: optional, offered at Review (or as its own step when saving for a Goal).
     val focusItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
@@ -334,7 +340,7 @@ fun ConfigureScreen(
             when {
                 step == Step.Focus && forGoal -> saveOnly()
                 finish && fromSaved && strict -> committing = true
-                finish -> confirm()
+                finish -> begin()
                 else -> step = steps[index + 1]
             }
         },
@@ -362,7 +368,7 @@ fun ConfigureScreen(
                     val s = d.rules.shieldOf(c)
                     val i = d.rules.intentOf(c)
                     // Only picking here: saved sessions are edited and deleted on Home.
-                    PickRow(c.name, listOfNotNull(s?.name, i?.name, c.focus?.task).joinToString(" · "), id == c.id, onClick = {
+                    PickRow(c.name, listOfNotNull(s?.name, i?.name, c.focus?.goal?.takeIf { it.isNotBlank() }).joinToString(" · "), id == c.id, onClick = {
                         id = c.id; name = c.name; shieldId = c.shieldId; intentId = c.intentId; note = c.note
                         focusOn = c.focus != null; goal = c.focus?.goal.orEmpty()
                         focusWindow = c.focus?.minutes == null; focusMinutes = c.focus?.minutes
@@ -521,9 +527,16 @@ fun ConfigureScreen(
     }
     if (committing) AuroraDialog(
         configName, { committing = false },
-        stringResource(R.string.always_block_confirm), { committing = false; confirm() },
+        stringResource(R.string.always_block_confirm), { committing = false; begin() },
         stringResource(R.string.start_commit_body) + "\n\n" + stringResource(R.string.start_commit_limits),
         stringResource(R.string.action_cancel),
+    )
+    if (guardAsk) AuroraDialog(
+        stringResource(R.string.uninstall_needed_title), { guardAsk = false },
+        stringResource(R.string.uninstall_needed_action),
+        { guardAsk = false; runCatching { guardLauncher.launch(app.aurora.protect.UninstallGuard.enableIntent(context)) } },
+        stringResource(R.string.uninstall_needed_body), stringResource(R.string.action_cancel),
+        icon = AuroraIcons.Protect,
     )
 }
 

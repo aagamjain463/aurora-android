@@ -81,13 +81,11 @@ import app.aurora.finishIntent
 import app.aurora.intentOverrun
 import app.aurora.record
 import app.aurora.runsNow
-import app.aurora.reflectionStart
 import app.aurora.startIntent
 import app.aurora.wentBack
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
-import app.aurora.ui.components.Chip
 import app.aurora.ui.components.DurationPicker
 import app.aurora.ui.components.clockTime
 import app.aurora.ui.components.minutesText
@@ -116,7 +114,7 @@ import app.aurora.ui.components.ContentMaxWidth
 val UsagePresets = listOf(5, 10, 15, 30)
 
 @Composable
-fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
+fun ShieldContent(request: ShieldRequest, close: (ShieldClose) -> Unit) {
     val app = LocalContext.current.applicationContext as AuroraApplication
     val prefs by app.preferences.preferences.collectAsStateWithLifecycle(null)
     // The Shield is always night: the same sky as Today's hero, whatever the theme. It reads as aurora at
@@ -156,15 +154,26 @@ fun ShieldContent(request: ShieldRequest, close: (home: Boolean) -> Unit) {
         val rulesState by app.rules.state.collectAsStateWithLifecycle()
         val note = remember(runtimeState, rulesState, pkg) { sessionNote(app.runsNow(), pkg, app.now()) }
         val decision = request.decision ?: Decision.Shield(pkg, request.reason, request.until)
-        val home = { close(true) }
+        val home = { close(ShieldClose.Home) }
+        val granted = { close(ShieldClose.Granted) }
+        val aurora = { close(ShieldClose.Aurora) }
+        // Intent belongs to its session: when the session ends, its pause and cooldown leave the screen with it.
+        val intentOver by produceState(false, pkg, decision.reason) {
+            if (decision.reason != ShieldReason.Intent && decision.reason != ShieldReason.IntentCooldown) return@produceState
+            while (true) {
+                value = app.policySnapshot(emptySet(), emptyMap())?.let { pkg !in it.intents } == true
+                delay(1000)
+            }
+        }
         val intent = decision.reason == ShieldReason.Intent
         val leave = { app.scope.launch { runCatching { app.wentBack(intent = true) } }; home() }
         androidx.compose.runtime.CompositionLocalProvider(LocalSessionNote provides note, LocalLeave provides if (part != null) R.string.shield_go_back else R.string.shield_return_home) {
         ShieldFrame(label, icon, showName = website || part != null, onClose = if (intent) leave else null) {
-            when (decision.reason) {
+            when {
+                intentOver -> Ended(label, home, onEnded = granted)
                 // Friction and Cooldown are ended in Aurora, for the whole session; the Shield only says where.
-                ShieldReason.Intent -> IntentFlow(app, decision, label, now, home, onOpen = { close(false) })
-                else -> Blocked(decision, label, now, home, onEnded = { close(false) })
+                decision.reason == ShieldReason.Intent -> IntentFlow(app, decision, label, now, home, onOpen = granted)
+                else -> Blocked(decision, label, now, home, onEnded = granted, onAurora = aurora)
             }
         }
         }
@@ -367,18 +376,13 @@ private fun androidx.compose.foundation.layout.ColumnScope.Actions(content: @Com
 // ---- Blocks: no way through -------------------------------------------------------------------
 
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onEnded: () -> Unit) {
+private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Decision.Shield, label: String, now: Long, home: () -> Unit, onEnded: () -> Unit, onAurora: () -> Unit) {
     val app = LocalContext.current.applicationContext as AuroraApplication
     val runtime by app.runtime.state.collectAsStateWithLifecycle()
     // An Intent cooldown is read live: a new attempt restarts it, and the countdown follows.
     val until = if (decision.reason == ShieldReason.IntentCooldown) runtime?.value?.intentCooldowns?.get(decision.packageName) ?: decision.until else decision.until
     if (until != null && now >= until && decision.reason != ShieldReason.Limit) {
-        Headline(stringResource(R.string.shield_ended_title))
-        Body(stringResource(R.string.shield_ended_body, label))
-        Actions {
-            AuroraButton(stringResource(R.string.shield_open_app, label), onEnded, Modifier.fillMaxWidth())
-            AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
-        }
+        Ended(label, home, onEnded)
         return
     }
     // Each block says what holds the app back, when that ends, and what the person can do about it.
@@ -420,9 +424,9 @@ private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Dec
             val context = LocalContext.current
             Actions {
                 AuroraButton(stringResource(R.string.shield_open_aurora), {
-                    // Aurora comes to the front first, so taking the Shield away never shows the app behind it.
+                    // Start aurora before taking the Shield away, so it never shows the app behind it.
                     context.startActivity(android.content.Intent(context, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                    onEnded()
+                    onAurora()
                 }, Modifier.fillMaxWidth())
                 AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
             }
@@ -430,12 +434,39 @@ private fun androidx.compose.foundation.layout.ColumnScope.Blocked(decision: Dec
         }
         else -> {
             Headline(stringResource(R.string.shield_intent_cooldown_title))
-            ends?.let { EndsPill(it) }
+            until?.let { Countdown(it, now, stringResource(R.string.shield_opens_again_at, clockTime(it))) }
             Body(stringResource(R.string.shield_intent_cooldown_body, label))
             RestartNote()
+            // The only ways past it: end the session in Aurora (at once if Flexible, after its challenge or wait
+            // if Friction or Cooldown). A Strict session has none.
+            val t = app.now()
+            val endable = remember(runtime) { app.runsNow(t).any { it.covers(t) && decision.packageName in it.intent?.keys.orEmpty() && (it.cancellable(t) || it.endsAfterTask) } }
+            if (endable) {
+                Body(stringResource(R.string.shield_intent_cooldown_end))
+                val context = LocalContext.current
+                Actions {
+                    AuroraButton(stringResource(R.string.shield_open_aurora), {
+                        context.startActivity(android.content.Intent(context, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                        onAurora()
+                    }, Modifier.fillMaxWidth())
+                    AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                }
+                return
+            }
         }
     }
     Actions { AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth()) }
+}
+
+/** What held the app back is over: open it, or leave. */
+@Composable
+private fun androidx.compose.foundation.layout.ColumnScope.Ended(label: String, home: () -> Unit, onEnded: () -> Unit) {
+    Headline(stringResource(R.string.shield_ended_title))
+    Body(stringResource(R.string.shield_ended_body, label))
+    Actions {
+        AuroraButton(stringResource(R.string.shield_open_app, label), onEnded, Modifier.fillMaxWidth())
+        AuroraButton(stringResource(LocalLeave.current), home, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+    }
 }
 
 /** "How long do you want to use {app}?": presets and a custom time, then open. */
@@ -486,17 +517,22 @@ fun EndSession(app: AuroraApplication, run: ConfigRun, host: androidx.lifecycle.
                 Headline(stringResource(R.string.end_session_friction_title))
                 Body(stringResource(R.string.end_session_body, run.name))
                 val s = shield.friction
-                when (s.task) {
-                    FrictionTask.Math -> MathTask(s.difficulty, onSolved = onEnd, onMiss = {})
-                    FrictionTask.Intention -> IntentionTask(stringResource(R.string.end_session_intention_prompt), onDone = onEnd)
-                    FrictionTask.Reflection -> ReflectionTask(app, "end:${run.id}", s.reflectionSeconds, onDone = onEnd)
+                when {
+                    s.task == FrictionTask.Intention && s.phrase.isNotBlank() -> PhraseTask(s.phrase, onDone = onEnd)
+                    // Shields made before the words were set beforehand.
+                    s.task == FrictionTask.Intention -> IntentionTask(stringResource(R.string.end_session_intention_prompt), onDone = onEnd)
+                    else -> MathTask(s.difficulty, onSolved = onEnd, onMiss = {})
                 }
                 Actions { AuroraButton(stringResource(R.string.action_cancel), onCancel, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
             } else {
                 var since by remember { mutableStateOf(TrustedClock.wall()) }
+                // Leaving Aurora restarts the wait; the screen going off or locking doesn't: the wait runs on.
+                var slept by remember { mutableStateOf(false) }
+                val context = LocalContext.current
                 androidx.lifecycle.compose.LifecycleStartEffect(Unit, lifecycleOwner = host) {
-                    since = TrustedClock.wall()
-                    onStopOrDispose { }
+                    if (!slept) since = TrustedClock.wall()
+                    slept = false
+                    onStopOrDispose { slept = screenAsleep(context) }
                 }
                 val now by produceState(TrustedClock.wall()) {
                     while (true) {
@@ -628,38 +664,27 @@ internal fun IntentionTask(prompt: String, onDone: () -> Unit) {
     }
 }
 
-/** Two short decisions, then a pause the person waits out. The pause is stored, so leaving doesn't skip it. */
+/** The words set when the Shield was made, typed out exactly (case and extra spaces aside). */
 @Composable
-internal fun ReflectionTask(app: AuroraApplication, key: String, seconds: Int, onDone: () -> Unit) {
+internal fun PhraseTask(phrase: String, onDone: () -> Unit) {
     val colors = Aurora.colors
-    var step by remember { mutableIntStateOf(0) }
-    val questions = listOf(
-        stringResource(R.string.friction_reflect_q1) to listOf(
-            stringResource(R.string.friction_reflect_q1_a1), stringResource(R.string.friction_reflect_q1_a2),
-            stringResource(R.string.friction_reflect_q1_a3), stringResource(R.string.friction_reflect_q1_a4),
-        ),
-        stringResource(R.string.friction_reflect_q2) to listOf(stringResource(R.string.friction_reflect_q2_a1), stringResource(R.string.friction_reflect_q2_a2)),
-    )
+    var text by remember { mutableStateOf("") }
+    val done = phraseMatches(phrase, text)
     Column(Modifier.padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-        Text(stringResource(R.string.friction_reflect_step, (step + 1).coerceAtMost(3), 3), color = colors.textTertiary, style = AuroraType.Caption)
-        if (step < questions.size) {
-            if (step > 0) BackHandler { step-- }
-            val (q, answers) = questions[step]
-            Text(q, color = colors.textPrimary, style = AuroraType.Title)
-            answers.forEach { a -> Chip(a, selected = false, modifier = Modifier.fillMaxWidth()) { step++ } }
-        } else {
-            val start by produceState<Long?>(null, key) { value = try { app.reflectionStart("friction:$key") } catch (_: IOException) { TrustedClock.wall() } }
-            val now by produceState(TrustedClock.wall()) {
-                while (true) {
-                    value = TrustedClock.wall()
-                    delay(250)
-                }
-            }
-            val left = start?.let { it + seconds * 1000L - now } ?: (seconds * 1000L)
-            Text(stringResource(R.string.friction_reflect_wait), color = colors.textPrimary, style = AuroraType.Title)
-            Text(if (left > 0) formatClock(left) else stringResource(R.string.friction_reflect_ready), color = colors.accent, style = AuroraType.Hero)
-            AuroraButton(stringResource(R.string.friction_reflect_continue), onDone, Modifier.fillMaxWidth(), enabled = left <= 0 && start != null)
-        }
+        Text(stringResource(R.string.friction_phrase_prompt), color = colors.textSecondary, style = AuroraType.BodyStrong)
+        Text(
+            phrase,
+            Modifier.fillMaxWidth().clip(Radius.L).background(colors.elevated).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+            color = colors.textPrimary,
+            style = AuroraType.Title,
+        )
+        AuroraTextField(
+            text, { text = it.take(phrase.length + 40) },
+            placeholder = stringResource(R.string.friction_phrase_placeholder),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            singleLine = false,
+        )
+        AuroraButton(stringResource(R.string.friction_intention_confirm_phrase), onDone, Modifier.fillMaxWidth(), enabled = done)
     }
 }
 
@@ -710,40 +735,17 @@ private fun androidx.compose.foundation.layout.ColumnScope.IntentFlow(app: Auror
 
     when (step) {
         IntentStep.Reflect -> {
-            val pauseStart by produceState<Long?>(null, pkg) {
-                value = if (config.reflectionSeconds <= 0) 0L
-                else try { app.reflectionStart(pkg) } catch (_: IOException) { TrustedClock.wall() }
-            }
+            // Every opening pauses from the start; the Shield stays up through the screen going off, so that doesn't.
+            val pauseStart: Long? = remember(pkg) { if (config.reflectionSeconds <= 0) 0L else TrustedClock.wall() }
             val left = pauseStart?.let { it + config.reflectionSeconds * 1000L - now } ?: (config.reflectionSeconds * 1000L)
-            var minutes by remember { mutableStateOf<Int?>(config.defaultUsageMinutes) }
+            var minutes by remember { mutableStateOf<Int?>(null) }
             // Never longer than the protection that's running: access can't outlast it anyway.
             val max = decision.until?.let { ((it - TrustedClock.wall()) / 60_000).toInt().coerceIn(1, 24 * 60) } ?: (24 * 60)
             Headline(stringResource(R.string.intent_prompt_title, label), label)
             Body(stringResource(R.string.intent_prompt_question))
             if (config.reflectionSeconds > 0 && left > 0) PauseRing(left.coerceAtLeast(0), config.reflectionSeconds * 1000L)
-            // The preset's reason, unless the session's note already says the same.
-            if (config.reason.isNotBlank() && config.reason.trim() != LocalSessionNote.current?.trim()) {
-                PartLabel(stringResource(R.string.intent_your_reason))
-                Text(
-                    config.reason,
-                    Modifier.fillMaxWidth().heightIn(min = 54.dp).clip(RoundedCornerShape(18.dp)).background(colors.field)
-                        .border(1.dp, colors.hairline, RoundedCornerShape(18.dp)).padding(horizontal = 18.dp, vertical = 16.dp),
-                    color = colors.textPrimary, style = AuroraType.Body,
-                )
-            }
             PartLabel(stringResource(R.string.usage_prompt, label))
             DurationPicker(minutes, { minutes = it }, UsagePresets.filter { it <= max }.ifEmpty { listOf(max) }, Modifier.fillMaxWidth(), max = max)
-            if (config.alternative.isNotBlank()) {
-                PartLabel(stringResource(R.string.intent_instead))
-                Row(
-                    Modifier.fillMaxWidth().auroraSurface(colors, RoundedCornerShape(18.dp)).padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    androidx.compose.material3.Icon(AuroraIcons.Target, null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
-                    Text(config.alternative, color = colors.textPrimary, style = AuroraType.BodyStrong.copy(fontSize = 14.5.sp))
-                }
-            }
             Text(
                 when (config.expiry) {
                     IntentExpiry.Reminder -> stringResource(R.string.intent_expiry_note_reminder)
@@ -767,7 +769,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.IntentFlow(app: Auror
             }
         }
         IntentStep.Usage -> {
-            UsageChoice(label, decision, initial = config.defaultUsageMinutes, onBack = { step = IntentStep.Reflect }, onChoose = start)
+            UsageChoice(label, decision, onBack = { step = IntentStep.Reflect }, onChoose = start)
             Text(
                 when (config.expiry) {
                     IntentExpiry.Reminder -> stringResource(R.string.intent_expiry_note_reminder)

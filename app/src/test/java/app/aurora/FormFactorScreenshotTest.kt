@@ -13,9 +13,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import app.aurora.protect.AppRule
+import app.aurora.protect.ConfigRun
 import app.aurora.protect.Decision
 import app.aurora.protect.FrictionSettings
 import app.aurora.protect.IntentConfig
+import app.aurora.protect.IntentPreset
 import app.aurora.protect.Restriction
 import app.aurora.protect.ShieldContent
 import app.aurora.protect.ShieldReason
@@ -76,6 +78,18 @@ class FormFactorScreenshotTest {
         decision = Decision.Shield("com.example.photos", ShieldReason.Intent, null, Restriction(ShieldReason.Intent, setOf("com.example.photos"), 0, Long.MAX_VALUE, "r", FrictionSettings(), 0L)),
     )
 
+    /** Intent only exists inside a running session: without it the Shield says the timer ended. */
+    private fun runningIntent() = runBlocking {
+        val now = System.currentTimeMillis()
+        ApplicationProvider.getApplicationContext<AuroraApplication>().runtime.update {
+            it.copy(runs = listOf(ConfigRun(
+                "r", "c", "Session",
+                intent = IntentPreset("i", "Intent", listOf("com.example.photos"), IntentConfig(reflectionSeconds = 0)),
+                start = now - 3_600_000, end = now + 3_600_000,
+            )))
+        }
+    }
+
     /** The home-screen widget as the launcher inflates it, at a 4x1 cell size. */
     @Test @Config(qualifiers = "w411dp-h914dp-xxhdpi")
     fun widget() {
@@ -97,11 +111,17 @@ class FormFactorScreenshotTest {
     fun onboardingSmall() = capture("onboarding_360") { OnboardingScreen(onFinish = {}) }
 
     @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
-    fun shieldSmall() = capture("shield_intent_360") { ShieldContent(intent) { } }
+    fun shieldSmall() {
+        runningIntent()
+        capture("shield_intent_360") { ShieldContent(intent) { } }
+    }
 
     @Test @Config(qualifiers = "w800dp-h1280dp-xhdpi")
     fun homeTablet() = capture("home_tablet") { Home() }
 
     @Test @Config(qualifiers = "w800dp-h1280dp-xhdpi")
-    fun shieldTablet() = capture("shield_intent_tablet") { ShieldContent(intent) { } }
+    fun shieldTablet() {
+        runningIntent()
+        capture("shield_intent_tablet") { ShieldContent(intent) { } }
+    }
 }

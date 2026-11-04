@@ -27,6 +27,18 @@ data class ShieldRequest(
     val decision: Decision.Shield? = null,
 )
 
+/** Why the person closed the Shield. Each ends differently at [Interceptor.closedByPerson]. */
+enum class ShieldClose {
+    /** They left for the home screen (or went back inside a part of an app). */
+    Home,
+
+    /** They chose to use the app now: it is allowed, and watched so the Shield returns when that ends. */
+    Granted,
+
+    /** They went into aurora to end a session: no Shield may come back over aurora. */
+    Aurora,
+}
+
 /**
  * How a Shield is shown: an accessibility overlay over the protected app (OverlayShieldPresenter).
  * Phase 3 used a full-screen activity, which Xiaomi HyperOS refused to start from the background.
@@ -62,6 +74,12 @@ class Interceptor(
      * cooldowns restart from it (Cooldowns.kt).
      */
     private val onAttempt: (Decision.Shield) -> Unit = {},
+    /**
+     * The screen is off or locked. Windows then (always-on display, the lock screen) are not the person
+     * leaving the app: no Shield is dropped, no cooldown restarts and no intentional session ends. Waking
+     * back into the same app continues where it was ([awake]).
+     */
+    private val asleep: () -> Boolean = { false },
 ) {
     @Volatile var state: PolicyState? = null
 
@@ -96,6 +114,9 @@ class Interceptor(
         val current = snapshot()
         val decision = decide(packageName, wallClock(), current, lockedScreen)
         trace.decided(decision, receivedUptime)
+        val sleeping = asleep()
+        // Asleep, only a Shield still matters (an app shown over the lock screen), and it is never a new attempt.
+        if (sleeping && decision !is Decision.Shield) return
         if (packageName != null && packageName !in overlays) {
             windows++
             if (packageName != ownPackage) {
@@ -109,7 +130,7 @@ class Interceptor(
                 // the shade). A burst within AttemptDedupMs is one opening too, even if a launcher event
                 // came between. Uncertain cases only ever lengthen a wait, never shorten it.
                 val pkg = decision.packageName
-                if (pkg != shownFor && (pkg != lastAttempt || eventUptime - lastAttemptAt >= AttemptDedupMs)) {
+                if (!sleeping && pkg != shownFor && (pkg != lastAttempt || eventUptime - lastAttemptAt >= AttemptDedupMs)) {
                     lastAttempt = pkg
                     lastAttemptAt = eventUptime
                     onAttempt(decision)
@@ -166,6 +187,17 @@ class Interceptor(
         }
     }
 
+    /**
+     * The person unlocked the phone. The app they were in is in front again, often without any window
+     * event: its intentional time counts again, and its decision is checked.
+     */
+    fun awake() {
+        if (asleep()) return
+        val pkg = lastApp ?: return
+        if (pkg != shownFor) onForeground(pkg)
+        recheck()
+    }
+
     /** Decides again for the app in front, e.g. after its daily use was re-measured. */
     fun recheck() {
         val pkg = lastApp ?: return
@@ -201,19 +233,33 @@ class Interceptor(
 
     /**
      * The person closed the Shield. Home: they left the app, so nothing is re-checked until the next
-     * window. Access granted: the app is allowed now, and is watched so the Shield returns when it ends.
+     * window. Granted: the app is allowed now, and is watched so the Shield returns when it ends.
+     * Aurora: aurora is opening to end the session, so nothing is put back over it; if its window never
+     * arrives (a refused background start), the Shield returns rather than leave the app open.
      */
-    fun closedByPerson(home: Boolean) {
+    fun closedByPerson(how: ShieldClose) {
         val pkg = shownFor
         shownFor = null
         watchToken++
-        if (home) {
-            leftApp = pkg
-            leftAt = uptime()
-            leftObservedAt = null
-            lastApp = null
-        } else {
-            recheck()
+        when (how) {
+            ShieldClose.Home -> {
+                leftApp = pkg
+                leftAt = uptime()
+                leftObservedAt = null
+                lastApp = null
+            }
+            ShieldClose.Granted -> {
+                // The app is right there under the dismissed Shield: its intentional time starts now even
+                // if it sends no window event, which some apps don't when an overlay goes. Measuring also
+                // re-checks after that time is stored, so the end of the allowance is scheduled.
+                pkg?.let { onForeground(it); onAllowed(it) }
+                recheck()
+            }
+            ShieldClose.Aurora -> schedule(AuroraGraceMs) {
+                // Aurora's own window event clears lastApp. If it is still the protected app, aurora never
+                // came to the front, and leaving the app unguarded would be worse than a brief re-shield.
+                if (shownFor == null && pkg != null && lastApp == pkg) recheck()
+            }
         }
     }
 
@@ -262,5 +308,9 @@ class Interceptor(
         const val LeftGraceMs = 1_000L
         const val MaxWatchMs = 60_000L
         const val AttemptDedupMs = 1_500L
+
+        // Long enough for a cold aurora start to send its window event, short enough that a refused start
+        // does not leave a blocked app open.
+        const val AuroraGraceMs = 2_000L
     }
 }

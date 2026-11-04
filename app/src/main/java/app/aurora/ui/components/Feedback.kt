@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BasicAlertDialog
@@ -150,7 +152,9 @@ fun SkeletonRows(count: Int = 6) {
 }
 
 /**
- * aurora's dialog: one clear question, a confirm and an optional dismiss.
+ * Aurora's dialog: one clear question, a confirm and an optional dismiss. Calm and centred: the lit mark (or the
+ * moment's [icon]), the question in the serif, one line of context, then the actions. No blur behind it: the page
+ * simply dims. It settles in with a short rise unless motion is reduced.
  * [content] slots custom controls between body and buttons.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -164,55 +168,70 @@ fun AuroraDialog(
     dismissLabel: String? = null,
     confirmEnabled: Boolean = true,
     scrollContent: Boolean = true,
+    icon: ImageVector? = null,
     content: (@Composable () -> Unit)? = null,
 ) {
     val colors = Aurora.colors
+    val reduced = Aurora.reducedMotion
     val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() } - Space.XXL
     // The window spans the screen and the card sets its own margins: with the platform's wrap-content width a
     // weighted row of text fields (the duration boxes) made the dialog window re-layout every frame.
     BasicAlertDialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        // Native window blur, where the phone allows it: the page frosts behind the dialog.
         val view = androidx.compose.ui.platform.LocalView.current
-        val blur = with(androidx.compose.ui.platform.LocalDensity.current) { 40.dp.roundToPx() }
         androidx.compose.runtime.SideEffect {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.let { w ->
-                    w.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    w.attributes = w.attributes.apply { blurBehindRadius = blur }
-                }
-            }
+            (view.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.setDimAmount(if (colors.isDark) 0.72f else 0.45f)
         }
+        val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
+        androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, tween(Motion.Gentle, easing = Motion.Ease)) }
+        // A long body reads better from the left; a short one sits centred under the title.
+        val centred = (body?.length ?: 0) <= 160
         Column(
             Modifier
                 .padding(horizontal = Space.L)
+                .widthIn(max = 440.dp)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight.coerceAtLeast(0.dp))
-                // Keep the message readable even when window blur is unavailable.
+                .graphicsLayer {
+                    val t = shown.value
+                    alpha = t
+                    translationY = (1f - t) * 18.dp.toPx()
+                    scaleX = 0.96f + 0.04f * t
+                    scaleY = 0.96f + 0.04f * t
+                }
                 .clip(Radius.Dialog)
                 .background(colors.surface)
                 .glass(colors, Radius.Dialog),
         ) {
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
-                    .padding(horizontal = Space.L).padding(top = Space.L, bottom = Space.S),
+                    .padding(horizontal = 26.dp).padding(top = 30.dp, bottom = Space.XS),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
+                if (icon != null) LitBadge(icon, size = 52) else AuroraMark(22.dp, lit = true)
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    title, Modifier.fillMaxWidth().semantics { heading() },
+                    color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 27.sp, lineHeight = 32.sp), textAlign = TextAlign.Center,
+                )
                 if (body != null) {
-                    Spacer(Modifier.height(Space.S))
-                    Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        body, Modifier.fillMaxWidth(), color = colors.textSecondary, style = AuroraType.Body,
+                        textAlign = if (centred) TextAlign.Center else TextAlign.Start,
+                    )
                 }
                 if (content != null && scrollContent) {
                     Spacer(Modifier.height(Space.L))
-                    content()
+                    Column(Modifier.fillMaxWidth()) { content() }
                 }
             }
             // Controls that hold a weighted row (the duration boxes) sit outside the scroll: inside a bounded scroll
             // that row never settles its measure in a dialog window.
-            if (content != null && !scrollContent) Column(Modifier.padding(horizontal = Space.L).padding(top = Space.S)) { content() }
+            if (content != null && !scrollContent) Column(Modifier.padding(horizontal = 26.dp).padding(top = Space.S)) { content() }
             if (confirmLabel.isNotEmpty() || dismissLabel != null) {
                 Column(
-                    Modifier.padding(horizontal = Space.L).padding(top = Space.S, bottom = Space.L),
-                    verticalArrangement = Arrangement.spacedBy(Space.XS),
+                    Modifier.padding(horizontal = 22.dp).padding(top = 18.dp, bottom = 22.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     if (confirmLabel.isNotEmpty()) AuroraButton(confirmLabel, onConfirm, Modifier.fillMaxWidth(), enabled = confirmEnabled)
                     if (dismissLabel != null) AuroraButton(dismissLabel, onDismiss, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)

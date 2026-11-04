@@ -120,11 +120,15 @@ class NavigationTest {
 
     @Test
     fun onboardingCompletesOnHome() {
+        shieldOn()
         launch(onboarded = false)
-        compose.onNodeWithText("Continue").performClick()
-        // No apps chosen: nothing is required, and the third step says what to do instead of starting.
-        awaitText("Continue")
-        compose.onNodeWithText("Continue").performClick()
+        // The tour picks nothing: Show me around, each tab in turn, then Shield.
+        awaitText("Show me around")
+        compose.onNodeWithText("Show me around").performClick()
+        repeat(4) {
+            awaitText("Continue")
+            compose.onNodeWithText("Continue").performClick()
+        }
         awaitText("Go to Home")
         compose.onNodeWithText("Go to Home").performClick()
         scrollTo("Start session").assertIsDisplayed()
@@ -205,21 +209,20 @@ class NavigationTest {
         runBlocking { app.runtime.update { it.copy(runs = emptyList()) } }
     }
 
-    /** Skipping Shield leads to the honest step, with a way forward named; nothing has started. */
+    /** Skipping the tour leads to Shield, which says what it needs; nothing has started. */
     @Test
-    fun onboardingStartsThenAsksForShield() {
+    fun onboardingTourSkipsToShield() {
         val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
         android.provider.Settings.Secure.putString(app.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "")
         runBlocking {
             app.runtime.update { it.copy(runs = emptyList()) }
-            app.protection.add(ProtectedItem.App.of("com.example.social")!!, app.plan)
             app.preferences.setOnboarded(false)
-            app.preferences.setOnboardingStep(2)
+            app.preferences.setOnboardingStep(1)
             app.preferences.setReduceMotion(true)
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        awaitText("Start protection")
-        compose.onNodeWithText("Start protection").performClick()
+        awaitText("Skip the tour")
+        compose.onNodeWithText("Skip the tour").performClick()
         awaitText("Turn on Shield.")
         org.junit.Assert.assertTrue(app.runtime.value!!.runs.isEmpty())
         awaitText("Skip for now")
@@ -253,11 +256,11 @@ class NavigationTest {
         launch(onboarded = true)
         val runsBefore = app.runtime.value!!.runs
         tab("Track").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Goals")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(androidx.compose.ui.test.hasContentDescription("Goals")).performClick()
-        awaitText("Create a Goal")
-        compose.onNodeWithText("Create a Goal").performClick()
-        awaitText("Name your goal")
+        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Habits")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Habits")).performClick()
+        awaitText("Create a Habit")
+        compose.onNodeWithText("Create a Habit").performClick()
+        awaitText("Name your habit")
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Daily learning")
         compose.onNodeWithText("Next").performClick()
         compose.onNodeWithText("A custom session").performClick()
@@ -268,7 +271,7 @@ class NavigationTest {
         // The hint above the disabled button leaves the 320x470 JVM viewport less room: scroll to the choice.
         compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(hasText("Sessions per week"))
         compose.onNodeWithText("Sessions per week").performClick()
-        compose.onNodeWithText("Create goal").performClick()
+        compose.onNodeWithText("Create habit").performClick()
         awaitText("Daily learning")
         val goal = app.rules.value!!.trackGoals.single()
         org.junit.Assert.assertEquals(3, goal.sessions)
@@ -276,9 +279,9 @@ class NavigationTest {
         org.junit.Assert.assertEquals(runsBefore, app.runtime.value!!.runs)
         org.junit.Assert.assertTrue(app.rules.value!!.activations.none { it.configId == config.id })
         // Delete waits behind the card's one quiet control.
-        compose.onNode(androidx.compose.ui.test.hasContentDescription("More for Daily learning")).performScrollTo().performClick()
-        awaitText("Delete goal")
-        compose.onNodeWithText("Delete goal").performClick()
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("More for Daily learning")).performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        awaitText("Delete habit")
+        compose.onNodeWithText("Delete habit").performClick()
         awaitText("Delete Daily learning?")
         compose.onNodeWithText("Delete").performClick()
         compose.waitUntil(5_000) { app.rules.value!!.trackGoals.isEmpty() }
@@ -324,11 +327,11 @@ class NavigationTest {
         runBlocking { org.junit.Assert.assertTrue(app.saveGoal(first).allowed) }
         launch(onboarded = true)
         tab("Track").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Goals")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(androidx.compose.ui.test.hasContentDescription("Goals")).performClick()
-        awaitText("Create a Goal")
-        compose.onNodeWithText("Create a Goal").performClick()
-        awaitText("Name your goal")
+        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Habits")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Habits")).performClick()
+        awaitText("Create a Habit")
+        compose.onNodeWithText("Create a Habit").performClick()
+        awaitText("Name your habit")
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Second goal")
         compose.onNodeWithText("Next").performClick()
         compose.onNodeWithText("A time limit").performClick()
@@ -336,8 +339,8 @@ class NavigationTest {
         compose.onNodeWithText("Whole screen time").performClick()
         compose.onNodeWithText("Next").performClick()
         compose.onNodeWithText("30m").performClick()
-        compose.onNodeWithText("Create goal").performClick()
-        awaitText("Read daily is your active goal", substring = true)
+        compose.onNodeWithText("Create habit").performClick()
+        awaitText("Read daily is your active habit", substring = true)
         org.junit.Assert.assertEquals(1, app.rules.value!!.trackGoals.size)
         compose.onNodeWithText("Archive it").performSemanticsAction(SemanticsActions.OnClick)
         awaitText("Second goal")

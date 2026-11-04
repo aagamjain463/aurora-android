@@ -85,3 +85,18 @@ fun Runtime.relapsed(key: String, t: DeviceTime): Runtime =
 /** A Friction task or Cooldown wait opened [key] at [t]: every run shielding it counts the grant. */
 fun Runtime.granted(key: String, t: DeviceTime): Runtime =
     copy(runs = runs.map { if (it.covers(t) && key in it.shield?.keys.orEmpty()) it.copy(accessGrants = it.accessGrants + 1) else it })
+
+/**
+ * Sessions holding Intent for [keys] ended: those apps' running time, pause and cooldown end with them, so
+ * nothing is left on screen with no way to stop it. [still]: apps another running session still asks about.
+ */
+fun Runtime.intentsEnded(keys: Collection<String>, still: Set<String>): Runtime {
+    val gone = keys.toSet() - still
+    if (gone.isEmpty()) return this
+    return copy(
+        intentUses = intentUses - gone,
+        intentCooldowns = intentCooldowns - gone,
+        intentCooldownLengths = intentCooldownLengths - gone,
+        reflections = reflections - gone,
+    )
+}

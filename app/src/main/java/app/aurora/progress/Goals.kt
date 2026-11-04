@@ -94,6 +94,8 @@ data class GoalProgress(
     val streak: Int,
     val met: Int,
     val failed: Int,
+    /** The longest run of successes it has had. */
+    val best: Int = 0,
 )
 
 const val RecordDays = 14
@@ -153,6 +155,7 @@ fun goalProgress(
 
     val marks = generateSequence(first) { it.plusDays(step) }.takeWhile { !it.isAfter(current) }.associateWith { mark(it, valueIn(it)) }
     val value = valueIn(current)
+    val runs = streaks(marks.values.map { if (it == DayMark.Succeeded) true else if (it == DayMark.Missed) false else null })
     val size = if (goal.period == GoalPeriod.Daily) RecordDays else RecordWeeks
     return GoalProgress(
         value = value,
@@ -163,9 +166,10 @@ fun goalProgress(
             else -> GoalState.Unknown
         },
         record = (size - 1L downTo 0).map { current.minusDays(it * step) }.map { it to (marks[it] ?: DayMark.Before) },
-        streak = streaks(marks.values.map { if (it == DayMark.Succeeded) true else if (it == DayMark.Missed) false else null }).first,
+        streak = runs.first,
         met = marks.values.count { it == DayMark.Succeeded },
         failed = marks.values.count { it == DayMark.Missed },
+        best = runs.second,
     )
 }
 

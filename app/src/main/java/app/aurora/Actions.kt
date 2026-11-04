@@ -217,13 +217,6 @@ suspend fun AuroraApplication.migrateRuntime() {
 
 // ---- At the Shield -------------------------------------------------------------------------------
 
-/** The reflection pause for [key]: continues one already running, or starts one. Returns its start. */
-suspend fun AuroraApplication.reflectionStart(key: String): Long {
-    var start = 0L
-    runtime.update { r -> r.reflectionFor(key, now().wall).let { (next, s) -> start = s; next } }
-    return start
-}
-
 /** The person chose to go back at a Shield that offered a way through. */
 suspend fun AuroraApplication.wentBack(intent: Boolean) {
     record { if (intent) it.copy(intentLetGo = it.intentLetGo + 1) else it.copy(wentBack = it.wentBack + 1) }
@@ -244,7 +237,7 @@ suspend fun AuroraApplication.startIntent(key: String, minutes: Int, config: Int
             return@update r
         }
         r.relapsed(key, t).copy(
-            intentUses = r.intentUses + (key to IntentUse(minutes * 60_000L, 0, now, config.expiry, config.cooldownMinutes, config.freshEachOpen, now)),
+            intentUses = r.intentUses + (key to IntentUse(minutes * 60_000L, 0, now, config.expiry, config.cooldownMinutes, freshEachOpen = true, startedAt = now)),
             reflections = r.reflections - key,
         )
     }
@@ -306,10 +299,10 @@ suspend fun AuroraApplication.endIntent(key: String, within: Boolean) {
 /**
  * Foreground accounting for intentional sessions (called by the Shield service). [pkg] is the app now in
  * front, or null when none is (a Shield, aurora, the screen off). Time counts only while an app with a
- * session is in front. Leaving an app ends its session if it asks for a fresh decision every opening,
- * or if its time already ran out with a reminder.
+ * session is in front. Leaving an app ends its session: every opening is a fresh decision, with the pause
+ * from the start (founder, 2026-11-04). [screenOff] is not leaving: the time pauses and the session stays.
  */
-suspend fun AuroraApplication.foregroundChanged(pkg: String?) {
+suspend fun AuroraApplication.foregroundChanged(pkg: String?, screenOff: Boolean = false) {
     val now = now().wall
     val ended = mutableListOf<Pair<String, IntentUse>>()
     val settled = mutableListOf<IntentUse>()
@@ -325,7 +318,7 @@ suspend fun AuroraApplication.foregroundChanged(pkg: String?) {
                 else -> use
             }
         }.filter { (key, use) ->
-            val leave = key != pkg && (use.freshEachOpen || (use.spent(now) && use.expiry == IntentExpiry.Reminder))
+            val leave = key != pkg && !screenOff
             if (leave) ended += key to use
             !leave
         }

@@ -56,6 +56,7 @@ import app.aurora.progress.GoalProgress
 import app.aurora.progress.GoalState
 import app.aurora.progress.LiveRun
 import app.aurora.progress.RunRecord
+import app.aurora.progress.Outcome
 import app.aurora.progress.SessionStats
 import androidx.compose.foundation.layout.FlowRow
 import app.aurora.progress.GoalStatus
@@ -118,7 +119,11 @@ enum class TrackTab(val label: Int) { Usage(R.string.track_tab_usage), Progress(
 private enum class StatPeriod(val label: Int) { Today(R.string.reclaimed_today), Week(R.string.reclaimed_week), Overall(R.string.reclaimed_overall) }
 
 /** A goal as Track shows it: [subject] is its session's or apps' name. */
-data class GoalRow(val goal: Goal, val subject: String, val progress: GoalProgress, val measuring: Boolean = true)
+data class GoalRow(
+    val goal: Goal, val subject: String, val progress: GoalProgress, val measuring: Boolean = true,
+    /** Session habits: its session's runs since the habit began, and how many succeeded. */
+    val sessions: Int = 0, val won: Int = 0,
+)
 
 private data class TrackState(
     val loading: Boolean = true,
@@ -129,6 +134,8 @@ private data class TrackState(
     val reclaimed: Reclaimed? = null,
     val recent: List<RunRecord> = emptyList(),
     val goals: List<GoalRow> = emptyList(),
+    /** Completed habits, newest first: they leave the Habits list for History. */
+    val completed: List<GoalRow> = emptyList(),
     val usageAccess: Boolean = false,
 )
 
@@ -165,9 +172,17 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
                 reclaimed = reclaimed,
                 recent = history.runs.sortedByDescending { it.end }.take(3),
                 goals = rules.activeGoalIds(app.plan).let { active ->
-                    rules.trackGoals.sortedWith(compareByDescending<Goal> { it.id in active }.thenByDescending { it.createdAt }).map { g ->
-                        GoalRow(g, subject(g), goalProgress(g, history.runs, live, history.service, usage[g.id].orEmpty(), today, t.wall, zone), g.id in active)
-                    }
+                    rules.trackGoals.filter { it.status != GoalStatus.Completed }
+                        .sortedWith(compareByDescending<Goal> { it.id in active }.thenByDescending { it.createdAt }).map { g ->
+                            GoalRow(g, subject(g), goalProgress(g, history.runs, live, history.service, usage[g.id].orEmpty(), today, t.wall, zone), g.id in active)
+                        }
+                },
+                completed = rules.trackGoals.filter { it.status == GoalStatus.Completed }.sortedByDescending { completedAt(it) }.map { g ->
+                    val runs = if (g.kind == GoalKind.Session) history.runs.filter { it.configId == g.configId && it.start >= g.createdAt && it.start < completedAt(g) } else emptyList()
+                    GoalRow(
+                        g, subject(g), goalProgress(g, history.runs, live, history.service, usage[g.id].orEmpty(), today, t.wall, zone), false,
+                        sessions = runs.size, won = runs.count { it.outcome == Outcome.Succeeded },
+                    )
                 },
                 usageAccess = app.access.isGranted(Access.Usage),
             )
@@ -208,7 +223,7 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
 
 /** Track: Progress (time reclaimed, what sessions achieved), Goals, and Usage (screen time). */
 @Composable
-fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, onCreateGoal: () -> Unit = {}, onOpenHistory: () -> Unit = {}, start: TrackTab = TrackTab.Usage, onOpenGuide: () -> Unit = {}) {
+fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, onCreateGoal: () -> Unit = {}, onOpenHistory: () -> Unit = {}, onOpenHabitHistory: () -> Unit = {}, start: TrackTab = TrackTab.Usage, onOpenGuide: () -> Unit = {}) {
     val vm = auroraViewModel { TrackModel(it) }
     val usage = auroraViewModel { InsightsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -251,7 +266,7 @@ fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, o
         }
         when (tab) {
             TrackTab.Progress -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else progressSection(state, period, { period = it }, onOpenHistory) { session = it }
-            TrackTab.Goals -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else goalsSection(state, onCreateGoal, { deleting = it }) { g, status ->
+            TrackTab.Goals -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else goalsSection(state, onCreateGoal, onOpenHabitHistory, { deleting = it }) { g, status ->
                 vm.setStatus(g.id, status, onBlocked = { resuming = g })
             }
             TrackTab.Usage -> usageSection(usageState, usage) { plusNote = true }
@@ -395,9 +410,13 @@ fun SessionHistoryScreen(onBack: () -> Unit) {
     }
 }
 
-private fun LazyListScope.goalsSection(state: TrackState, onCreate: () -> Unit, onDelete: (Goal) -> Unit, onStatus: (Goal, GoalStatus) -> Unit) {
+private fun LazyListScope.goalsSection(state: TrackState, onCreate: () -> Unit, onHistory: () -> Unit, onDelete: (Goal) -> Unit, onStatus: (Goal, GoalStatus) -> Unit) {
     item(key = "goal-create") {
-        AuroraButton(stringResource(R.string.goal_create), onCreate, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.XS).fillMaxWidth(), icon = AuroraIcons.Plus)
+        Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+            AuroraButton(stringResource(R.string.goal_create), onCreate, Modifier.fillMaxWidth(), icon = AuroraIcons.Plus)
+            // Completed habits live in History, with their results, ready to resume.
+            AuroraButton(stringResource(R.string.habit_history), onHistory, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Clock)
+        }
     }
     if (state.goals.isEmpty()) item(key = "goal-empty") {
         EmptyState(stringResource(R.string.goal_empty_title), stringResource(R.string.goal_empty_body), icon = AuroraIcons.Target)
@@ -505,5 +524,93 @@ private fun DayDot(m: DayMark, size: Dp) {
         DayMark.Pending -> Box(base.border(1.5.dp, colors.accent.copy(alpha = 0.7f), Radius.Pill))
         DayMark.Rest -> Box(base.background(colors.hairline))
         DayMark.Before -> Box(base.background(colors.hairline.copy(alpha = 0.35f)))
+    }
+}
+
+/** When a completed habit was completed: the start of the pause that completing it opened. */
+private fun completedAt(g: Goal): Long = g.pauses.lastOrNull { it.to == null }?.from ?: Long.MAX_VALUE
+
+/** Completed habits with their results: what they asked, how often they were met, and Resume. */
+@Composable
+fun HabitHistoryScreen(onBack: () -> Unit, onPlus: () -> Unit = {}) {
+    val vm = auroraViewModel { TrackModel(it) }
+    val state by vm.state.collectAsStateWithLifecycle()
+    var deleting by remember { mutableStateOf<Goal?>(null) }
+    var resuming by remember { mutableStateOf<Goal?>(null) }
+    LifecycleResumeEffect(Unit) {
+        vm.refresh()
+        onPauseOrDispose { }
+    }
+    resuming?.let { g ->
+        GoalLimitDialog(state.goals.firstOrNull { it.measuring }?.goal, onPlus, { resuming = null }) { old, status ->
+            resuming = null
+            vm.setStatus(g.id, GoalStatus.Active, replacing = old.id, replacingStatus = status)
+        }
+    }
+    AuroraScreen(title = stringResource(R.string.habit_history_title), subtitle = stringResource(R.string.habit_history_subtitle), onBack = onBack) {
+        when {
+            state.loading -> item(key = "loading") { SkeletonRows(4) }
+            state.completed.isEmpty() -> item(key = "empty") {
+                EmptyState(stringResource(R.string.habit_history_empty), stringResource(R.string.habit_history_empty_body), icon = AuroraIcons.Target)
+            }
+            else -> items(state.completed, key = { "done-" + it.goal.id }) { row ->
+                HabitResultCard(row, onResume = { vm.setStatus(row.goal.id, GoalStatus.Active, onBlocked = { resuming = row.goal }) }) { deleting = row.goal }
+            }
+        }
+    }
+    deleting?.let { g ->
+        AuroraDialog(
+            stringResource(R.string.preset_delete_title, g.name), { deleting = null }, stringResource(R.string.preset_delete),
+            { deleting = null; vm.delete(g.id) },
+            stringResource(R.string.goal_delete_body), stringResource(R.string.action_cancel),
+        )
+    }
+}
+
+/** One completed habit: its name and when it ended, its results as figures, its record, and Resume. */
+@Composable
+private fun HabitResultCard(row: GoalRow, onResume: () -> Unit, onDelete: () -> Unit) {
+    val colors = Aurora.colors
+    val g = row.goal
+    val p = row.progress
+    val zone = ZoneId.systemDefault()
+    val ended = completedAt(g).takeIf { it != Long.MAX_VALUE }?.let {
+        java.time.Instant.ofEpochMilli(it).atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy"))
+    }
+    val stats = buildList {
+        add(stringResource(R.string.habit_stat_met) to p.met.toString())
+        add(stringResource(R.string.habit_stat_missed) to p.failed.toString())
+        add(stringResource(R.string.habit_stat_best) to p.best.toString())
+        if (g.kind == GoalKind.Session) {
+            add(stringResource(R.string.habit_stat_sessions) to row.sessions.toString())
+            add(stringResource(R.string.habit_stat_sessions_won) to row.won.toString())
+        }
+    }
+    Column(
+        Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 12.dp, top = 12.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.S),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(top = 8.dp)) {
+                Text(g.name, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title.copy(fontSize = 15.sp))
+                Text(
+                    listOfNotNull(row.subject.ifEmpty { null }, ended?.let { stringResource(R.string.habit_completed_on, it) }).joinToString(" · "),
+                    Modifier.padding(top = 2.dp), color = colors.textTertiary, style = AuroraType.Caption,
+                )
+            }
+            AuroraIconButton(AuroraIcons.Trash, stringResource(R.string.goal_delete), onDelete, Modifier.size(40.dp))
+        }
+        // The results, in light tabular figures: never in the serif.
+        FlowRow(Modifier.padding(end = 10.dp, top = Space.XS), horizontalArrangement = Arrangement.spacedBy(Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+            stats.forEach { (label, value) ->
+                Column(Modifier.semantics(mergeDescendants = true) { }) {
+                    Text(value, color = colors.textPrimary, style = AuroraType.Metric.copy(fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-0.02).em))
+                    Text(label, color = colors.textTertiary, style = AuroraType.Caption)
+                }
+            }
+        }
+        val summary = stringResource(R.string.goal_record_line, p.met, p.failed, p.streak)
+        DayStrip(p.record.map { it.second }, Modifier.padding(top = Space.XS).semantics(mergeDescendants = true) { contentDescription = summary }, dot = 8.dp)
+        AuroraButton(stringResource(R.string.goal_resume), onResume, Modifier.padding(top = Space.XS, end = 10.dp).fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Play)
     }
 }
