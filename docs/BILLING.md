@@ -81,4 +81,6 @@ Rotating the key means a new app release: snapshots signed by the old key stop v
 Buy monthly and annual, slow-card pending (test card "Slow test card"), cancel, resubscribe, restore after reinstall,
 account hold, grace, expiry, refund from the console, airplane mode for more than 7 days.
 
+App Store purchases, the shared entitlement across stores and their setup: `docs/APP_STORE_BILLING.md`.
+
 See `docs/ACCOUNT_SYSTEM.md` for the complete specification of routes, payload schemas, and multi-device quota synchronization.

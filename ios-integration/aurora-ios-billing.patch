@@ -1,0 +1,285 @@
+diff --git a/Aurora/Aurora/Account/Account.swift b/Aurora/Aurora/Account/Account.swift
+index c1d2a87..5a3253c 100644
+--- a/Aurora/Aurora/Account/Account.swift
++++ b/Aurora/Aurora/Account/Account.swift
+@@ -149,6 +149,7 @@ final class Account: NSObject, ObservableObject {
+         state = .signedIn(user)
+         bindProfile(user)
+         await syncIfStale(force: true)
++        await Billing.shared.recheck() // A subscription on this phone was unattributable until now.
+         return nil
+     }
+ 
+@@ -401,7 +402,12 @@ final class Account: NSObject, ObservableObject {
+     }
+ 
+     func verifyApplePurchase(_ signedTransaction: String, productId: String) async -> ApiResult<SignedEntitlement> {
+-        await call("/v1/verify/apple", ["signedTransaction": signedTransaction, "productId": productId, "installId": SharedIdentity.installId, "packageName": ServicePackageName], SignedEntitlement.self)
++        await call("/v1/verify/apple", ["signedTransaction": signedTransaction, "productId": productId, "installId": SharedIdentity.installId, "bundleId": AuroraConfig.appBundleId], SignedEntitlement.self)
++    }
++
++    /// The person chose to move this phone's subscription to this account. Needs a recent sign-in; the server says when.
++    func transferApplePurchase(_ signedTransaction: String) async -> ApiResult<SignedEntitlement> {
++        await call("/v1/purchases/transfer/apple", ["signedTransaction": signedTransaction, "installId": SharedIdentity.installId], SignedEntitlement.self)
+     }
+ 
+     func removeDevice(_ id: String) async -> Bool {
+diff --git a/Aurora/Aurora/Plus/Billing.swift b/Aurora/Aurora/Plus/Billing.swift
+index fe9a772..6b585fa 100644
+--- a/Aurora/Aurora/Plus/Billing.swift
++++ b/Aurora/Aurora/Plus/Billing.swift
+@@ -24,10 +24,14 @@ final class Billing: ObservableObject {
+     @Published private(set) var verifying = false
+     @Published var message: String?
+     @Published private(set) var subscription: EntitlementSnapshot?
++    /// This phone's subscription isn't this account's. Moving it is always the person's choice, never automatic.
++    @Published private(set) var conflict: PurchaseConflict?
++    struct PurchaseConflict: Equatable { let signedTransaction: String; let claimRequired: Bool }
+ 
+     private var updates: Task<Void, Never>?
+     /// The account service's answer to a purchase. Tests replace it: a local StoreKit purchase proves nothing to the real server.
+     var verifier: (String, String) async -> ApiResult<SignedEntitlement> = { jws, product in await Account.shared.verifyApplePurchase(jws, productId: product) }
++    var mover: (String) async -> ApiResult<SignedEntitlement> = { jws in await Account.shared.transferApplePurchase(jws) }
+ 
+     var configured: Bool { !AuroraConfig.serverURL.isEmpty && !AuroraConfig.entitlementPublicKey.isEmpty }
+ 
+@@ -38,6 +42,11 @@ final class Billing: ObservableObject {
+         }
+         await load()
+         // Never AppStore.sync() here: it asks for the Apple Account password. Only Restore purchases does.
++        await recheck()
++    }
++
++    /// Sends what this phone already holds to the account service. No prompt: safe at start and after signing in.
++    func recheck() async {
+         for await result in Transaction.currentEntitlements { await handle(result) }
+     }
+ 
+@@ -53,10 +62,10 @@ final class Billing: ObservableObject {
+ 
+     func buy(_ offer: Offer) async {
+         message = nil
++        // A purchase has to name its account. Without one it could only ever bind by an explicit claim later.
++        guard let uid = SharedIdentity.uid, let token = UUID(uuidString: Billing.accountToken(uid)) else { message = S.t("ios_plus_sign_in_to_buy"); return }
+         do {
+-            var options: Set<Product.PurchaseOption> = []
+-            if let uid = SharedIdentity.uid, let token = UUID(uuidString: Billing.accountToken(uid)) { options.insert(.appAccountToken(token)) }
+-            switch try await offer.product.purchase(options: options) {
++            switch try await offer.product.purchase(options: [.appAccountToken(token)]) {
+             case .success(let result): await handle(result)
+             case .pending: pending = true
+             case .userCancelled: break
+@@ -70,7 +79,7 @@ final class Billing: ObservableObject {
+     /// Restore purchases: ask the App Store again and send every current Plus transaction to the account service.
+     func refresh() async {
+         try? await AppStore.sync() // The person tapped Restore purchases: the one place this prompt is expected.
+-        for await result in Transaction.currentEntitlements { await handle(result) }
++        await recheck()
+         await Account.shared.syncIfStale(force: true)
+         refreshSnapshot()
+     }
+@@ -82,10 +91,14 @@ final class Billing: ObservableObject {
+         defer { verifying = false }
+         switch await verifier(result.jwsRepresentation, t.productID) {
+         case .ok(let signed):
+-            if signed.conflict { message = S.t("plus_conflict_body") }
+-            else {
++            if signed.conflict {
++                conflict = PurchaseConflict(signedTransaction: result.jwsRepresentation, claimRequired: signed.claimRequired)
++                message = signed.claimRequired ? S.t("ios_plus_claim_body") : signed.conflictHint.map { S.t("plus_conflict_body_hint", $0) } ?? S.t("plus_conflict_body")
++            } else {
++                conflict = nil
+                 _ = try? AuroraStore.shared.entitlement.update { _ in signed }
+-                await t.finish()
++                // Apple didn't recognise it: stays unfinished, so the next start asks again.
++                if verifiedSnapshot(signed, AuroraConfig.entitlementPublicKey)?.purchaseValid != false { await t.finish() }
+             }
+         case .refused: message = S.t("plus_unavailable")
+         case .unreachable: break // The stored state stands; the next start asks again.
+@@ -95,12 +108,30 @@ final class Billing: ObservableObject {
+         refreshSnapshot()
+     }
+ 
++    /// The person tapped Move to this account.
++    func moveHere() async {
++        guard let conflict else { return }
++        switch await mover(conflict.signedTransaction) {
++        case .ok(let signed):
++            self.conflict = nil
++            message = nil
++            _ = try? AuroraStore.shared.entitlement.update { _ in signed }
++        case .refused(_, "transfer_limit"): message = S.t("plus_conflict_limit")
++        case .refused(_, "reauth_required"): message = S.t("account_reauth_body")
++        case .refused, .unreachable: message = S.t("plus_conflict_failed")
++        }
++        AppModel.shared.refreshPlan()
++        AppModel.shared.sync()
++        refreshSnapshot()
++    }
++
+     func refreshSnapshot() {
+         let key = AuroraConfig.entitlementPublicKey
+         subscription = verifiedSnapshot(AuroraStore.shared.entitlement.value, key)
+     }
+ 
+-    /// A stable UUID for the Aurora account, so the App Store transaction names the account that bought it.
++    /// A stable UUID for the Aurora account, so the App Store transaction names the account that bought it. The server
++    /// derives the same value from the verified Firebase UID (appAccountToken in server/src/apple.js) and accepts no other.
+     nonisolated static func accountToken(_ uid: String) -> String {
+         var b = Array(SHA256.hash(data: Data(uid.utf8)).prefix(16))
+         b[6] = (b[6] & 0x0F) | 0x50; b[8] = (b[8] & 0x3F) | 0x80
+diff --git a/Aurora/Aurora/Plus/PlusScreen.swift b/Aurora/Aurora/Plus/PlusScreen.swift
+index 96eac9c..5bf77f8 100644
+--- a/Aurora/Aurora/Plus/PlusScreen.swift
++++ b/Aurora/Aurora/Plus/PlusScreen.swift
+@@ -41,7 +41,9 @@ struct PlusScreen: View {
+             SectionLabel(S.t(plus ? "plus_free_and_plus" : "plus_choose_a_plan"))
+             PlusCard(rows: compare.filter { $0.1 != $0.2 }, current: plus) {
+                 if plus || billing.subscription?.state == "on_hold" {
+-                    AuroraButton(S.t("plus_manage_in_google_play"), kind: .secondary) { openURL(URL(string: "https://apps.apple.com/account/subscriptions")!) }
++                    // Plus is the account's, but a subscription is managed where it was bought. No link out: App Review 3.1.3.
++                    if billing.subscription?.store == "google_play" { Text(S.t("ios_plus_managed_on_google_play")).aurora(AuroraType.secondary, colors.textSecondary) }
++                    else { AuroraButton(S.t("plus_manage_in_google_play"), kind: .secondary) { openURL(URL(string: "https://apps.apple.com/account/subscriptions")!) } }
+                 } else if billing.loading {
+                     Text(S.t("plus_checking_google_play")).aurora(AuroraType.secondary, colors.textSecondary)
+                 } else if billing.offers.isEmpty {
+@@ -69,6 +71,7 @@ struct PlusScreen: View {
+                 if billing.verifying { Notice(eyebrow: S.t("plus_verifying_title"), body: S.t("plus_verifying_body")) }
+                 if billing.pending { Notice(eyebrow: S.t("plus_payment_pending"), body: S.t("plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp")) }
+                 if let m = billing.message { Notice(eyebrow: S.t("plus_google_play"), body: m) }
++                if billing.conflict != nil { AuroraButton(S.t("plus_conflict_move"), kind: .secondary) { Task { await billing.moveHere() } } }
+                 AuroraButton(S.t("plus_restore_purchases"), kind: .quiet) { Task { await billing.refresh() } }.frame(maxWidth: .infinity)
+                 Text(S.t("plus_play_note")).aurora(AuroraType.caption, colors.textTertiary)
+                 Text(S.t("plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p")).aurora(AuroraType.caption, colors.textTertiary)
+diff --git a/Aurora/AuroraTests/ScenarioTests.swift b/Aurora/AuroraTests/ScenarioTests.swift
+index 99bafcc..c326849 100644
+--- a/Aurora/AuroraTests/ScenarioTests.swift
++++ b/Aurora/AuroraTests/ScenarioTests.swift
+@@ -483,6 +483,11 @@ final class BillingScenarios: XCTestCase {
+         session.resetToDefaultState()
+         session.clearTransactions()
+         session.disableDialogs = true
++        SharedIdentity.uid = "billing-test-user"
++    }
++
++    override func tearDown() async throws {
++        SharedIdentity.uid = nil
+     }
+ 
+     private func offer(_ id: String) async throws -> Billing.Offer {
+@@ -537,6 +542,62 @@ final class BillingScenarios: XCTestCase {
+         XCTAssertEqual(billing.message, S.t("plus_unavailable"))
+     }
+ 
++    func testTheTokenMatchesTheServerByteForByte() {
++        // The same vectors as server/test/apple-fixtures/account-token-vectors.json.
++        XCTAssertEqual(Billing.accountToken("alice"), "2BD806C9-7F0E-50AF-9A1F-C3328FA763A9")
++        XCTAssertEqual(Billing.accountToken("Yx3kL9aQmZc1Rt7VbN2pW4sEfGh1"), "6B573FCF-791F-59A6-AAAF-03B1CB9E5C7C")
++        XCTAssertEqual(Billing.accountToken("ユーザー"), "11F06DE5-67B8-5713-B38D-648531553541")
++    }
++
++    func testAPurchaseCarriesTheAccountToken() async throws {
++        let billing = Billing.shared
++        var jws = ""
++        billing.verifier = { signed, _ in jws = signed; return .unreachable }
++        await billing.buy(try await offer("aurora_plus_monthly"))
++        XCTAssertFalse(jws.isEmpty)
++        var tokens: [UUID?] = []
++        for await result in Transaction.unfinished { tokens.append(try result.payloadValue.appAccountToken) }
++        XCTAssertEqual(tokens, [UUID(uuidString: Billing.accountToken("billing-test-user"))])
++    }
++
++    func testNoAccountMeansNoPurchase() async throws {
++        let billing = Billing.shared
++        SharedIdentity.uid = nil
++        var calls = 0
++        billing.verifier = { _, _ in calls += 1; return .unreachable }
++        await billing.buy(try await offer("aurora_plus_monthly"))
++        XCTAssertEqual(calls, 0)
++        XCTAssertEqual(billing.message, S.t("ios_plus_sign_in_to_buy"))
++        var unfinished = 0
++        for await _ in Transaction.unfinished { unfinished += 1 }
++        XCTAssertEqual(unfinished, 0)
++    }
++
++    func testAMoveIsTheOnlyWayOutOfAConflictAndIsTheServersToRefuse() async throws {
++        let billing = Billing.shared
++        _ = try? AuroraStore.shared.entitlement.update { _ in SignedEntitlement() }
++        var conflict = SignedEntitlement(payload: "p", signature: "s"); conflict.conflict = true; conflict.claimRequired = true
++        billing.verifier = { _, _ in .ok(conflict) }
++        var sent = [String]()
++        billing.mover = { jws in sent.append(jws); return .refused(429, "transfer_limit") }
++        await billing.buy(try await offer("aurora_plus_annual"))
++        XCTAssertEqual(billing.message, S.t("ios_plus_claim_body"))
++        XCTAssertEqual(sent, [], "nothing moves until the person asks")
++        await billing.moveHere()
++        XCTAssertEqual(billing.message, S.t("plus_conflict_limit"))
++        XCTAssertNotNil(billing.conflict)
++        billing.mover = { _ in .refused(401, "reauth_required") }
++        await billing.moveHere()
++        XCTAssertEqual(billing.message, S.t("account_reauth_body"))
++        let moved = SignedEntitlement(payload: "moved", signature: "s")
++        billing.mover = { _ in .ok(moved) }
++        await billing.moveHere()
++        XCTAssertNil(billing.conflict)
++        XCTAssertEqual(AuroraStore.shared.entitlement.value, moved)
++        XCTAssertEqual(sent.count, 1)
++        _ = try? AuroraStore.shared.entitlement.update { _ in SignedEntitlement() }
++    }
++
+     func testAConflictStoresNothing() async throws {
+         let billing = Billing.shared
+         _ = try? AuroraStore.shared.entitlement.update { _ in SignedEntitlement() }
+diff --git a/Aurora/Shared/Copy/IOSCopy.swift b/Aurora/Shared/Copy/IOSCopy.swift
+index 54678e9..006b0a6 100644
+--- a/Aurora/Shared/Copy/IOSCopy.swift
++++ b/Aurora/Shared/Copy/IOSCopy.swift
+@@ -58,6 +58,10 @@ enum IOSCopy {
+ 
+     /// New on iOS: no Android string exists for these.
+     static let additions: [String: String] = [
++        "plus_conflict_body_hint": "This phone's App Store subscription belongs to the Aurora account %1$s. Sign in to that account, or move the subscription here. It can move once every 30 days, and the other account loses Plus.",
++        "ios_plus_sign_in_to_buy": "Sign in to Aurora first, so your subscription belongs to your account.",
++        "ios_plus_claim_body": "This phone has an App Store subscription that isn't linked to an Aurora account yet. Move it here to use it with this account. It can move once every 30 days.",
++        "ios_plus_managed_on_google_play": "Your subscription was bought through Google Play. Manage it there, on your Android phone.",
+         "ios_continue_apple": "Continue with Apple",
+         "ios_choose_apps": "Choose apps",
+         "ios_selected_targets": "%1$d chosen",
+diff --git a/Aurora/Shared/Domain/Entitlement.swift b/Aurora/Shared/Domain/Entitlement.swift
+index 91ae45d..b4e106c 100644
+--- a/Aurora/Shared/Domain/Entitlement.swift
++++ b/Aurora/Shared/Domain/Entitlement.swift
+@@ -11,12 +11,14 @@ struct SignedEntitlement: Codable, Equatable {
+     var signature: String = ""
+     var conflict: Bool = false
+     var conflictHint: String? = nil
++    /// Nothing Apple signed names an account for this purchase: it takes an explicit claim, not a conflict with anyone.
++    var claimRequired: Bool = false
+ 
+     init() {}
+     init(payload: String, signature: String) { self.payload = payload; self.signature = signature }
+     init(from decoder: Decoder) throws {
+         let c = try decoder.container(keyedBy: AnyKey.self)
+-        payload = c.get("payload", ""); signature = c.get("signature", ""); conflict = c.get("conflict", false); conflictHint = c.get("conflictHint", nil)
++        payload = c.get("payload", ""); signature = c.get("signature", ""); conflict = c.get("conflict", false); conflictHint = c.get("conflictHint", nil); claimRequired = c.get("claimRequired", false)
+     }
+ }
+ 
+@@ -24,6 +26,8 @@ struct EntitlementSnapshot: Codable, Equatable {
+     var tier = "free"
+     var state = ""
+     var productId: String? = nil
++    /// Which store the shown subscription lives in: "app_store" or "google_play". Plus is the account's either way.
++    var store: String? = nil
+     var paidThrough: Millis = 0
+     var autoRenewing = false
+     var issuedAt: Millis = 0
+@@ -35,7 +39,7 @@ struct EntitlementSnapshot: Codable, Equatable {
+     init() {}
+     init(from decoder: Decoder) throws {
+         let c = try decoder.container(keyedBy: AnyKey.self)
+-        tier = c.get("tier", "free"); state = c.get("state", ""); productId = c.get("productId", nil); paidThrough = c.get("paidThrough", 0)
++        tier = c.get("tier", "free"); state = c.get("state", ""); productId = c.get("productId", nil); store = c.get("store", nil); paidThrough = c.get("paidThrough", 0)
+         autoRenewing = c.get("autoRenewing", false); issuedAt = c.get("issuedAt", 0); installId = c.get("installId", ""); packageName = c.get("packageName", "")
+         uid = c.get("uid", ""); purchaseValid = c.get("purchaseValid", false)
+     }

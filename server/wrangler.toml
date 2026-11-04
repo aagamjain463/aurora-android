@@ -3,8 +3,15 @@ main = "src/worker.js"
 compatibility_date = "2026-10-01"
 
 [vars]
+# Google Play.
 PACKAGE_NAME = "app.aurora"
 PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
+# App Store. Its routes answer 503 until the APPLE_* secrets below are set.
+APPLE_BUNDLE_ID = "com.aagamjain.Aurora"
+APPLE_PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
+# App Review buys with a sandbox account in the production app, so this has to be "1" while Apple reviews a build.
+# Its cost: TestFlight testers can get Plus from a sandbox purchase. See docs/APP_STORE_BILLING.md.
+APPLE_ALLOW_SANDBOX = "1"
 # The Firebase project whose ID tokens this server accepts.
 FIREBASE_PROJECT_ID = "aurora-24aa9"
 ENVIRONMENT = "production"
@@ -20,4 +27,5 @@ migrations_dir = "migrations"
 [triggers]
 crons = ["17 3 * * *"]
 
-# Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN.
+# Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN,
+# APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY (the App Store Connect .p8 file's contents).
