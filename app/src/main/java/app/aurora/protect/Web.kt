@@ -88,6 +88,27 @@ fun channelsNamed(texts: List<String>): List<String> = texts.mapNotNull { text -
 const val PlayVideo = " – play video"
 const val PlayShort = " – play Short"
 
+/** A playlist in YouTube's lists: "<title> - <channel> - 24 videos". It plays its first video when tapped. */
+private val PlaylistCount = Regex(" - [\\d,.]+\\s*(?:K|lakh|crore)? videos?$")
+
+/** Whether [label] is a card in YouTube's lists that opens a video when tapped (a video, a Short, a playlist). */
+fun isVideoCard(label: String): Boolean = label.endsWith(PlayVideo) || label.endsWith(PlayShort) || PlaylistCount.containsMatchIn(label)
+
+/**
+ * The channel a page section names for the cards under it that don't name one themselves: a shelf ("Latest from
+ * Veritasium") or a channel's page, whose header ("Subscribe to Veritasium.") stays at the top as it scrolls.
+ */
+fun pageChannel(label: String): String? {
+    val t = label.trim()
+    val name = when {
+        t.startsWith("Latest from ") -> t.removePrefix("Latest from ")
+        t.startsWith("Subscribe to ") -> t.removePrefix("Subscribe to ").trimEnd('.')
+        t.startsWith("Unsubscribe from ") -> t.removePrefix("Unsubscribe from ").trimEnd('.')
+        else -> null
+    }
+    return name?.trim()?.takeIf(String::isNotEmpty)
+}
+
 /**
  * The channel a video card in YouTube's lists names in its own label, or null when it names none (a channel's own
  * page and its shelves leave it out). Checked against YouTube 21.41, English:
@@ -101,6 +122,7 @@ fun cardChannel(label: String): String? {
         // a dash itself ("Ali Abdaal – Lifestyle Business Academy"), so all of it is kept: matching is by whole name.
         " – Go to channel " in t -> t.substringAfter(" – Go to channel ").substringBefore(" - ")
         t.endsWith(PlayVideo) -> t.removeSuffix(PlayVideo).split(" – ").takeIf { it.size >= 3 }?.last()?.substringBefore(" - ")
+        PlaylistCount.containsMatchIn(t) -> t.replace(PlaylistCount, "").split(" - ").takeIf { it.size >= 2 }?.last()
         t.endsWith(PlayShort) -> {
             val parts = t.removeSuffix(PlayShort).split(", ")
             val views = parts.indexOfLast { it.endsWith(" views") || it.endsWith(" view") }

@@ -176,4 +176,17 @@ class WebTest {
         // A title that mentions the chosen channel doesn't make another channel's video its.
         assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("I met @IShowSpeed in Tokyo", "Subscribe to Other."))))
     }
+
+    /** From a real phone (YouTube 21.41): shelves and channel pages name the channel above their cards. */
+    @Test fun sectionsNameTheirChannel() {
+        assertEquals("Veritasium", pageChannel("Latest from Veritasium"))
+        assertEquals("Veritasium", pageChannel("Subscribe to Veritasium."))
+        assertNull(pageChannel("Videos"))
+        assertTrue(isVideoCard("Course - Fundamentals of Physics with Ramamurti Shankar - YaleCourses - 24 videos"))
+        assertEquals("YaleCourses", cardChannel("Course - Fundamentals of Physics with Ramamurti Shankar - YaleCourses - 24 videos"))
+        assertFalse(isVideoCard("Subscribe to Veritasium."))
+        // A channel page's own cards: "Go to channel" names nobody, the last part does.
+        val own = cardChannel("Is spider web really stronger than steel? – 26 minutes, 58 seconds – Go to channel – Veritasium, verified - 99 lakh views - 3 months ago – play video")!!
+        assertTrue(fromChannels(listOf(own), listOf("Veritasium")))
+    }
 }

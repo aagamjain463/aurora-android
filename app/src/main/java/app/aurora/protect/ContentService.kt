@@ -243,7 +243,7 @@ class ContentService : AccessibilityService() {
         }
         // Content changes arrive in floods; one look per app every 120 ms keeps covers on what they hide.
         if ((event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) &&
-            now - (lastCheck[pkg] ?: 0L) < CheckEveryMs) return
+            now - (lastCheck[pkg] ?: 0L) < (if (pkg == YouTube) YtCheckEveryMs else CheckEveryMs)) return
         lastCheck[pkg] = now
         if (pkg == Instagram || pkg == YouTube) {
             lookTries = 0
@@ -613,6 +613,9 @@ class ContentService : AccessibilityService() {
             // Only chosen channels: a video from any other channel doesn't open from a list. Its card stays in
             // sight; a tap on it does nothing and says why.
             addAll(cardCatchers)
+            // The player's Next video plays whatever comes next, from any channel: it does nothing either.
+            if (channelShield != null) shownIn(root, YouTube, "player_control_next_button").firstOrNull()?.let(::boundsOf)?.takeUnless(Rect::isEmpty)
+                ?.let { add(Button(it, channels!!.first, channelShield, R.string.part_no_video)) }
         }
         // A video from another channel that opens anyway (a link, a playlist, a card that names no channel) is
         // paused and sent back at once, and the small player it shrinks into is closed.
@@ -688,7 +691,7 @@ class ContentService : AccessibilityService() {
             if (!n.isVisibleToUser) continue
             val text = textOf(n)
             if (text != null) out += Label(n, boundsOf(n), text)
-            if (text != null && (text.endsWith(PlayVideo) || text.endsWith(PlayShort))) continue
+            if (text != null && isVideoCard(text)) continue
             for (i in 0 until n.childCount) {
                 val child = if (Build.VERSION.SDK_INT >= 33) n.getChild(i, AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_HYBRID) else n.getChild(i)
                 child?.let(queue::addLast)
@@ -698,13 +701,16 @@ class ContentService : AccessibilityService() {
     }
 
     /**
-     * The video cards in sight in YouTube's lists, with the channel each names (YouTube 21.41, English). A card says it
-     * in its own label ([cardChannel]): every video and Short card has one, with or without the small "Go to channel"
-     * button, which is read too for any card whose label doesn't.
+     * The video cards in sight in YouTube's lists, with their channel (YouTube 21.41, English). A card says it in its
+     * own label ([cardChannel]); one that doesn't (a shelf of a channel's Shorts, a channel's own page) belongs to the
+     * section it sits in, named above it ([pageChannel]). The small "Go to channel" button is read too, for any card
+     * whose label isn't. A card whose channel can't be told stays null: it's held back like any other channel's.
      */
     private fun cardsIn(labels: List<Label>): List<Card> {
-        val labelled = labels.filter { it.text.endsWith(PlayVideo) || it.text.endsWith(PlayShort) }
-            .filterNot { it.bounds.isEmpty }.map { Card(it.bounds, cardChannel(it.text)) }
+        val sections = labels.mapNotNull { l -> pageChannel(l.text)?.let { l.bounds.top to it } }
+        fun section(top: Int) = sections.filter { it.first <= top }.maxByOrNull { it.first }?.second
+        val labelled = labels.filter { isVideoCard(it.text) }
+            .filterNot { it.bounds.isEmpty }.map { Card(it.bounds, cardChannel(it.text) ?: section(it.bounds.top)) }
         val buttons = labels.filter { it.text.startsWith(GoToChannel) }.mapNotNull { button ->
             val name = button.text.removePrefix(GoToChannel).trim().takeIf(String::isNotEmpty) ?: return@mapNotNull null
             cardOf(button.node)?.takeUnless { b -> labelled.any { it.bounds == b && it.channel != null } }?.let { Card(it, name) }
@@ -712,12 +718,9 @@ class ContentService : AccessibilityService() {
         return labelled + buttons
     }
 
-    /**
-     * The cards in YouTube's lists whose channel isn't one of [channels]. A card that names no channel (on a channel's
-     * own page) is left to the check made when the video opens.
-     */
+    /** The cards in YouTube's lists that aren't from one of [channels]: from another channel, or from one that can't be told. */
     private fun otherChannelCards(labels: List<Label>, channels: List<String>): List<Rect> =
-        cardsIn(labels).filter { it.channel != null && !fromChannels(listOf(it.channel), channels) }.map { it.bounds }.distinct()
+        cardsIn(labels).filter { it.channel == null || !fromChannels(listOf(it.channel), channels) }.map { it.bounds }.distinct()
 
     /**
      * The video card a "Go to channel" [button] sits on: its nearest tappable ancestor bigger than the button (it
@@ -744,11 +747,11 @@ class ContentService : AccessibilityService() {
         taps.post {
             val chosen = chosenChannels
             val root = rootInActiveWindow
-            // Through only for a card that names a chosen channel, or one that names none (a channel's own page:
-            // judged when it opens). A card from another channel, or no card at all, keeps the tap.
+            // Through only for a card from a chosen channel. Another channel's, one that can't be told, or no card at all
+            // keeps the tap.
             val pass = if (chosen == null || root == null || root.packageName?.toString() != YouTube) false else {
                 val under = cardsIn(labels(root)).filter { it.bounds.contains(at.x.toInt(), at.y.toInt()) }
-                under.isNotEmpty() && under.none { it.channel != null && !fromChannels(listOf(it.channel), chosen) }
+                under.isNotEmpty() && under.all { it.channel != null && fromChannels(listOf(it.channel), chosen) }
             }
             ui { done(pass) }
         }
@@ -937,6 +940,8 @@ class ContentService : AccessibilityService() {
     companion object {
         /** Covers follow a scrolling list: a look every 120 ms keeps them on it. */
         private const val CheckEveryMs = 120L
+        /** YouTube is read in one quick walk, so it's looked at twice as often: a card scrolled into sight is caught sooner. */
+        private const val YtCheckEveryMs = 60L
         /** The veil stays at least this long, so Back has time to land, and at most [VeilMs]. */
         private const val MinVeilMs = 250L
         private const val VeilMs = 1_200L
