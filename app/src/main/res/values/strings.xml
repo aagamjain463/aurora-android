@@ -387,11 +387,10 @@
     <string name="part_no_reels">Reels are not allowed.</string>
     <string name="part_no_other_reels">Other reels are not allowed.</string>
     <string name="part_no_search">Search is not allowed.</string>
-    <string name="part_no_posts">Posts are not allowed.</string>
     <string name="part_no_stories">Stories are not allowed.</string>
     <string name="part_no_home">Home is not allowed.</string>
+    <string name="part_no_video">You cannot view this video.</string>
     <string name="part_no_shorts">Shorts are not allowed.</string>
-    <string name="part_only_channels">Only chosen channels are allowed.</string>
     <string name="part_shorts">YouTube Shorts tab</string>
     <string name="part_shorts_body">The Shorts tab is blocked. The rest of YouTube stays open.</string>
     <string name="part_reels">Instagram Reels tab</string>

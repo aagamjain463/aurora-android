@@ -131,8 +131,8 @@ class WebTest {
         val watch = listOf(0, 90, 1080, 700)
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch, texts = listOf("Why gravity is not a force", "Veritasium · 17M subscribers"))))
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true, texts = listOf("@mkbhd", "Subscribe"))))
-        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_only_channels), v(YouTubeScreen(watch = watch, texts = listOf("Some video", "Other Channel"))))
-        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_only_channels), v(YouTubeScreen(shorts = true, texts = listOf("@mkbhdclips"))))
+        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("Some video", "Other Channel"))))
+        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(shorts = true, texts = listOf("@mkbhdclips"))))
         // Still loading, or full screen: nothing to judge yet.
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch)))
         // Browsing isn't watching.

@@ -217,6 +217,8 @@ data class YouTubeScreen(
     val panelOpen: Boolean = false,
     /** The open video's player (not the miniplayer, not a preview in a list): left, top, right, bottom. */
     val watch: List<Int>? = null,
+    /** The small player above the tab bar, when a video is minimised: left, top, right, bottom. */
+    val miniplayer: List<Int>? = null,
     /**
      * What else YouTube recommends around the open video: the "Suggested video" that ends a video, the row
      * that slides up in full screen. Each is left, top, right, bottom.
@@ -251,7 +253,7 @@ fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: P
         s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts)
         // Nothing to read yet (still loading, or full screen): judged once it shows.
         channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) ->
-            YouTubeVerdict.NotFromChannel(channels.first, R.string.part_only_channels)
+            YouTubeVerdict.NotFromChannel(channels.first, R.string.part_no_video)
         // Under the video: its details and comments stay, every suggestion after them is blank, the playlist bar
         // stays usable, and the list can't be scrolled. An open panel (description, comments) is left alone.
         feed && s.watchList != null && !s.panelOpen -> {
