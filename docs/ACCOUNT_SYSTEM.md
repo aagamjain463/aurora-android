@@ -95,6 +95,7 @@ The backend runs on Cloudflare Workers with a Cloudflare D1 relational database 
 | `POST` | `/v1/quota/release` | Releases an unstarted reservation back to the daily allowance (e.g., deleted before start). |
 | `POST` | `/v1/quota/import` | One-time migration of unowned local ledger entries created before the account was linked. |
 | `POST` | `/v1/installations/remove` | Removes a registered device from the account. |
+| `POST` | `/v1/device/attest` | Accepts a Play Integrity token for the nonce `sync` handed out (`docs/ANTI_ABUSE.md`). |
 | `POST` | `/v1/account/delete` | Requests account deletion with a 30-day grace period. |
 | `POST` | `/v1/account/delete/cancel` | Cancels a pending account deletion request. |
 | `POST` | `/v1/rtdn` | Webhook endpoint receiving Google Cloud Pub/Sub push notifications for real-time subscription lifecycle updates. |
@@ -102,6 +103,7 @@ The backend runs on Cloudflare Workers with a Cloudflare D1 relational database 
 ### Quota Engine & Anti-Circumvention
 - **Free Allowance**: 120 minutes/day for strict commitments (`Mode.AlwaysBlock` and `Mode.Cooldown`). Flexible and Friction modes do not consume quota.
 - **Shared Across Devices**: All devices registered to the same account share the single 120-minute daily allowance. Starting a 60-minute session on phone A leaves 60 minutes on phone B.
+- **Shared Across Accounts on One Installation**: Each installation also has its own 120 minutes, whichever accounts use it, and a reservation must fit both. Switching, creating or deleting accounts on a phone doesn't refill it. Requests are signed by a per-installation Android Keystore key. Details, limits and the threat model: `docs/ANTI_ABUSE.md`.
 - **Time Zone Hopping Defense**: Quota reset boundaries follow the user's IANA time zone. If a user changes time zones, the backend enforces that the new window only begins after the end of the newest reservation's local day, preventing infinite quota generation by timezone spoofing.
 - **Advance Lookahead**: The Android client looks ahead up to 6 hours for scheduled commitments and requests advance authorizations. If authorized ahead, the commitment begins on schedule even if the device loses internet connectivity. If the server is unreachable when due, the occurrence waits unenforced without penalty.
 
@@ -121,7 +123,8 @@ The backend runs on Cloudflare Workers with a Cloudflare D1 relational database 
 Aurora allows multiple verified accounts on the same Android device while preserving total data isolation:
 - Data is stored in private files under `noBackupFilesDir/profiles/<sha256(uid)>.json`.
 - When switching accounts, active state is serialized and parked atomically.
-- **Carried Commitments**: If Account A has an active `AlwaysBlock` session running and logs out, or Account B logs in, the commitment continues running to prevent bypassing restrictions. However, it is anonymized as "Earlier commitment" and stripped of all personal tags, package names, motivations, and private ledger records.
+- **Carried Commitments**: If Account A has an active `AlwaysBlock` session running and logs out, or Account B logs in, the commitment continues running to prevent bypassing restrictions. It is anonymized as "Earlier commitment" and stripped of names, notes and motivations; only its targets (which the Shield must keep enforcing) come along. On Free its targets hold the phone's 5 slots until it ends, so B's own targets wait.
+- **The phone's committed time** (start, end and zone of each committed interval) moves with the phone to every account, so the allowance the app shows and pre-checks can't be refilled by switching.
 - When an unowned device signs in for the first time, `ProfileVault` presents a decision: "Keep what is on this phone?". If accepted, local rules, habits, and today's committed minutes are claimed by the new account.
 
 ---
@@ -145,7 +148,7 @@ Aurora is built on privacy. The following table provides the exhaustive breakdow
 | User ID (Firebase UID) | Yes | Account authentication & profile lookup | Retained until account deleted |
 | Email Address | Yes (via Auth) | Account verification & email link sign-in | Retained until account deleted |
 | Installation ID (UUID) | Yes | Binding authorizations & device seats (max 5) | Retained until device removed |
-| Commitment Window (Start, End, Zone) | Yes (Free tier) | Verifying the 120-minute daily strict quota | Retained 7 days in ledger |
+| Commitment Window (Start, End, Zone) | Yes (Free tier) | Verifying the 120-minute daily strict quota | 35 days in the ledger, or until the account is purged; the last 3 days stay with the installation, with no account (`docs/ANTI_ABUSE.md`) |
 | Purchase Token | Yes (Plus tier) | Verifying Google Play subscription status | Retained while active |
 | App Package Names (e.g. `com.instagram.android`) | **NEVER** | None. Enforcement is 100% on-device. | Kept locally only |
 | Protected Websites & URLs | **NEVER** | None. Evaluated locally in accessibility service. | Kept locally only |

@@ -50,7 +50,7 @@ class ShieldService : AccessibilityService() {
         val app = application as AuroraApplication
         val main = Handler(Looper.getMainLooper())
         val presenter = OverlayShieldPresenter(this) { request, close -> ShieldContent(request, close) }
-        presenter.onClosed = { home -> interceptor?.closedByPerson(home) }
+        presenter.onClosed = { how -> interceptor?.closedByPerson(how) }
         this.presenter = presenter
         val exempt = exemptPackages(this)
         val interceptor = Interceptor(
@@ -60,6 +60,7 @@ class ShieldService : AccessibilityService() {
             onAllowed = ::measure,
             onForeground = { pkg -> scope?.launch { runCatching { app.foregroundChanged(pkg) } } },
             onAttempt = { decision -> scope?.launch { runCatching { app.attempted(decision) } } },
+            asleep = { screenAsleep(this) },
         )
         // Built from memory for every event: grants, schedules and Focus are never stale.
         val locked = lockedPackages(this)
@@ -73,14 +74,15 @@ class ShieldService : AccessibilityService() {
         }
         screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                // Screen off: nobody is using the app in front. Screen on: decide again for it.
-                if (intent.action == Intent.ACTION_SCREEN_OFF) scope?.launch { runCatching { app.foregroundChanged(null) } }
-                else interceptor.recheck()
+                // Screen off: nobody is using the app in front, but nobody left it either: its intentional
+                // time pauses, nothing ends or restarts. Unlocked: back in the same app.
+                if (intent.action == Intent.ACTION_SCREEN_OFF) scope?.launch { runCatching { app.foregroundChanged(null, screenOff = true) } }
+                else interceptor.awake()
                 // The service was bound through the screen-off: that time counts as verified protection.
                 scope?.launch { runCatching { app.serviceSeen(connected = true) } }
             }
         }.also {
-            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_SCREEN_ON) }
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_USER_PRESENT) }
             ContextCompat.registerReceiver(this, it, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         }
         measure(null)
@@ -162,3 +164,8 @@ class ShieldService : AccessibilityService() {
         private const val CommitCheckMs = 30_000L
     }
 }
+
+/** The screen is off or locked: whatever happens then, the person hasn't left the app they were in. */
+fun screenAsleep(context: Context): Boolean =
+    !context.getSystemService(android.os.PowerManager::class.java).isInteractive ||
+        context.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked

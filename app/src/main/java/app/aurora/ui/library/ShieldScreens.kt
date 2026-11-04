@@ -34,6 +34,7 @@ import app.aurora.plan.Allowance
 import app.aurora.protect.Difficulty
 import app.aurora.protect.FrictionSettings
 import app.aurora.protect.FrictionTask
+import app.aurora.protect.FrictionTasks
 import app.aurora.protect.Mode
 import app.aurora.protect.strict
 import app.aurora.protect.ShieldPreset
@@ -76,12 +77,10 @@ import app.aurora.ui.components.EmptyState
 import app.aurora.ui.components.IconBadge
 import app.aurora.ui.components.RowGroup
 import app.aurora.ui.components.minutesText
-import app.aurora.ui.components.secondsText
 import app.aurora.ui.components.auroraSurface
 import app.aurora.ui.protect.LimitNoticeDialog
 import app.aurora.ui.protect.ModeChip
 import app.aurora.ui.protect.ProtectModel
-import app.aurora.ui.protect.ReflectionPauses
 import app.aurora.ui.protect.difficultyName
 import app.aurora.ui.protect.modeColor
 import app.aurora.ui.protect.modeDescription
@@ -213,9 +212,11 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
     var channels by rememberSaveable(initial.id) { mutableStateOf(initial.keys.firstOrNull { partOf(it)?.key == PartYouTubeChannels }?.let(::channelsOf).orEmpty()) }
     var sites by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filter { it.startsWith(WebPrefix) }.map { it.removePrefix(WebPrefix) }) }
     var mode by rememberSaveable(initial.id) { mutableStateOf(initial.mode) }
-    var task by rememberSaveable(initial.id) { mutableStateOf(initial.friction.task) }
+    // Reflection is retired: a Shield saved with it ends with a math problem.
+    var task by rememberSaveable(initial.id) { mutableStateOf(if (initial.friction.task == FrictionTask.Reflection) FrictionTask.Math else initial.friction.task) }
     var difficulty by rememberSaveable(initial.id) { mutableStateOf(initial.friction.difficulty) }
     var pause by rememberSaveable(initial.id) { mutableIntStateOf(initial.friction.reflectionSeconds) }
+    var phrase by rememberSaveable(initial.id) { mutableStateOf(initial.friction.phrase) }
     var wait by rememberSaveable(initial.id) { mutableStateOf<Int?>(initial.cooldownWaitMinutes) }
     var query by rememberSaveable { mutableStateOf("") }
     var step by rememberSaveable { mutableStateOf(ShieldStep.entries[startStep]) }
@@ -231,13 +232,15 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
         ShieldStep.Name -> name.isNotBlank()
         ShieldStep.Apps, ShieldStep.Sites -> true
         ShieldStep.Parts -> !channelsMissing
-        ShieldStep.Type -> mode != Mode.Cooldown || wait != null
+        ShieldStep.Type -> (mode != Mode.Cooldown || wait != null) &&
+            (mode != Mode.Friction || task != FrictionTask.Intention || phrase.isNotBlank())
         ShieldStep.Review -> all.isNotEmpty()
     }
     val save = {
         val preset = initial.copy(
             name = name.trim(), keys = all, mode = mode,
-            friction = FrictionSettings(task, difficulty, pause), cooldownWaitMinutes = wait ?: initial.cooldownWaitMinutes,
+            friction = FrictionSettings(task = task, difficulty = difficulty, reflectionSeconds = pause, phrase = phrase.trim()),
+            cooldownWaitMinutes = wait ?: initial.cooldownWaitMinutes,
         )
         vm.run {
             if (vm.app.saveShield(preset) == null) onSaved(preset.id)
@@ -248,10 +251,11 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
         primary = if (step == ShieldStep.Review) stringResource(R.string.shield_save) else stringResource(R.string.action_next),
         primaryEnabled = canNext,
         whyDisabled = stringResource(
-            when (step) {
-                ShieldStep.Name -> R.string.need_name
-                ShieldStep.Type -> R.string.need_time
-                ShieldStep.Parts -> R.string.yt_channels_need
+            when {
+                step == ShieldStep.Type && mode == Mode.Friction && task == FrictionTask.Intention && phrase.isBlank() -> R.string.friction_phrase_need
+                step == ShieldStep.Name -> R.string.need_name
+                step == ShieldStep.Type -> R.string.need_time
+                step == ShieldStep.Parts -> R.string.yt_channels_need
                 else -> R.string.need_apps
             },
         ),
@@ -317,17 +321,18 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                 // The chosen type's settings follow on the same step.
                 if (mode == Mode.Friction) {
                 item(key = "friction-title") { SettingsTitle(stringResource(R.string.start_friction_title), stringResource(R.string.start_friction_body)) }
-                items(FrictionTask.entries, key = { "task-" + it.name }) { t -> ChoiceCard(taskName(t), taskDescription(t), task == t, { task = t }) }
+                items(FrictionTasks, key = { "task-" + it.name }) { t -> ChoiceCard(taskName(t), taskDescription(t), task == t, { task = t }) }
                 if (task == FrictionTask.Math) item(key = "difficulty") {
                     Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                         Text(stringResource(R.string.friction_difficulty), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) { Difficulty.entries.forEach { dif -> Chip(difficultyName(dif), difficulty == dif) { difficulty = dif } } }
                     }
                 }
-                if (task == FrictionTask.Reflection) item(key = "pause") {
+                if (task == FrictionTask.Intention) item(key = "phrase") {
                     Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        Text(stringResource(R.string.friction_reflection_pause), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) { ReflectionPauses.forEach { p -> Chip(secondsText(p), pause == p) { pause = p } } }
+                        Text(stringResource(R.string.friction_phrase_title), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title)
+                        Text(stringResource(R.string.friction_phrase_hint), color = colors.textTertiary, style = AuroraType.Secondary)
+                        AuroraTextField(phrase, { phrase = it.take(120) }, stringResource(R.string.friction_phrase_placeholder), Modifier.padding(top = Space.XS))
                     }
                 }
                 item(key = "access") { Text(stringResource(R.string.usage_hint), color = colors.textTertiary, style = AuroraType.Caption) }
@@ -340,7 +345,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
             ShieldStep.Review -> {
                 stepTitle(R.string.cfg_review_title, R.string.shield_review_note)
                 item(key = "review") {
-                    val preview = ShieldPreset(initial.id, name.trim(), all, mode, FrictionSettings(task, difficulty, pause), wait ?: 1)
+                    val preview = ShieldPreset(initial.id, name.trim(), all, mode, FrictionSettings(task = task, difficulty = difficulty, reflectionSeconds = pause, phrase = phrase.trim()), wait ?: 1)
                     Column(
                         Modifier.fillMaxWidth().then(Modifier.padding(top = Space.XS)),
                         verticalArrangement = Arrangement.spacedBy(Space.S),

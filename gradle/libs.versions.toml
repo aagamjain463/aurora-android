@@ -15,6 +15,7 @@ robolectric = "4.17"
 roborazzi = "1.77.0"
 serialization = "1.12.0"
 billing = "9.1.0"
+playIntegrity = "1.6.0"
 firebaseBom = "35.1.0"
 credentials = "1.6.0"
 googleid = "1.2.1"
@@ -28,6 +29,7 @@ androidx-navigation-compose = { module = "androidx.navigation:navigation-compose
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 billing = { module = "com.android.billingclient:billing", version.ref = "billing" }
+play-integrity = { module = "com.google.android.play:integrity", version.ref = "playIntegrity" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-auth = { module = "com.google.firebase:firebase-auth" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }

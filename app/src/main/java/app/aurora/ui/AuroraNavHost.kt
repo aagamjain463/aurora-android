@@ -58,6 +58,7 @@ import app.aurora.ui.strict.FocusRunScreen
 import app.aurora.ui.strict.StrictModeScreen
 import app.aurora.ui.track.GoalEditorScreen
 import app.aurora.ui.track.SessionHistoryScreen
+import app.aurora.ui.track.HabitHistoryScreen
 import app.aurora.ui.track.TrackScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.ui.protect.WebScreen
@@ -82,6 +83,7 @@ object Routes {
     const val FocusRun = "focus-run"
     const val Account = "account"
     const val History = "history"
+    const val HabitHistory = "habit-history"
     const val Guide = "guide"
 }
 
@@ -228,7 +230,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 )
             }
             composable(Routes.Track) {
-                TrackScreen(onPlus = plus, onOpenSettings = settings, onCreateGoal = { nav.navigate(Routes.GoalEdit) }, onOpenHistory = { nav.navigate(Routes.History) }, onOpenGuide = guide)
+                TrackScreen(onPlus = plus, onOpenSettings = settings, onCreateGoal = { nav.navigate(Routes.GoalEdit) }, onOpenHistory = { nav.navigate(Routes.History) }, onOpenHabitHistory = { nav.navigate(Routes.HabitHistory) }, onOpenGuide = guide)
             }
             composable(Routes.GoalEdit) { e ->
                 val createdConfig by e.savedStateHandle.getStateFlow<String?>("createdConfig", null).collectAsStateWithLifecycle()
@@ -244,6 +246,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             composable(ProtectRoutes.Plus) { PlusScreen(back) }
             composable(Routes.Account) { AccountScreen(back, plus) }
             composable(Routes.History) { SessionHistoryScreen(back) }
+            composable(Routes.HabitHistory) { HabitHistoryScreen(back, plus) }
             composable(Routes.Guide) { GuideScreen(back) }
             composable(Routes.Settings) {
                 SettingsScreen(

@@ -20,13 +20,18 @@ class InterceptorTest {
     }
 
     private var now = 1_000L
+    private var sleeping = false
     private val presenter = Recorder()
     private val trace = ShieldTrace()
     private val scheduled = mutableListOf<() -> Unit>()
     private val attempts = mutableListOf<String>()
+    private val foreground = mutableListOf<String?>()
     private val interceptor = Interceptor(
         presenter, trace, "app.aurora", setOf("com.android.systemui", "ime"), { 0L }, { now }, { _, block -> scheduled += block },
+        onAllowed = {},
+        onForeground = { foreground += it },
         onAttempt = { attempts += it.packageName },
+        asleep = { sleeping },
     ).apply {
         state = PolicyState(
             setOf("com.social"), exempt = setOf("app.aurora", "com.launcher", "com.android.systemui"),
@@ -76,6 +81,23 @@ class InterceptorTest {
         assertEquals(1, presenter.dismissed)
         window("com.launcher") // nothing showing any more: nothing to dismiss
         assertEquals(1, presenter.dismissed)
+    }
+
+    /** Screen off or locked: lock-screen windows never dismiss a Shield or count as a new attempt. */
+    @Test
+    fun whileAsleepNothingIsDismissedOrCountedAsAnAttempt() {
+        sleeping = true
+        window("com.social")
+        assertEquals(1, presenter.shown.size)
+        assertEquals(0, attempts.size)
+        window("com.mail") // an OEM lock screen, or the always-on display
+        window("com.launcher")
+        assertEquals(0, presenter.dismissed)
+        assertEquals(0, attempts.size)
+        // Unlocking doesn't turn the same opening into a new attempt either.
+        sleeping = false
+        interceptor.awake()
+        assertEquals(0, attempts.size)
     }
 
     @Test
@@ -179,9 +201,41 @@ class InterceptorTest {
     fun closingTheShieldHomeIsNeverUndoneByALateCheck() {
         // The person tapped Return home; the launcher's window event hasn't arrived yet.
         window("com.social")
-        interceptor.closedByPerson(home = true)
+        interceptor.closedByPerson(ShieldClose.Home)
         runChecks()
         assertEquals(1, presenter.shown.size)
+    }
+
+    @Test
+    fun grantingAccessStartsForegroundTimeWithoutWaitingForAWindowEvent() {
+        val state = interceptor.state!!
+        interceptor.state = state.copy(restrictions = emptyList(), intents = mapOf("com.social" to IntentConfig()))
+        window("com.social") // the Shield covers the app: its time isn't counted yet
+        // The person chose their minutes: startIntent stored the use, then the Shield is granted.
+        interceptor.state = interceptor.state!!.copy(intentUses = mapOf("com.social" to IntentUse(60_000, startedAt = now)))
+        interceptor.closedByPerson(ShieldClose.Granted)
+        assertEquals(listOf<String?>(null, "com.social"), foreground)
+    }
+
+    @Test
+    fun openingAuroraDoesNotPutTheShieldBackBeforeItsWindowArrives() {
+        window("com.social")
+        interceptor.closedByPerson(ShieldClose.Aurora)
+        assertEquals(1, presenter.shown.size)
+        now += 400
+        interceptor.onWindow("app.aurora", now, now, ownApp = true)
+        runChecks()
+        // Aurora's own window cleared lastApp, so the fallback check has nothing to shield.
+        assertEquals(1, presenter.shown.size)
+    }
+
+    @Test
+    fun ifAuroraNeverOpensTheShieldComesBack() {
+        window("com.social")
+        interceptor.closedByPerson(ShieldClose.Aurora)
+        assertEquals(1, presenter.shown.size)
+        scheduled.removeAt(1)() // the Shield's confirm first, then the aurora fallback
+        assertEquals(2, presenter.shown.size)
     }
 
     @Test
@@ -196,7 +250,7 @@ class InterceptorTest {
     @Test
     fun aLateEventFromTheAppJustLeftDoesNotBringTheShieldBack() {
         window("com.social")
-        interceptor.closedByPerson(home = true)
+        interceptor.closedByPerson(ShieldClose.Home)
         window("com.social", after = 300) // the app's own delayed window event
         assertEquals(1, presenter.shown.size)
         window("com.launcher", after = 2_000)
@@ -207,7 +261,7 @@ class InterceptorTest {
     @Test
     fun aRapidReopeningAfterTheLauncherIsShielded() {
         window("com.social")
-        interceptor.closedByPerson(home = true)
+        interceptor.closedByPerson(ShieldClose.Home)
         window("com.launcher", after = 100)
         val launcherAt = now
         // Delivery after the launcher does not make an older event a new opening.

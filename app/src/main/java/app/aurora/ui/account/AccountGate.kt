@@ -423,4 +423,4 @@ fun ConfirmingDialog() {
 }
 
 private const val ResendAfterMs = 60_000L
-private const val DeletionGraceMs = 7 * 86_400_000L
+private const val DeletionGraceMs = 30 * 86_400_000L

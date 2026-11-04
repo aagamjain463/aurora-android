@@ -46,8 +46,6 @@ import app.aurora.R
 import app.aurora.StartResult
 import app.aurora.auroraViewModel
 import app.aurora.protect.Difficulty
-import app.aurora.protect.FrictionSettings
-import app.aurora.protect.FrictionTask
 import app.aurora.protect.Mode
 import app.aurora.protect.key
 import app.aurora.startProtection
@@ -60,7 +58,6 @@ import app.aurora.ui.components.Chip
 import app.aurora.ui.components.DurationPicker
 import app.aurora.ui.components.SelectionMark
 import app.aurora.ui.components.minutesText
-import app.aurora.ui.components.secondsText
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
@@ -72,7 +69,6 @@ private enum class StartStep { Apps, Mode, Settings, Duration, Review }
 /** Protection presets: the common answers to "How long should protection last?" Custom is always there. */
 val ProtectionPresets = listOf(30, 60, 120, 240)
 val CooldownWaitPresets = listOf(5, 15, 30, 60)
-val ReflectionPauses = listOf(10, 20, 30, 60)
 
 @Composable
 fun difficultyName(d: Difficulty): String = stringResource(

@@ -140,8 +140,8 @@ data class InstagramScreen(
 
 sealed interface InstagramVerdict {
     data object Allow : InstagramVerdict
-    /** The Shield for [key], then back. */
-    data class Leave(val key: String) : InstagramVerdict
+    /** The Shield for [key], then back. [says] is the one-line reason a toast shows. */
+    data class Leave(val key: String, @StringRes val says: Int) : InstagramVerdict
     /** Cover this band of the screen, so what [key] holds back can't be seen or touched. */
     data class Cover(val top: Int, val bottom: Int, val key: String) : InstagramVerdict
 }
@@ -158,21 +158,21 @@ fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed
     // Below the stories row (or the header, once the row has scrolled away), down to the tab bar.
     val belowStories = maxOf(s.storiesBottom ?: 0, s.headerBottom ?: 0)
     fun cover(top: Int, key: String) = if (top < bottom) InstagramVerdict.Cover(top, bottom, key) else InstagramVerdict.Allow
-    val leave = InstagramVerdict.Leave(PartInstagramMessages)
+    fun leave(says: Int) = InstagramVerdict.Leave(PartInstagramMessages, says)
     return when {
         s.storyViewer -> InstagramVerdict.Allow
         messages -> when {
-            s.tab == "clips_tab" -> leave
-            s.reelViewer -> if (s.sentInChat) InstagramVerdict.Allow else leave
-            s.reelsPage -> leave
+            s.tab == "clips_tab" -> leave(R.string.part_no_reels)
+            s.reelViewer -> if (s.sentInChat) InstagramVerdict.Allow else leave(R.string.part_no_other_reels)
+            s.reelsPage -> leave(R.string.part_no_reels)
             s.profileGridTop != null -> cover(s.profileGridTop, PartInstagramMessages)
             s.tab == "feed_tab" -> cover(belowStories, PartInstagramMessages)
-            s.tab == "search_tab" -> cover(0, PartInstagramMessages)
-            s.posts && !s.fromChat -> leave
+            s.tab == "search_tab" -> leave(R.string.part_no_search)
+            s.posts && !s.fromChat -> leave(R.string.part_no_posts)
             else -> InstagramVerdict.Allow
         }
-        reels && s.tab == "clips_tab" -> InstagramVerdict.Leave(PartReels)
-        search && s.tab == "search_tab" -> cover(0, PartInstagramSearch)
+        reels && s.tab == "clips_tab" -> InstagramVerdict.Leave(PartReels, R.string.part_no_reels)
+        search && s.tab == "search_tab" -> InstagramVerdict.Leave(PartInstagramSearch, R.string.part_no_search)
         feed && s.tab == "feed_tab" && s.posts -> cover(belowStories, PartInstagramFeed)
         else -> InstagramVerdict.Allow
     }
@@ -192,10 +192,10 @@ data class YouTubeScreen(
 
 sealed interface YouTubeVerdict {
     data object Allow : YouTubeVerdict
-    /** The Shield for [key], then back. */
-    data class Leave(val key: String) : YouTubeVerdict
+    /** The Shield for [key], then back. [says] is the one-line reason a toast shows. */
+    data class Leave(val key: String, @StringRes val says: Int) : YouTubeVerdict
     /** Not from a chosen channel: the Shield for [key] once YouTube has settled on it. */
-    data class NotFromChannel(val key: String) : YouTubeVerdict
+    data class NotFromChannel(val key: String, @StringRes val says: Int) : YouTubeVerdict
     /** Cover this rectangle: left, top, right, bottom. */
     data class Cover(val bounds: List<Int>, val key: String) : YouTubeVerdict
 }
@@ -208,10 +208,11 @@ sealed interface YouTubeVerdict {
 fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: Pair<String, List<String>>?, screenWidth: Int, screenBottom: Int): YouTubeVerdict {
     val playing = s.shorts || s.watch != null
     return when {
-        s.shorts && shorts -> YouTubeVerdict.Leave(PartShorts)
-        s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed)
+        s.shorts && shorts -> YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts)
+        s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts)
         // Nothing to read yet (still loading, or full screen): judged once it shows.
-        channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) -> YouTubeVerdict.NotFromChannel(channels.first)
+        channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) ->
+            YouTubeVerdict.NotFromChannel(channels.first, R.string.part_only_channels)
         feed && s.watch != null -> {
             val (_, _, right, bottom) = s.watch
             when {

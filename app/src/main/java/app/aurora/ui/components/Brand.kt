@@ -280,10 +280,12 @@ fun FocusGoal(goal: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * The Focus dial, shared by both Focus timers: one clean ring, nothing coming off it. A quiet track; the time held is
- * drawn on it in the dawn (rose where it began, warming through ember and gold to the light at its head, where a point
- * of first light rides), so a finished session is a closed ring of dawn. No ticks, no glow. Inside: the lit mark, a
- * tracked [label], the light tabular [clock] and one quiet [caption]. [progress] is 0..1 of the time held.
+ * The Focus dial, shared by both Focus timers: a watch face. A hairline track with a bezel of minute marks inside it;
+ * the time held is drawn on the track in the dawn (rose where it began, warming through ember and gold to the light at
+ * its head, where a point of first light rides), and the marks it has passed brighten, so a finished session is a
+ * closed ring of dawn. No glow. While [live] the point breathes, slowly. Inside: the lit mark, a tracked [label], the
+ * light tabular [clock] and one quiet [caption]. [progress] is 0..1 of the time held; [follow] is how the ring
+ * catches up with it (a 1s linear glide for a ticking clock, quicker under a finger).
  */
 @Composable
 fun FocusDial(
@@ -293,16 +295,41 @@ fun FocusDial(
     label: String? = null,
     caption: String? = null,
     spoken: String = clock,
+    live: Boolean = false,
+    follow: androidx.compose.animation.core.AnimationSpec<Float> = tween(1000, easing = LinearEasing),
 ) {
     val colors = Aurora.colors
-    // The ViewModel ticks once a second; a linear 1s glide makes the light move continuously.
-    val fill by rememberFill(progress.coerceIn(0f, 1f), tween(1000, easing = LinearEasing))
+    val fill by rememberFill(progress.coerceIn(0f, 1f), follow)
+    val breath = if (live && !Aurora.reducedMotion) {
+        rememberInfiniteTransition(label = "breath").animateFloat(
+            0f, 1f, infiniteRepeatable(tween(2400, easing = Motion.Ease), androidx.compose.animation.core.RepeatMode.Reverse), label = "breath",
+        )
+    } else null
     Box(modifier.widthIn(max = 340.dp).aspectRatio(1f), contentAlignment = androidx.compose.ui.Alignment.Center) {
         Canvas(Modifier.fillMaxSize().clearAndSetSemantics { }) {
             val c = center
-            val stroke = 3.dp.toPx()
-            val r = size.minDimension / 2f - 8.dp.toPx()
-            drawCircle(colors.hairline, r, c, style = Stroke(stroke))
+            val stroke = 2.5.dp.toPx()
+            val r = size.minDimension / 2f - 10.dp.toPx()
+            drawCircle(colors.hairlineStrong, r, c, style = Stroke(1.dp.toPx()))
+            // The bezel: sixty marks, every fifth longer. Those the light has passed are a step brighter.
+            val outer = r - 12.dp.toPx()
+            for (i in 0 until 60) {
+                val major = i % 5 == 0
+                val passed = fill > 0f && i / 60f <= fill
+                val a = Math.toRadians(i * 6.0 - 90.0)
+                val dx = cos(a).toFloat()
+                val dy = sin(a).toFloat()
+                val inner = outer - (if (major) 9.dp else 4.dp).toPx()
+                drawLine(
+                    when {
+                        passed -> colors.textSecondary.copy(alpha = if (major) 0.75f else 0.4f)
+                        major -> colors.textTertiary.copy(alpha = 0.5f)
+                        else -> colors.hairlineStrong
+                    },
+                    Offset(c.x + dx * inner, c.y + dy * inner), Offset(c.x + dx * outer, c.y + dy * outer),
+                    strokeWidth = (if (major) 1.5.dp else 1.dp).toPx(), cap = StrokeCap.Round,
+                )
+            }
             if (fill > 0f) rotate(-90f, c) {
                 val dawn = androidx.compose.ui.graphics.Brush.sweepGradient(
                     0f to colors.glowCool, (fill * 0.5f) to colors.glowHot, (fill * 0.85f).coerceAtLeast(0.001f) to colors.glowTop,
@@ -314,12 +341,13 @@ fun FocusDial(
                 drawCircle(colors.glowCool, stroke / 2f, Offset(c.x + r, c.y))
                 val a = Math.toRadians(360.0 * fill)
                 val head = Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat())
-                drawCircle(colors.background, 7.dp.toPx(), head)
-                drawCircle(colors.light, 4.5.dp.toPx(), head)
+                val swell = 1f + 0.3f * (breath?.value ?: 0f)
+                drawCircle(colors.background, 8.dp.toPx() * swell, head)
+                drawCircle(colors.light, 5.dp.toPx() * swell, head)
             }
         }
         androidx.compose.foundation.layout.Column(
-            Modifier.fillMaxWidth(0.66f),
+            Modifier.fillMaxWidth(0.7f),
             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         ) {
             AuroraMark(18.dp, Modifier.padding(bottom = 14.dp), lit = true)

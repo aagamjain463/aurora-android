@@ -58,6 +58,7 @@
     <string name="shield_limit_resets">Resets at midnight</string>
     <string name="shield_intent_cooldown_title">Your cooldown is active.</string>
     <string name="shield_intent_cooldown_body">You chose a cooldown after using %1$s. You can decide again when it ends.</string>
+    <string name="shield_intent_cooldown_end">To open it sooner, end this session in Aurora.</string>
     <string name="shield_opens_again_at">You can open it again at %1$s</string>
     <string name="shield_ended_title">Your timer has ended.</string>
     <string name="shield_ended_body">%1$s isn\'t protected right now.</string>
@@ -70,14 +71,9 @@
     <string name="end_session_cooldown_note">Leaving this screen restarts the wait.</string>
     <string name="end_session_intention_prompt">Why do you want to end this session?</string>
     <string name="end_session_confirm">End session</string>
-    <string name="shield_cooldown_title">Wait before opening %1$s.</string>
-    <string name="shield_cooldown_body">Stay with the wait. When it ends, you choose how long to use the app.</string>
     <string name="shield_restart_note">Each new attempt restarts your wait.</string>
     <string name="shield_cooldown_ready_at">Ready at %1$s</string>
     <string name="shield_cooldown_done_title">Your wait is over.</string>
-    <string name="shield_cooldown_done_body">You can open the app now, for as long as you choose.</string>
-    <string name="shield_friction_title">One task first.</string>
-    <string name="shield_friction_done_title">Done.</string>
 
     <!-- Timed access after Friction, Cooldown or Intent -->
     <string name="usage_prompt">How long do you want to use %1$s?</string>
@@ -90,44 +86,32 @@
     <string name="friction_task_math_desc">Solve a real sum. A wrong answer brings a new one.</string>
     <string name="friction_task_intention">Written intention</string>
     <string name="friction_task_intention_desc">Write why you\'re opening the app, then confirm it.</string>
-    <string name="friction_task_reflection">Reflection</string>
-    <string name="friction_task_reflection_desc">Two quick questions, then a short pause.</string>
     <string name="friction_difficulty">Difficulty</string>
     <string name="friction_easy">Easy</string>
     <string name="friction_medium">Medium</string>
     <string name="friction_hard">Hard</string>
-    <string name="friction_reflection_pause">Reflection pause</string>
+    <string name="friction_phrase_title">Words to end it</string>
+    <string name="friction_phrase_hint">Set the exact words you\'ll type to end this session early. Case and extra spaces don\'t matter.</string>
+    <string name="friction_phrase_need">Add the words to end this session.</string>
+    <string name="friction_phrase_prompt">Type these words exactly:</string>
+    <string name="friction_phrase_placeholder">Type the words</string>
+    <string name="friction_intention_confirm_phrase">End session</string>
     <string name="friction_math_prompt">Solve this to continue</string>
     <string name="friction_math_answer">Your answer</string>
     <string name="friction_math_check">Check answer</string>
     <string name="friction_math_wrong">Not quite. Here\'s a new one.</string>
-    <string name="friction_intention_prompt">Why are you opening %1$s?</string>
     <string name="friction_intention_placeholder">I want to…</string>
     <string name="friction_intention_next">Continue</string>
     <string name="friction_intention_readback">You wrote</string>
     <string name="friction_intention_confirm">Yes, that\'s why</string>
     <string name="friction_intention_edit">Change it</string>
-    <string name="friction_reflect_step">Step %1$d of %2$d</string>
-    <string name="friction_reflect_q1">What were you about to do?</string>
-    <string name="friction_reflect_q1_a1">Check something specific</string>
-    <string name="friction_reflect_q1_a2">Reply to someone</string>
-    <string name="friction_reflect_q1_a3">Pass the time</string>
-    <string name="friction_reflect_q1_a4">I\'m not sure</string>
-    <string name="friction_reflect_q2">Will it help with what matters today?</string>
-    <string name="friction_reflect_q2_a1">Yes</string>
-    <string name="friction_reflect_q2_a2">Not really</string>
-    <string name="friction_reflect_wait">Take a breath before you decide.</string>
-    <string name="friction_reflect_ready">Ready</string>
-    <string name="friction_reflect_continue">Continue</string>
 
     <!-- Session note: PROPOSED — FOUNDER REVIEW PENDING -->
     <string name="session_note_label">Why this session</string>
 
     <!-- Intentional App Opening: PROPOSED — FOUNDER REVIEW PENDING -->
     <string name="intent_prompt_title">Opening %1$s?</string>
-    <string name="intent_prompt_question">Is this how you want to spend your time?</string>
-    <string name="intent_your_reason">Your reason</string>
-    <string name="intent_instead">Instead, you could</string>
+    <string name="intent_prompt_question">Do you actually want to use the app?</string>
     <string name="intent_continue">Continue intentionally</string>
     <string name="intent_reminder_title">Your %1$s are up.</string>
     <string name="intent_reminder_body">That\'s the time you chose for %1$s.</string>
@@ -263,24 +247,15 @@
     <string name="intent_expiry_cooldown">Cooldown</string>
     <string name="intent_expiry_cooldown_short">%1$s cooldown</string>
     <string name="intent_reflection_title">Pause before deciding</string>
-    <string name="intent_reflection_hint">“Continue intentionally” unlocks after this pause.</string>
+    <string name="intent_reflection_hint">A moment before you decide. You can always go back.</string>
     <string name="intent_seconds_placeholder">Seconds</string>
     <string name="intent_seconds_hint">Type 1 to 600 seconds.</string>
     <string name="intent_seconds_problem">Choose between 1 and 600 seconds.</string>
-    <string name="intent_reason_title">Your reason</string>
-    <string name="intent_reason_placeholder">I want more time for…</string>
-    <string name="intent_alternative_title">Something you could do instead</string>
-    <string name="intent_alternative_placeholder">Optional: go for a walk, read a chapter…</string>
-    <string name="intent_default_title">Default time</string>
-    <string name="intent_default_hint">Preselected each time. You can change it before every session.</string>
-    <string name="intent_default_clear">No default</string>
     <string name="intent_expiry_title">When your time is up</string>
     <string name="intent_expiry_reminder_desc">Aurora reminds you while you\'re in the app. You can finish or keep going.</string>
     <string name="intent_expiry_cooldown_desc">The app closes, and stays closed for a cooldown you choose.</string>
     <string name="intent_cooldown_title">Cooldown length</string>
     <string name="intent_cooldown_hint">How long the app stays closed after your time is up.</string>
-    <string name="intent_fresh_title">Decide again every time</string>
-    <string name="intent_fresh_hint">Leaving the app ends the session, so every opening starts with a fresh decision.</string>
 
     <!-- Onboarding -->
     <string name="settings_plus_card_body">30-day Insights and more</string>
@@ -289,9 +264,6 @@
     <string name="onb_finish">Go to Home</string>
     <string name="onb_skip">Skip for now</string>
     <string name="onb_step">Step %1$d of %2$d</string>
-    <string name="onb_apps_eyebrow">What pulls you away</string>
-    <string name="onb_apps_title">Pick 3 apps.</string>
-    <string name="onb_apps_body">The ones that pull you away most. Nothing is blocked until you start.</string>
     <string name="onb_shield_eyebrow">Shield</string>
     <string name="onb_shield_title">Turn on Shield.</string>
     <string name="onb_shield_body">Shield is what blocks apps. It needs Android\'s accessibility permission, which only you can turn on.</string>
@@ -299,13 +271,6 @@
     <string name="onb_shield_running">Shield running</string>
     <string name="onb_shield_privacy">Shield reads only the name of the app in front. Nothing leaves your phone.</string>
     <string name="onb_keep_xiaomi">Your phone can stop apps in the background, and Shield with them. Turn on Autostart for Aurora, set its battery saver to No restrictions, and lock Aurora in Recents.</string>
-    <string name="onb_first_light_eyebrow">Northern lights</string>
-    <string name="onb_first_light_title">You\'re ready.</string>
-    <string name="onb_first_light_none">Add apps in the Shield tab when you\'re ready. Home shows your time reclaimed once protection runs.</string>
-    <plurals name="onb_first_light_body">
-        <item quantity="one">%d app chosen. Pick a time and start, or do it later from Home.</item>
-        <item quantity="other">%d apps chosen. Pick a time and start, or do it later from Home.</item>
-    </plurals>
 
     <!-- Focus -->
     <string name="focus_length_prompt">How long do you want to focus?</string>
@@ -397,7 +362,7 @@
     <string name="plus_compare_always">Cooldown and Strict, shared, per day</string>
     <string name="plus_compare_intent">Active Intent apps</string>
     <string name="plus_compare_profiles">Focus sessions and profiles</string>
-    <string name="plus_compare_included">Goal history, progress tracking and rewards</string>
+    <string name="plus_compare_included">Habit history, progress tracking and rewards</string>
     <string name="plus_unlimited">Unlimited</string>
     <string name="plus_included">Included</string>
     <string name="insights_period_week">7 days</string>
@@ -426,9 +391,13 @@
     <string name="web_add">Add</string>
     <string name="web_hint">A site covers its subdomains too: reddit.com includes old.reddit.com. Apps and sites share your protected items.</string>
     <string name="web_paused">Paused</string>
-    <string name="ig_cover_posts">Posts are off in Aurora. Stories and messages are still here.</string>
-    <string name="ig_cover_search">Search is off in Aurora.</string>
-    <string name="part_cover_tap">Tap for your options.</string>
+    <string name="ig_cover_posts">Posts are not allowed.</string>
+    <string name="part_no_reels">Reels are not allowed.</string>
+    <string name="part_no_other_reels">Other reels are not allowed.</string>
+    <string name="part_no_search">Search is not allowed.</string>
+    <string name="part_no_posts">Posts are not allowed.</string>
+    <string name="part_no_shorts">Shorts are not allowed.</string>
+    <string name="part_only_channels">Only chosen channels are allowed.</string>
     <string name="part_shorts">YouTube Shorts</string>
     <string name="part_shorts_body">The rest of YouTube stays open.</string>
     <string name="part_reels">Instagram Reels</string>
@@ -451,7 +420,7 @@
     <string name="yt_channels_hint">Add the name YouTube shows under a video. For Shorts, add its @handle too.</string>
     <string name="yt_channels_need">Add at least one channel.</string>
     <string name="action_remove_channel">Remove %1$s</string>
-    <string name="yt_cover_feed">Recommendations are off in Aurora. Search, or open Subscriptions.</string>
+    <string name="yt_cover_feed">Recommendations are not allowed.</string>
     <string name="part_ig_feed">Instagram posts</string>
     <string name="part_ig_feed_body">Home posts are covered. Stories and messages stay.</string>
     <string name="part_ig_search">Instagram Search</string>
@@ -551,7 +520,7 @@
     <string name="later_in_past">That time has already passed. Choose a later start.</string>
     <string name="recurring_days">Days</string>
     <string name="cfg_focus_title">Would you like to track Focus during this session?</string>
-    <string name="cfg_focus_body">Optional. Link it to one of your goals if you like.</string>
+    <string name="cfg_focus_body">Optional. Add a goal for this Focus if you like.</string>
     <string name="cfg_focus_timer">Focus timer</string>
     <string name="cfg_focus_goal_placeholder">Your goal, e.g. Finish chapter 4</string>
     <string name="cfg_focus_timer_body">Just time this session as focus.</string>
@@ -622,10 +591,8 @@
     <string name="intent_create">Create an Intent</string>
     <string name="intent_lib_empty_title">No Intents yet</string>
     <string name="intent_name_title">Name your Intent</string>
-    <string name="intent_confirm_title">Ask me to confirm before continuing</string>
-    <string name="intent_confirm_hint">After the pause, tap Continue intentionally. Off: the time choice follows at once.</string>
     <string name="intent_usage_title">Intended usage</string>
-    <string name="intent_usage_body">A default to preselect, or none to choose each time.</string>
+    <string name="intent_usage_body">You choose how long each time you open the app.</string>
     <string name="intent_save">Save Intent</string>
 
     <!-- Track -->
@@ -638,16 +605,16 @@
     <string name="today_protection_title">Protection</string>
     <string name="track_headline">See your progress. Own your growth.</string>
     <string name="track_tab_progress">Progress</string>
-    <string name="track_tab_goals">Goals</string>
+    <string name="track_tab_goals">Habits</string>
     <string name="track_tab_usage">Usage</string>
     <string name="track_stat_sessions">Sessions started</string>
     <string name="track_stat_succeeded">Succeeded</string>
     <string name="track_screen_time">Screen time</string>
 
-    <!-- Goals -->
-    <string name="goal_create">Create a Goal</string>
-    <string name="goal_empty_title">No goals yet</string>
-    <string name="goal_empty_body">Link a goal to a custom session, or limit an app or your screen time.</string>
+    <!-- Habits -->
+    <string name="goal_create">Create a Habit</string>
+    <string name="goal_empty_title">No habits yet</string>
+    <string name="goal_empty_body">Link a habit to a custom session, or limit an app or your screen time.</string>
     <string name="goal_on_track">On track</string>
     <string name="goal_achieved">Achieved</string>
     <string name="goal_failed">Failed</string>
@@ -665,16 +632,16 @@
         <item quantity="other">%d sessions a week</item>
     </plurals>
     <string name="goal_record_line">Met: %1$d · Failed: %2$d · Streak: %3$d</string>
-    <string name="goal_delete">Delete goal</string>
+    <string name="goal_delete">Delete habit</string>
     <string name="goal_delete_body">Its track record is removed. Your sessions and apps aren\'t affected.</string>
-    <string name="goal_name_title">Name your goal</string>
-    <string name="goal_link_title">What is this goal for?</string>
+    <string name="goal_name_title">Name your habit</string>
+    <string name="goal_link_title">What is this habit for?</string>
     <string name="goal_link_session">A custom session</string>
     <string name="goal_link_session_desc">Track how much you complete and how often you succeed.</string>
     <string name="goal_link_limit">A time limit</string>
     <string name="goal_link_limit_desc">Stay under a limit on apps or your whole screen time.</string>
     <string name="goal_session_title">Choose a custom session</string>
-    <string name="goal_session_none">No custom sessions yet. Build one on Home; this goal waits for you.</string>
+    <string name="goal_session_none">No custom sessions yet. Build one on Home; this habit waits for you.</string>
     <string name="goal_session_create">Build one on Home</string>
     <string name="goal_track_title">How do you want to track it?</string>
     <string name="goal_track_daily">Every day</string>
@@ -693,12 +660,12 @@
     <string name="goal_limit_title">Set your limit</string>
     <string name="goal_per_day_pill">Per day</string>
     <string name="goal_per_week_pill">Per week</string>
-    <string name="goal_limit_note">Weeks reset every Monday. A goal tracks your use and doesn\'t block anything; Shield does that.</string>
-    <string name="goal_save">Create goal</string>
+    <string name="goal_limit_note">Weeks reset every Monday. A habit tracks your use and doesn\'t block anything; Shield does that.</string>
+    <string name="goal_save">Create habit</string>
     <string name="config_delete_title">Delete %1$s?</string>
     <string name="config_delete_body">Its schedules are removed. Anything running keeps going until it ends.</string>
-    <string name="config_delete_habits">%1$s tracks this session. Deleting it removes that goal too.</string>
-    <string name="config_delete_archive">Remove goal and delete</string>
+    <string name="config_delete_habits">%1$s tracks this session. Deleting it removes that habit too.</string>
+    <string name="config_delete_archive">Remove habit and delete</string>
 
     <!-- Strict capabilities -->
     <string name="strict_title">Strict protection</string>
@@ -757,11 +724,8 @@
     </plurals>
     <string name="gate_sites_title">One more switch</string>
     <string name="gate_sites_body">This session includes websites or parts of apps. They\'re only held back once Web &amp; content is on.</string>
-    <string name="quick_mode">How should it hold them back?</string>
     <string name="quick_save">Save this session</string>
     <string name="quick_save_body">Find it under Saved Sessions on Home.</string>
-    <string name="onb_start_now">Start protection</string>
-    <string name="onb_start_later">Not now</string>
     <string name="limit_items_title">That\'s the most for now</string>
     <plurals name="limit_items_body">
         <item quantity="other">You\'re protecting %1$d items, the most Aurora Free allows. Remove one to add another, or protect everything with Aurora Plus.</item>
@@ -784,7 +748,7 @@
     <string name="billing_other">Google Play couldn\'t complete that (code %1$d).</string>
 
     <!-- Plan limits -->
-    <string name="plus_compare_goals">Active goals</string>
+    <string name="plus_compare_goals">Active habits</string>
     <string name="plus_compare_modes">Flexible and Friction Shields</string>
     <string name="plus_compare_rules">Schedules and presets</string>
     <string name="plus_renews_on">Your plan renews on %1$s.</string>
@@ -803,9 +767,9 @@
     <string name="limit_start_shorter">Start for %1$s</string>
     <string name="notif_quota_title">%1$s didn\'t start</string>
     <string name="notif_quota_body">Today\'s Cooldown and Strict time on Aurora Free can\'t cover it. Nothing else started in its place.</string>
-    <string name="goal_plan_title">One active goal on Aurora Free</string>
-    <string name="goal_plan_body">Pause, complete or archive your active goal to start this one, or see Aurora Plus. Nothing is deleted.</string>
-    <string name="goal_plan_current">%1$s is your active goal. Pause, complete or archive it to start this one, or see Aurora Plus. Its history stays.</string>
+    <string name="goal_plan_title">One active habit on Aurora Free</string>
+    <string name="goal_plan_body">Pause, complete or archive your active habit to start this one, or see Aurora Plus. Nothing is deleted.</string>
+    <string name="goal_plan_current">%1$s is your active habit. Pause, complete or archive it to start this one, or see Aurora Plus. Its history stays.</string>
     <string name="goal_pause_current">Pause it</string>
     <string name="goal_complete_current">Mark it complete</string>
     <string name="goal_archive_current">Archive it</string>
@@ -863,7 +827,7 @@
     <string name="action_retry">Try again</string>
     <string name="account_bind_failed">Aurora couldn\'t read this phone\'s data. Nothing was changed.</string>
     <string name="migrate_title">Keep your setup?</string>
-    <string name="migrate_body">This phone already has Aurora set up: your Goals, history, Shields, Intents, schedules and Focus profiles. Keep them with %1$s?</string>
+    <string name="migrate_body">This phone already has Aurora set up: your Habits, history, Shields, Intents, schedules and Focus profiles. Keep them with %1$s?</string>
     <string name="migrate_stays">They stay on this phone either way. Only today\'s committed minutes are shared with your account, so the daily allowance stays accurate.</string>
     <string name="migrate_keep">Keep my setup</string>
     <string name="migrate_fresh">Start fresh</string>
@@ -915,7 +879,7 @@
     <string name="account_sign_out_body">You\'ll need to sign in to use Aurora again. Sessions already running keep running until they end. Your data stays on this phone for when you\'re back.</string>
     <string name="account_delete">Delete account</string>
     <string name="account_delete_title">Delete your Aurora account?</string>
-    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 7 days from now. Sign in before then to change your mind.\n\nThis phone\'s Goals, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Google Play keeps billing until you cancel there.</string>
+    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 30 days from now. Sign in before then to change your mind.\n\nThis phone\'s Habits, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Google Play keeps billing until you cancel there.</string>
     <string name="account_delete_manage">Manage subscription in Google Play</string>
     <string name="account_delete_confirm">Delete my account</string>
     <string name="account_reauth_title">Confirm it\'s you</string>
@@ -960,8 +924,8 @@
     <string name="guide_track_usage_body">Your screen time today, or your daily average over 7 or 30 days, and the apps you use most.</string>
     <string name="guide_track_progress">Progress</string>
     <string name="guide_track_progress_body">Sessions started, how many succeeded, Time Reclaimed and your recent sessions. Tap a session to see its details.</string>
-    <string name="guide_track_goals">Goals</string>
-    <string name="guide_track_goals_body">Create a goal to complete a session a certain number of times, limit your overall screen time, or limit how much you use a particular app.</string>
+    <string name="guide_track_goals">Habits</string>
+    <string name="guide_track_goals_body">Create a habit to complete a session a certain number of times, limit your overall screen time, or limit how much you use a particular app. Completed habits move to History, where you can resume them.</string>
 
     <!-- Details of a saved item or a finished session -->
     <string name="preset_view">View details</string>
@@ -998,7 +962,7 @@
     <string name="diag_events">Sees apps opening</string>
     <string name="diag_watched">Spots your protected apps</string>
     <string name="diag_shown">Shield steps in</string>
-    <string name="diag_shown_refused">%1$d · %2$d refused</string>
+    <string name="diag_shown_refused" tools:ignore="PluralsCandidate">%1$d · %2$d refused</string>
     <string name="diag_ok">Every step is working.</string>
     <string name="diag_waiting">Open a protected app to finish the check.</string>
     <string name="diag_broken">Shield stops at “%1$s”.</string>
@@ -1026,4 +990,51 @@
     <string name="help_restricted_title">“Restricted setting”?</string>
     <string name="help_restricted_body">In Aurora\'s app info, tap ⋮, then Allow restricted settings.</string>
     <string name="help_run_diagnostics">Run diagnostics</string>
+
+    <!-- Onboarding tour -->
+    <string name="onb_begin">Show me around</string>
+    <string name="onb_skip_tour">Skip the tour</string>
+    <string name="onb_tour_shield_title">Shield blocks what distracts you.</string>
+    <string name="onb_tour_shield_body">Pick the apps, websites or parts of apps that pull you away. Choose how firm it is.</string>
+    <string name="onb_tour_shield_point_1">Flexible: blocked until you turn it off.</string>
+    <string name="onb_tour_shield_point_2">Friction or Cooldown: a challenge or a wait to end early.</string>
+    <string name="onb_tour_shield_point_3">Strict: no way out until the timer ends.</string>
+    <string name="onb_tour_intent_title">Intent asks before you open.</string>
+    <string name="onb_tour_intent_body">For apps you want to keep, but use on purpose.</string>
+    <string name="onb_tour_intent_point_1">Aurora pauses you for a moment.</string>
+    <string name="onb_tour_intent_point_2">You decide if you really want it.</string>
+    <string name="onb_tour_intent_point_3">You choose how long, and Aurora holds you to it.</string>
+    <string name="onb_tour_home_title">Home is where you start.</string>
+    <string name="onb_tour_home_body">Put a Shield and an Intent together into a session, and start it.</string>
+    <string name="onb_tour_home_point_1">Start now, later, on a schedule, or always.</string>
+    <string name="onb_tour_home_point_2">Save sessions you use often, to start them in one tap.</string>
+    <string name="onb_tour_home_point_3">See the time you take back, right on Home.</string>
+    <string name="onb_tour_track_title">Track shows your progress.</string>
+    <string name="onb_tour_track_body">See where your time goes, and build better habits.</string>
+    <string name="onb_tour_track_point_1">Usage: your screen time and top apps.</string>
+    <string name="onb_tour_track_point_2">Progress: your sessions and how they went.</string>
+    <string name="onb_tour_track_point_3">Habits: small promises you keep every day or week.</string>
+    <string name="onb_tour_mock_question">Do you actually want to use the app?</string>
+    <string name="onb_tour_mock_session">Your session</string>
+
+    <!-- Habit history -->
+    <string name="habit_history">History</string>
+    <string name="habit_history_title">Habit history</string>
+    <string name="habit_history_subtitle">Habits you completed. Resume any of them to track it again.</string>
+    <string name="habit_history_empty">No completed habits yet</string>
+    <string name="habit_history_empty_body">When you complete a habit, it moves here with its results.</string>
+    <string name="habit_completed_on">Completed %1$s</string>
+    <string name="habit_stat_met">Succeeded</string>
+    <string name="habit_stat_missed">Missed</string>
+    <string name="habit_stat_best">Best streak</string>
+    <string name="habit_stat_sessions">Sessions</string>
+    <string name="habit_stat_sessions_won">Succeeded sessions</string>
+
+    <!-- Focus in a saved session -->
+    <string name="detail_focus_no_goal">No goal</string>
+
+    <!-- Uninstall protection before a strict session -->
+    <string name="uninstall_needed_title">Turn on uninstall protection</string>
+    <string name="uninstall_needed_body">Friction, Cooldown and Strict need it, so Aurora can\'t be removed while your session runs. Turn it on, and your session starts right after.</string>
+    <string name="uninstall_needed_action">Turn on and start</string>
 </resources>

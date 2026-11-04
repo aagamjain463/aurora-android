@@ -26,6 +26,7 @@ import app.aurora.protect.AppRule
 import app.aurora.protect.DailyLimit
 import app.aurora.protect.Difficulty
 import app.aurora.protect.FrictionTask
+import app.aurora.protect.FrictionTasks
 import app.aurora.protect.Mode
 import app.aurora.protect.WebPrefix
 import app.aurora.protect.itemOf
@@ -42,7 +43,6 @@ import app.aurora.ui.components.DurationPicker
 import app.aurora.ui.components.RowGroup
 import app.aurora.ui.components.SectionLabel
 import app.aurora.ui.components.ToggleRow
-import app.aurora.ui.components.secondsText
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
@@ -97,14 +97,13 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
                 when (rule.mode) {
                     Mode.Friction -> {
                         Text(stringResource(R.string.item_task), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title)
+                        // Reflection is retired; a saved one reads as Math.
+                        val task = if (rule.friction.task == FrictionTask.Reflection) FrictionTask.Math else rule.friction.task
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                            FrictionTask.entries.forEach { t -> Chip(taskName(t), rule.friction.task == t) { save { it.copy(friction = it.friction.copy(task = t)) } } }
+                            FrictionTasks.forEach { t -> Chip(taskName(t), task == t) { save { it.copy(friction = it.friction.copy(task = t)) } } }
                         }
-                        if (rule.friction.task == FrictionTask.Math) FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
+                        if (task == FrictionTask.Math) FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                             Difficulty.entries.forEach { dif -> Chip(difficultyName(dif), rule.friction.difficulty == dif) { save { it.copy(friction = it.friction.copy(difficulty = dif)) } } }
-                        }
-                        if (rule.friction.task == FrictionTask.Reflection) FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-                            ReflectionPauses.forEach { p -> Chip(secondsText(p), rule.friction.reflectionSeconds == p) { save { it.copy(friction = it.friction.copy(reflectionSeconds = p)) } } }
                         }
                     }
                     Mode.Cooldown -> DurationPicker(

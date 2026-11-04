@@ -2,11 +2,14 @@
 //
 // Every /v1 route but /v1/rtdn needs a verified Firebase ID token, and every query is scoped to that token's
 // account. What the app stores for offline use (Plus, a commitment's authorization) is signed with our private key.
+// Free's allowance is held twice, by the account and by the installation (docs/ANTI_ABUSE.md).
 //
 // Environment: PACKAGE_NAME, PRODUCT_IDS, FIREBASE_PROJECT_ID; secrets GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT,
-// SIGNING_KEY, RTDN_TOKEN; the D1 database DB.
+// SIGNING_KEY, RTDN_TOKEN; the D1 database DB. Rollout flags: DEVICE_QUOTA (off, shadow, enforce; default enforce),
+// INTEGRITY (off, observe, enforce; default off), APP_CERT_SHA256 (Play's app signing certificate digests).
 
 import { AuthError, bearer, verifyIdToken } from './auth.js'
+import { ATTEST_EVERY_MS, attestNonce, deviceOf, judgeIntegrity } from './device.js'
 import { fits, quotaZone, statusOf, validZone } from './quota.js'
 
 const PLAY = 'https://androidpublisher.googleapis.com/androidpublisher/v3'
@@ -14,12 +17,18 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const IDENTITY = 'https://identitytoolkit.googleapis.com/v1/projects'
 const PLUS_SEATS = 5
 const FRESH_AUTH_S = 10 * 60
-const DELETION_GRACE_MS = 7 * 86_400_000
+// The same 30 days the privacy policy, the deletion page and the app promise.
+export const DELETION_GRACE_MS = 30 * 86_400_000
 const TRANSFER_COOLDOWN_MS = 30 * 86_400_000
 const LOOK_AHEAD_MS = 12 * 3_600_000
 const LEDGER_LOOKBACK_MS = 3 * 86_400_000
 const LEDGER_RETENTION_MS = 35 * 86_400_000
 const COMMIT_ATTEMPTS = 6
+const ABUSE_RETENTION_MS = 30 * 86_400_000
+const DEVICE_RETENTION_MS = 180 * 86_400_000
+const MAX_BODY = 64 * 1024
+// More accounts than this on one installation in a month is worth a look. It is never refused for it.
+const ACCOUNTS_PER_DEVICE = 3
 
 const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
 const b64url = (bytes) => b64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -28,6 +37,8 @@ const utf8 = (text) => new TextEncoder().encode(text)
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('')
 const text = (v, max = 256) => typeof v === 'string' && v.length > 0 && v.length <= max
+// The app's install id is a UUID. Tests and older builds use other short ids, so this is a shape, not a format.
+const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v)
 
 const rsa = (usage) => ({ name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256', usages: [usage] })
 
@@ -148,25 +159,45 @@ async function ensureAccount(env, claims, now) {
 async function ensureInstallation(env, account, claims, installId, label, now) {
   const row = await env.DB.prepare('SELECT * FROM installations WHERE account_id = ? AND id = ?').bind(account.id, installId).first()
   if (row?.revoked_at && claims.auth_time * 1000 < row.revoked_at) return null
-  await env.DB.prepare(
+  const joined = await env.DB.prepare(
     `INSERT INTO installations (id, account_id, label, registered_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?4)
      ON CONFLICT (account_id, id) DO UPDATE SET label = COALESCE(?3, label), last_seen_at = ?4, revoked_at = NULL,
-       registered_at = CASE WHEN revoked_at IS NULL THEN registered_at ELSE ?4 END`,
-  ).bind(installId, account.id, text(label, 80) ? label : null, now).run()
+       registered_at = CASE WHEN revoked_at IS NULL THEN registered_at ELSE ?4 END
+     RETURNING registered_at`,
+  ).bind(installId, account.id, text(label, 80) ? label : null, now).first()
+  if (!row && joined.registered_at === now) {
+    const { n } = await env.DB.prepare('SELECT COUNT(*) AS n FROM installations WHERE id = ? AND last_seen_at > ?').bind(installId, now - ABUSE_RETENTION_MS).first()
+    if (n > ACCOUNTS_PER_DEVICE) await audit(env, 'many_accounts', installId, account.id, String(n))
+  }
   return true
+}
+
+/** Suspected abuse, for a person to look at. Never a token, target, key or address; never fails the request. */
+async function audit(env, kind, installId, accountId, detail = null) {
+  try {
+    await env.DB.prepare('INSERT INTO abuse_events (kind, installation_id, account_id, detail, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(kind, installId ?? null, accountId ?? null, detail, Date.now()).run()
+  } catch {
+    // Observability only.
+  }
+}
+
+/** Whether [installId] holds one of the account's Plus seats: the five registered first. */
+async function seated(env, account, installId) {
+  const { results: seats } = await env.DB.prepare('SELECT id FROM installations WHERE account_id = ? AND revoked_at IS NULL ORDER BY registered_at, id LIMIT ?').bind(account.id, PLUS_SEATS).all()
+  return seats.some((s) => s.id === installId)
 }
 
 /** What the account's verified purchases grant this installation, ready to store. */
 async function accountSnapshot(env, account, uid, installId, now, extra = {}) {
   const { results: rows } = await env.DB.prepare('SELECT * FROM purchases WHERE account_id = ? ORDER BY paid_through DESC').bind(account.id).all()
   const best = rows.find((r) => r.tier === 'plus' && r.paid_through > now)
-  const { results: seats } = await env.DB.prepare('SELECT id FROM installations WHERE account_id = ? AND revoked_at IS NULL ORDER BY registered_at, id LIMIT ?').bind(account.id, PLUS_SEATS).all()
-  const seated = seats.some((s) => s.id === installId)
+  const seat = await seated(env, account, installId)
   const shown = best ?? rows[0]
-  const tier = best && seated ? 'plus' : 'free'
+  const tier = best && seat ? 'plus' : 'free'
   return signed(env, {
     tier,
-    state: best && !seated ? 'too_many_devices' : (shown?.state ?? 'none'),
+    state: best && !seat ? 'too_many_devices' : (shown?.state ?? 'none'),
     productId: shown?.product_id ?? null,
     paidThrough: shown?.paid_through ?? 0,
     autoRenewing: tier === 'plus' && Boolean(best.auto_renewing),
@@ -183,21 +214,67 @@ const devicesOf = async (env, account, installId) => {
   return results.map((d) => ({ id: d.id, label: d.label, registeredAt: d.registered_at, lastSeenAt: d.last_seen_at, current: d.id === installId }))
 }
 
-const hasPlus = async (env, account, now) =>
-  Boolean(await env.DB.prepare("SELECT 1 FROM purchases WHERE account_id = ? AND tier = 'plus' AND paid_through > ? LIMIT 1").bind(account.id, now).first())
+/** Plus here and now: a verified, paid-through purchase, on one of the account's seats. A sixth phone is Free. */
+const hasPlus = async (env, account, installId, now) =>
+  Boolean(await env.DB.prepare("SELECT 1 FROM purchases WHERE account_id = ? AND tier = 'plus' AND paid_through > ? LIMIT 1").bind(account.id, now).first()) &&
+  (await seated(env, account, installId))
 
 async function ledgerOf(env, account, now) {
   const { results } = await env.DB.prepare("SELECT * FROM quota_reservations WHERE account_id = ? AND status <> 'released' AND end_at > ?").bind(account.id, now - LEDGER_LOOKBACK_MS).all()
   return results
 }
 
+/** Everything committed on this installation, by any account, including accounts deleted since. */
+async function deviceLedgerOf(env, installId, now) {
+  const since = now - LEDGER_LOOKBACK_MS
+  const { results } = await env.DB.prepare(
+    `SELECT installation_id, start_at, end_at, zone FROM quota_reservations WHERE installation_id = ?1 AND status <> 'released' AND end_at > ?2
+     UNION ALL SELECT installation_id, start_at, end_at, zone FROM device_usage WHERE installation_id = ?1 AND end_at > ?2`,
+  ).bind(installId, since).all()
+  return results
+}
+
+const deviceQuota = (env) => env.DEVICE_QUOTA ?? 'enforce'
+
+/** Whether any installation this account has used was judged a modified build or a failing device this week. */
+const failedRecently = async (env, account, now) => Boolean(await env.DB.prepare(
+  "SELECT 1 FROM installations i JOIN devices d ON d.id = i.id WHERE i.account_id = ? AND d.integrity = 'failed' AND d.integrity_at > ? LIMIT 1",
+).bind(account.id, now - ATTEST_EVERY_MS).first())
+
+/** Today's allowance as the person can use it: the account's or the installation's, whichever has less left. */
+async function quotaFor(env, account, installId, now, zone) {
+  const ledger = await ledgerOf(env, account, now)
+  const own = { ...statusOf(ledger, now, quotaZone(ledger, now, zone)), limitedBy: 'account' }
+  if (deviceQuota(env) !== 'enforce') return own
+  const machine = await deviceLedgerOf(env, installId, now)
+  const here = { ...statusOf(machine, now, quotaZone(machine, now, zone)), limitedBy: 'device' }
+  return here.remainingMs < own.remainingMs ? here : own
+}
+
+const raws = new WeakMap()
+/** The body exactly as sent: the device key signs these bytes. */
+async function rawBody(request) {
+  if (!raws.has(request)) raws.set(request, await request.text().catch(() => ''))
+  return raws.get(request)
+}
+
 async function body(request) {
   try {
-    return (await request.json()) ?? {}
+    const parsed = JSON.parse(await rawBody(request))
+    return parsed && typeof parsed === 'object' ? parsed : {}
   } catch {
     return {}
   }
 }
+
+/** The proved device behind this request, or a refusal to send back. */
+async function device(request, env, installId, now) {
+  const row = await deviceOf(env, request, installId, await rawBody(request), now)
+  if (!row) await audit(env, 'device_proof_failed', installId, null)
+  return row
+}
+
+const deviceRefused = () => json(403, { error: 'device_proof_required' })
 
 // ---- Rate limits -----------------------------------------------------------------------------------------
 
@@ -216,19 +293,20 @@ async function allowed(env, bucket, max, windowSeconds) {
 async function sync(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { revocation: true })
   const { installId, label, zone } = await body(request)
-  if (!text(installId, 64)) return json(400, { error: 'bad_request' })
+  if (!isId(installId)) return json(400, { error: 'bad_request' })
   if (!(await allowed(env, `sync:${claims.sub}`, 60, 60))) return json(429, { error: 'slow_down' })
   const now = Date.now()
+  const here = await device(request, env, installId, now)
+  if (!here) return deviceRefused()
   const account = await ensureAccount(env, claims, now)
   if (!(await ensureInstallation(env, account, claims, installId, label, now))) return json(401, { error: 'installation_removed' })
-  const plus = await hasPlus(env, account, now)
-  const ledger = plus ? [] : await ledgerOf(env, account, now)
-  const asked = validZone(zone) ? zone : 'UTC'
+  const plus = await hasPlus(env, account, installId, now)
   return json(200, {
     account: { id: account.id, email: account.email, displayName: account.display_name, deletionRequestedAt: account.deletion_requested_at },
     entitlement: await accountSnapshot(env, account, claims.sub, installId, now),
-    quota: plus ? null : statusOf(ledger, now, quotaZone(ledger, now, asked)),
+    quota: plus ? null : await quotaFor(env, account, installId, now, validZone(zone) ? zone : 'UTC'),
     devices: await devicesOf(env, account, installId),
+    device: { proved: here.proved, integrity: here.integrity, attestNonce: await attestNonce(env, here, now) },
     serverTime: now,
   })
 }
@@ -265,7 +343,7 @@ async function storePurchase(env, account, key, entitlement, now, event = 0) {
 async function verify(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { revocation: true })
   const { purchaseToken, productId, installId, packageName } = await body(request)
-  if (![productId, installId, packageName].every((v) => text(v)) || !text(purchaseToken, 4096)) return json(400, { error: 'bad_request' })
+  if (![productId, packageName].every((v) => text(v)) || !isId(installId) || !text(purchaseToken, 4096)) return json(400, { error: 'bad_request' })
   if (packageName !== env.PACKAGE_NAME) return json(400, { error: 'wrong_package' })
   if (!(await allowed(env, `verify:${claims.sub}`, 30, 60))) return json(429, { error: 'slow_down' })
   const now = Date.now()
@@ -295,7 +373,7 @@ async function verify(request, env, fetcher) {
 async function transfer(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { fresh: true, revocation: true })
   const { purchaseToken, installId } = await body(request)
-  if (!text(purchaseToken, 4096) || !text(installId, 64)) return json(400, { error: 'bad_request' })
+  if (!text(purchaseToken, 4096) || !isId(installId)) return json(400, { error: 'bad_request' })
   if (!(await allowed(env, `transfer:${claims.sub}`, 5, 3600))) return json(429, { error: 'slow_down' })
   const now = Date.now()
   const account = await ensureAccount(env, claims, now)
@@ -325,11 +403,16 @@ async function reserve(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { revocation: true })
   const input = await body(request)
   const { installId, idempotencyKey, commitmentId, mode, minutes, startAt, zone } = input
-  if (![installId, idempotencyKey, commitmentId].every((v) => text(v, 128)) || !MODES.has(mode) || !validZone(zone)) return json(400, { error: 'bad_request' })
+  if (!isId(installId) || ![idempotencyKey, commitmentId].every((v) => text(v, 128)) || !MODES.has(mode) || !validZone(zone)) return json(400, { error: 'bad_request' })
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) return json(400, { error: 'bad_request' })
   if (startAt !== undefined && !Number.isFinite(startAt)) return json(400, { error: 'bad_request' })
   if (!(await allowed(env, `reserve:${claims.sub}`, 30, 60))) return json(429, { error: 'slow_down' })
   const now = Date.now()
+  const here = await device(request, env, installId, now)
+  if (!here) return deviceRefused()
+  // Many accounts on one phone share this one, so a phone can't out-ask its own allowance by switching. Counted
+  // only once the request is the installation's own, so nobody can use up another phone's budget.
+  if (!(await allowed(env, `reserve-device:${installId}`, 30, 60))) return json(429, { error: 'slow_down' })
   const account = await ensureAccount(env, claims, now)
   if (account.status !== 'active') return json(403, { error: 'account_deleting' })
   if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
@@ -341,47 +424,85 @@ async function reserve(request, env, fetcher) {
   if (end <= now) return json(400, { error: 'in_the_past' })
   const authorization = (reservationId, s, e, tier, status) => signed(env, { type: 'reservation', reservationId, uid: claims.sub, installId, commitmentId, mode, start: s, end: e, issuedAt: now, tier, packageName: env.PACKAGE_NAME, ...status })
 
-  if (await hasPlus(env, account, now)) return json(200, { allowed: true, tier: 'plus', authorization: await authorization(null, start, end, 'plus', {}) })
+  if (await hasPlus(env, account, installId, now)) return json(200, { allowed: true, tier: 'plus', authorization: await authorization(null, start, end, 'plus', {}) })
 
+  // Risk-based: only a verdict that this is a modified Aurora or a failing device holds Free back, and only when
+  // enforcing. No verdict at all (no Play services, a development build) is never a reason to refuse, except right
+  // after a failure on this account: a new install id (or none signed at all) mustn't wash a failed verdict away.
+  // This installation's own verdict, 'ok' or 'basic', clears it at once.
+  if (env.INTEGRITY === 'enforce' && (here.integrity === 'failed' || (here.integrity === 'unknown' && (await failedRecently(env, account, now))))) {
+    await audit(env, 'integrity_refused', installId, account.id)
+    return json(403, { error: 'integrity_failed' })
+  }
+
+  const enforceDevice = deviceQuota(env) === 'enforce'
+  const watchDevice = deviceQuota(env) !== 'off'
   for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
-    const existing = await env.DB.prepare('SELECT * FROM quota_reservations WHERE account_id = ? AND idempotency_key = ?').bind(account.id, idempotencyKey).first()
+    // Both revisions before either ledger: whatever is written after this read makes the insert below a no-op.
     const { quota_revision: revision } = await env.DB.prepare('SELECT quota_revision FROM accounts WHERE id = ?').bind(account.id).first()
+    const { quota_revision: deviceRevision } = await env.DB.prepare('SELECT quota_revision FROM devices WHERE id = ?').bind(installId).first()
     const ledger = await ledgerOf(env, account, now)
+    const machine = watchDevice ? await deviceLedgerOf(env, installId, now) : []
     const day = quotaZone(ledger, now, zone)
-    if (existing) {
-      return json(200, { allowed: true, tier: 'free', replayed: true, authorization: await authorization(existing.id, existing.start_at, existing.end_at, 'free', statusOf(ledger, now, day)) })
+    const deviceDay = quotaZone(machine, now, zone)
+    // The key after the ledgers: a duplicate request racing this one is either in the ledgers read above and found
+    // here (a replay), or wrote after the revisions were read, so this one's insert is a no-op and it looks again.
+    // Read before the ledgers, a duplicate committed in between was judged as new time and refused.
+    const existing = await env.DB.prepare('SELECT * FROM quota_reservations WHERE account_id = ? AND idempotency_key = ?').bind(account.id, idempotencyKey).first()
+    const status = (at, extra = []) => {
+      const own = { ...statusOf([...ledger, ...extra], at, day), limitedBy: 'account' }
+      if (!enforceDevice) return own
+      const onDevice = { ...statusOf([...machine, ...extra], at, deviceDay), limitedBy: 'device' }
+      return onDevice.remainingMs < own.remainingMs ? onDevice : own
     }
-    if (!fits(ledger, installId, start, end, day)) return json(200, { allowed: false, tier: 'free', ...statusOf(ledger, start, day) })
+    // A key names one commitment on one installation. Another installation can't borrow its authorization.
+    if (existing && existing.installation_id !== installId) return json(409, { error: 'idempotency_conflict' })
+    if (existing) {
+      return json(200, { allowed: true, tier: 'free', replayed: true, authorization: await authorization(existing.id, existing.start_at, existing.end_at, 'free', status(now)) })
+    }
+    if (!fits(ledger, installId, start, end, day)) return json(200, { allowed: false, tier: 'free', ...status(start), limitedBy: 'account' })
+    if (watchDevice && !fits(machine, installId, start, end, deviceDay)) {
+      await audit(env, enforceDevice ? 'device_quota_refused' : 'device_quota_shadow', installId, account.id)
+      if (enforceDevice) return json(200, { allowed: false, tier: 'free', ...status(start), limitedBy: 'device' })
+    }
     const id = crypto.randomUUID()
-    // One transaction, and only if the ledger is still what was just read: two devices can't both spend the last minutes.
+    // One transaction, and only if neither ledger changed since it was read: two phones on one account, or two
+    // accounts on one phone, can't both spend the last minutes. D1 runs a batch as one serialized transaction.
     const [inserted] = await env.DB.batch([
       env.DB.prepare(
         `INSERT OR IGNORE INTO quota_reservations (id, account_id, installation_id, idempotency_key, commitment_id, mode, start_at, end_at, zone, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM accounts WHERE id = ?2 AND quota_revision = ?11`,
-      ).bind(id, account.id, installId, idempotencyKey, commitmentId, mode, start, end, day, now, revision),
-      env.DB.prepare('UPDATE accounts SET quota_revision = quota_revision + 1 WHERE id = ? AND quota_revision = ?').bind(account.id, revision),
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM accounts a, devices d
+         WHERE a.id = ?2 AND a.quota_revision = ?11 AND d.id = ?3 AND d.quota_revision = ?12`,
+      ).bind(id, account.id, installId, idempotencyKey, commitmentId, mode, start, end, day, now, revision, deviceRevision),
+      env.DB.prepare('UPDATE accounts SET quota_revision = quota_revision + 1 WHERE id = ? AND EXISTS (SELECT 1 FROM quota_reservations WHERE id = ?)').bind(account.id, id),
+      env.DB.prepare('UPDATE devices SET quota_revision = quota_revision + 1 WHERE id = ? AND EXISTS (SELECT 1 FROM quota_reservations WHERE id = ?)').bind(installId, id),
     ])
     if (inserted.meta.changes > 0) {
-      const after = [...ledger, { installation_id: installId, start_at: start, end_at: end, zone: day }]
-      return json(200, { allowed: true, tier: 'free', authorization: await authorization(id, start, end, 'free', statusOf(after, now, day)) })
+      const added = [{ installation_id: installId, start_at: start, end_at: end, zone: day }]
+      return json(200, { allowed: true, tier: 'free', authorization: await authorization(id, start, end, 'free', status(now, added)) })
     }
   }
   return json(503, { error: 'try_again' })
 }
 
-/** Gives back a reservation that never began: a schedule removed in time. Anything started is spent. */
+/**
+ * Gives back a reservation that never began: a schedule removed in time. Anything started is spent. Its key is
+ * freed, so asking again for the same occurrence (a schedule paused and turned back on) is charged again rather
+ * than replaying an authorization whose time was given back.
+ */
 async function release(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher)
   const { reservationId } = await body(request)
   if (!text(reservationId, 64)) return json(400, { error: 'bad_request' })
   const now = Date.now()
   const account = await ensureAccount(env, claims, now)
-  const row = await env.DB.prepare('SELECT start_at, status FROM quota_reservations WHERE id = ? AND account_id = ?').bind(reservationId, account.id).first()
+  const row = await env.DB.prepare('SELECT start_at, status, installation_id FROM quota_reservations WHERE id = ? AND account_id = ?').bind(reservationId, account.id).first()
   if (!row) return json(404, { error: 'not_found' })
   if (row.start_at <= now) return json(409, { error: 'already_started' })
   await env.DB.batch([
-    env.DB.prepare("UPDATE quota_reservations SET status = 'released' WHERE id = ? AND account_id = ? AND start_at > ?").bind(reservationId, account.id, now),
+    env.DB.prepare("UPDATE quota_reservations SET status = 'released', idempotency_key = idempotency_key || ':released:' || id WHERE id = ? AND account_id = ? AND start_at > ? AND status <> 'released'").bind(reservationId, account.id, now),
     env.DB.prepare('UPDATE accounts SET quota_revision = quota_revision + 1 WHERE id = ?').bind(account.id),
+    env.DB.prepare('UPDATE devices SET quota_revision = quota_revision + 1 WHERE id = ?').bind(row.installation_id),
   ])
   return json(200, { released: true })
 }
@@ -390,9 +511,11 @@ async function release(request, env, fetcher) {
 async function importLedger(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher)
   const { installId, entries } = await body(request)
-  if (!text(installId, 64) || !Array.isArray(entries) || entries.length > 200) return json(400, { error: 'bad_request' })
+  if (!isId(installId) || !Array.isArray(entries) || entries.length > 200) return json(400, { error: 'bad_request' })
   if (!(await allowed(env, `import:${claims.sub}`, 10, 3600))) return json(429, { error: 'slow_down' })
   const now = Date.now()
+  // Imported time lands on this installation's ledger too, so only the installation itself may add it.
+  if (!(await device(request, env, installId, now))) return deviceRefused()
   const account = await ensureAccount(env, claims, now)
   const statements = []
   for (const e of entries) {
@@ -403,19 +526,73 @@ async function importLedger(request, env, fetcher) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'migrated', ?)`,
     ).bind(crypto.randomUUID(), account.id, installId, `import:${installId}:${e.start}`, `import:${e.start}`, e.mode === 'cooldown' ? 'cooldown' : 'always_block', e.start, e.end, e.zone, now))
   }
-  if (statements.length) await env.DB.batch([...statements, env.DB.prepare('UPDATE accounts SET quota_revision = quota_revision + 1 WHERE id = ?').bind(account.id)])
+  if (statements.length) {
+    await env.DB.batch([
+      ...statements,
+      env.DB.prepare('UPDATE accounts SET quota_revision = quota_revision + 1 WHERE id = ?').bind(account.id),
+      env.DB.prepare('UPDATE devices SET quota_revision = quota_revision + 1 WHERE id = ?').bind(installId),
+    ])
+  }
   return json(200, { imported: statements.length })
 }
 
 async function removeInstallation(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { revocation: true })
   const { installId, currentInstallId } = await body(request)
-  if (!text(installId, 64)) return json(400, { error: 'bad_request' })
+  if (!isId(installId)) return json(400, { error: 'bad_request' })
   const now = Date.now()
   const account = await ensureAccount(env, claims, now)
   const { meta } = await env.DB.prepare('UPDATE installations SET revoked_at = ? WHERE account_id = ? AND id = ? AND revoked_at IS NULL').bind(now, account.id, installId).run()
   if (meta.changes === 0) return json(404, { error: 'not_found' })
   return json(200, { devices: await devicesOf(env, account, currentInstallId) })
+}
+
+async function decodeIntegrity(env, token, fetcher) {
+  const access = await googleAccessToken(env.GOOGLE_SERVICE_ACCOUNT, 'https://www.googleapis.com/auth/playintegrity', fetcher)
+  const res = await fetcher(`https://playintegrity.googleapis.com/v1/${env.PACKAGE_NAME}:decodeIntegrityToken`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ integrity_token: token }),
+  })
+  if (!res.ok) throw new Error(`integrity ${res.status}`)
+  return (await res.json()).tokenPayloadExternal
+}
+
+/** A Play Integrity token for the nonce this device was given. Each nonce counts once; the verdict is kept a week. */
+async function attest(request, env, fetcher) {
+  const claims = await authenticate(request, env, fetcher)
+  const { installId, token } = await body(request)
+  if (!isId(installId) || !text(token, 8192)) return json(400, { error: 'bad_request' })
+  if ((env.INTEGRITY ?? 'off') === 'off') return json(404, { error: 'not_found' })
+  const now = Date.now()
+  const here = await device(request, env, installId, now)
+  if (!here) return deviceRefused()
+  // Only a keyed installation is ever given a nonce. Not a reason to start over as a new installation.
+  if (!here.proved) return json(403, { error: 'device_unproved' })
+  if (!(await allowed(env, `attest:${installId}`, 5, 3600))) return json(429, { error: 'slow_down' })
+  const nonce = here.attest_nonce
+  if (!nonce || !(here.attest_nonce_expires_at > now)) return json(409, { error: 'stale_nonce' })
+  let verdict
+  try {
+    verdict = await decodeIntegrity(env, token, fetcher)
+  } catch {
+    // Google can't say. Nothing changes: inconclusive is never held against the device.
+    return json(503, { error: 'try_again' })
+  }
+  const integrity = judgeIntegrity(verdict, env, nonce, now)
+  // Spent either way, in one statement, so the same token or nonce can't be presented twice.
+  const { meta } = await env.DB.prepare(
+    `UPDATE devices SET attest_nonce = NULL, attest_nonce_expires_at = NULL,
+       integrity = COALESCE(?1, integrity), integrity_at = CASE WHEN ?1 IS NULL THEN integrity_at ELSE ?2 END
+     WHERE id = ?3 AND attest_nonce = ?4`,
+  ).bind(integrity, now, installId, nonce).run()
+  if (meta.changes === 0) return json(409, { error: 'stale_nonce' })
+  if (integrity === null) return json(400, { error: 'integrity_mismatch' })
+  if (integrity === 'failed') {
+    const account = await ensureAccount(env, claims, now)
+    await audit(env, 'integrity_failed', installId, account.id)
+  }
+  return json(200, { integrity })
 }
 
 async function requestDeletion(request, env, fetcher) {
@@ -436,7 +613,7 @@ async function cancelDeletion(request, env, fetcher) {
 async function rtdn(request, env, fetcher) {
   // Pub/Sub push is configured with this token in its URL. Anything else is turned away.
   if (new URL(request.url).searchParams.get('token') !== env.RTDN_TOKEN) return json(403, { error: 'forbidden' })
-  const message = (await request.json().catch(() => null))?.message?.data
+  const message = (await body(request)).message?.data
   if (!message) return new Response(null, { status: 204 })
   let note
   try {
@@ -472,7 +649,15 @@ export async function housekeeping(env, fetcher, now = Date.now()) {
     try {
       await deleteFirebaseUser(a.firebase_uid, env, fetcher)
       // Reservations and installations cascade. A purchase row stays, unowned, so the subscription can bind to a new account.
-      await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(a.id).run()
+      // The last days of committed time stay with each installation, with nothing that says whose: deleting the
+      // account doesn't give the same phone its allowance back.
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO device_usage (installation_id, start_at, end_at, zone)
+           SELECT installation_id, start_at, end_at, zone FROM quota_reservations WHERE account_id = ? AND status <> 'released' AND end_at > ?`,
+        ).bind(a.id, now - LEDGER_LOOKBACK_MS),
+        env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(a.id),
+      ])
     } catch {
       // Tomorrow's run tries again.
     }
@@ -480,6 +665,10 @@ export async function housekeeping(env, fetcher, now = Date.now()) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(now),
     env.DB.prepare('DELETE FROM quota_reservations WHERE end_at < ?').bind(now - LEDGER_RETENTION_MS),
+    env.DB.prepare('DELETE FROM device_usage WHERE end_at < ?').bind(now - LEDGER_LOOKBACK_MS),
+    env.DB.prepare('DELETE FROM abuse_events WHERE created_at < ?').bind(now - ABUSE_RETENTION_MS),
+    // A device unseen for half a year has nothing left in any ledger; its key goes with it.
+    env.DB.prepare('DELETE FROM devices WHERE last_seen_at < ?').bind(now - DEVICE_RETENTION_MS),
   ])
 }
 
@@ -493,6 +682,7 @@ const ROUTES = {
   '/v1/quota/reserve': reserve,
   '/v1/quota/release': release,
   '/v1/quota/import': importLedger,
+  '/v1/device/attest': attest,
   '/v1/rtdn': rtdn,
 }
 
@@ -503,6 +693,7 @@ export default {
     const route = ROUTES[path]
     if (!route) return json(404, { error: 'not_found' })
     try {
+      if ((await rawBody(request)).length > MAX_BODY) return json(413, { error: 'too_large' })
       const ip = request.headers.get('cf-connecting-ip')
       if (path !== '/v1/rtdn' && ip && !(await allowed(env, `ip:${b64url(await sha256(ip))}`, 300, 60))) return json(429, { error: 'slow_down' })
       return await route(request, env, fetcher)

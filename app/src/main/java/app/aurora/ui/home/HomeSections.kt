@@ -493,7 +493,8 @@ private fun sessionRows(c: UsageConfig, d: ProtectData): List<Pair<String, Strin
     return listOf(
         stringResource(R.string.detail_shield) to (shield?.let { it.name + " · " + modeName(it.mode) } ?: stringResource(R.string.detail_none)),
         stringResource(R.string.detail_intent) to (intent?.let { it.name + " · " + intentSummary(it.config) } ?: stringResource(R.string.detail_none)),
-        stringResource(R.string.detail_focus) to c.focus?.task.orEmpty(),
+        // Focus says only its goal, and only when Focus is on.
+        stringResource(R.string.detail_focus) to (c.focus?.let { f -> f.goal.ifBlank { stringResource(R.string.detail_focus_no_goal) } }.orEmpty()),
         stringResource(R.string.detail_note) to c.note,
     ) + keyRows(keys, d)
 }

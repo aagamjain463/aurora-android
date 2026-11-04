@@ -243,4 +243,4 @@ fun GoalLimitDialog(current: Goal?, onPlus: () -> Unit, onDismiss: () -> Unit, o
 
 @Composable
 private fun sessionSummary(rules: Rules, c: UsageConfig): String =
-    listOfNotNull(rules.shieldOf(c)?.name, rules.intentOf(c)?.name, c.focus?.task).joinToString(" · ")
+    listOfNotNull(rules.shieldOf(c)?.name, rules.intentOf(c)?.name, c.focus?.goal?.takeIf { it.isNotBlank() }).joinToString(" · ")

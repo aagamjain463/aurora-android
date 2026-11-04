@@ -14,6 +14,7 @@ import app.aurora.protect.ActivationProblem
 import app.aurora.protect.Mode
 import app.aurora.protect.Runtime
 import app.aurora.protect.Timing
+import app.aurora.protect.quotaToday
 import app.aurora.plan.LedgerEntry
 import app.aurora.plan.Plan
 import app.aurora.syncRuns
@@ -46,6 +47,7 @@ class AccountFlowTest {
         server.offline = false
         server.denyQuota = false
         server.forgeSignature = false
+        server.tamper = { it }
         server.refuseWith = null
         server.requests.clear()
         identity.tokens.clear()
@@ -102,7 +104,7 @@ class AccountFlowTest {
         ready()
         server.requests.clear()
         var calls = 0
-        val api = AccountApi { _, _, _ -> if (calls++ == 0) HttpReply(401, """{"error":"unauthenticated"}""") else HttpReply(200, "{}") }
+        val api = AccountApi({ _, _, _, _ -> if (calls++ == 0) HttpReply(401, """{"error":"unauthenticated"}""") else HttpReply(200, "{}") })
         // Through the repository's own retry: same rule as every route.
         val repo = AccountRepository(identity, api, "i", "m", app.packageName, app.packageName, java.io.File(app.cacheDir, "p"), storeEntitlement = { })
         assertTrue(repo.release("r"))
@@ -345,7 +347,7 @@ class AccountFlowTest {
         assertTrue(run.carried)
         assertFalse(run.name.contains("Evening"))
         assertEquals(listOf("com.example.app"), run.shield?.keys)
-        assertTrue("B's ledger is B's", app.runtime.value!!.ledger.isEmpty())
+        assertEquals("the phone's committed time comes along, and only that", 1, app.runtime.value!!.ledger.size)
         val snapshot = app.policySnapshot(emptySet(), emptyMap())
         assertNotNull(snapshot)
     }
@@ -439,6 +441,48 @@ class AccountFlowTest {
         assertEquals(1, app.runtime.value!!.runs.size)
         assertTrue(app.rules.value!!.motivations.isEmpty())
         assertNull(app.vault.owner())
+    }
+
+    private fun remainingHere() = app.runtime.value!!.quotaToday(Plan.Free, app.now(), java.time.ZoneId.systemDefault()).remainingMs!!
+
+    @Test
+    fun switchingAccountsDoesntRefillThePhonesAllowance() = flow {
+        ready()
+        assertNull(app.activate(blocking(), Timing.Now(110)))
+        val left = remainingHere()
+        assertTrue(left < 120 * 60_000L)
+        identity.signOut()
+        identity.signIn("second")
+        waitForOwner("second")
+        assertEquals("B has what the phone has left", left, remainingHere())
+        identity.signOut()
+        identity.signIn(TestUid)
+        waitForOwner(TestUid)
+        assertEquals("and switching back resets nothing", left, remainingHere())
+    }
+
+    @Test
+    fun anAuthorizationForAnotherPhoneOrCommitmentStartsNothing() = flow {
+        ready()
+        server.tamper = { it.replace("\"installId\":\"${account.installId}\"", "\"installId\":\"another-phone\"") }
+        assertEquals(ActivationProblem.NeedsConnection, app.activate(blocking(), Timing.Now(30))?.problem)
+        server.tamper = { it.replace(Regex("\"commitmentId\":\"[^\"]+\""), "\"commitmentId\":\"another-commitment\"") }
+        assertEquals(ActivationProblem.NeedsConnection, app.activate(blocking(), Timing.Now(30))?.problem)
+        server.tamper = { it.replace("\"uid\":\"$TestUid\"", "\"uid\":\"someone-else\"") }
+        assertEquals(ActivationProblem.NeedsConnection, app.activate(blocking(), Timing.Now(30))?.problem)
+        assertTrue(app.runtime.value!!.runs.isEmpty())
+        assertTrue(app.runtime.value!!.ledger.isEmpty())
+    }
+
+    @Test
+    fun anInstallationTheServerNoLongerAcceptsStartsOverAsANewOne() = flow {
+        ready()
+        val file = java.io.File(app.noBackupFilesDir, "install_id")
+        assertTrue(file.exists())
+        server.refuseWith = 403 to "device_proof_required"
+        assertFalse(account.sync())
+        assertFalse("the next start makes a new install id and key", file.exists())
+        assertTrue("the sign-in is untouched", identity.state.value is AuthState.SignedIn)
     }
 
     @Test

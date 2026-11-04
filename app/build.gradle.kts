@@ -91,6 +91,8 @@ android {
         // The account service (server/). Empty: nobody can sign in to anything server-controlled on this build.
         buildConfigField("String", "SERVER_URL", JsonOutput.toJson(authConfiguration.getValue("serverUrl")))
         buildConfigField("String", "ENTITLEMENT_PUBLIC_KEY", JsonOutput.toJson(authConfiguration.getValue("entitlementPublicKey")))
+        // Play Integrity's Google Cloud project number (docs/ANTI_ABUSE.md). 0: this build never asks for a verdict.
+        buildConfigField("long", "PLAY_CLOUD_PROJECT_NUMBER", "${providers.gradleProperty("aurora.playCloudProjectNumber").getOrElse("0").toLong()}L")
         // The Firebase project. These identify the app and aren't secrets, so they may ship in the APK
         // (docs/ACCOUNT_SYSTEM.md). Set them in ~/.gradle/gradle.properties. Empty: sign-in says it isn't set up.
         fun property(name: String) = authConfiguration[name.removePrefix("aurora.")] ?: providers.gradleProperty(name).getOrElse("")
@@ -181,6 +183,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.billing)
+    implementation(libs.play.integrity)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.androidx.credentials)

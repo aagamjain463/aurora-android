@@ -39,7 +39,7 @@ the entitlement system enforces them. [`ROADMAP.md`](ROADMAP.md) says when each 
 | --- | --- |
 | Active Shield targets (apps and websites combined, unique) | 5 |
 | Active Intent apps (unique) | 3 |
-| Cooldown and Always Block Shields | 120 minutes per local calendar day, shared |
+| Cooldown and Always Block Shields | 120 minutes per local calendar day, shared by the account's devices and by the accounts on one phone (ANTI_ABUSE.md) |
 | Active Goals | 1 |
 | Flexible and Friction Shields | Unlimited |
 | Saved Shield and Intent presets | Unlimited, within the active-target limits |

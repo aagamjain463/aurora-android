@@ -19,33 +19,25 @@ Never delete or modify user data without verifying ownership of the associated a
 
 ## 2. Execute Cloudflare D1 Deletion
 
-Once verified, schedule or immediately execute the deletion in Cloudflare D1:
+Use the server's own deletion path, so the purge does what the app's does: installations and reservations go with
+the account, and only the anonymous last days of committed time stay with each installation (`docs/ANTI_ABUSE.md`).
+Deleting rows by hand would hand that phone a fresh Free allowance, and leave orphaned data behind.
 
 ```sh
 cd server
 
-# Find the account record:
-npx wrangler d1 execute aurora-production --command="SELECT id, email, tier FROM accounts WHERE email = 'user@example.com';"
+# Find the account (D1 database "aurora", schema in migrations/):
+npx wrangler d1 execute aurora --remote --command="SELECT id, firebase_uid, status FROM accounts WHERE email = 'user@example.com';"
 
-# Obtain the user ID (e.g., 'usr_12345').
+# Standard: start the 30-day grace period, exactly as Settings does.
+npx wrangler d1 execute aurora --remote --command="
+  UPDATE accounts SET status = 'deletion_requested', deletion_requested_at = COALESCE(deletion_requested_at, unixepoch('now') * 1000)
+  WHERE id = '<account id>';"
 
-# Schedule standard 30-day grace period deletion:
-npx wrangler d1 execute aurora-production --command="
-  INSERT INTO deletion_requests (uid, requested_at, delete_at)
-  VALUES ('usr_12345', unixepoch('now') * 1000, (unixepoch('now') + 30 * 86400) * 1000)
-  ON CONFLICT(uid) DO UPDATE SET requested_at = excluded.requested_at, delete_at = excluded.delete_at;
-"
-
-# OR execute immediate purge (if requested explicitly under GDPR / CCPA right to erasure):
-npx wrangler d1 execute aurora-production --command="
-  DELETE FROM quota_reservations WHERE uid = 'usr_12345';
-  DELETE FROM quota_ledger WHERE uid = 'usr_12345';
-  DELETE FROM purchase_transfers WHERE old_uid = 'usr_12345' OR new_uid = 'usr_12345';
-  DELETE FROM purchases WHERE uid = 'usr_12345';
-  DELETE FROM installations WHERE uid = 'usr_12345';
-  DELETE FROM deletion_requests WHERE uid = 'usr_12345';
-  DELETE FROM accounts WHERE id = 'usr_12345';
-"
+# Immediate (an explicit erasure request): backdate the request; the next daily run (03:17 UTC) deletes the
+# Firebase user and the account.
+npx wrangler d1 execute aurora --remote --command="
+  UPDATE accounts SET status = 'deletion_requested', deletion_requested_at = 0 WHERE id = '<account id>';"
 ```
 
 ---

@@ -310,11 +310,12 @@ test('a duplicate request returns the first reservation, and creates nothing', a
   assert.equal(w.DB.rows("SELECT * FROM quota_reservations WHERE idempotency_key = 'same'").length, 1)
 })
 
-test('each account has its own ledger', async () => {
+test('each account has its own ledger, and one phone has one allowance', async () => {
   const w = world()
   await reserve(w, 'alice', 120)
-  assert.equal((await reserve(w, 'bob', 120)).body.allowed, true)
+  assert.equal((await reserve(w, 'bob', 120, { installId: 'bobs-phone' })).body.allowed, true)
   assert.equal(await remaining(w, 'bob'), 0)
+  assert.equal(await remaining(w, 'carol'), 0, 'alice already used this phone\'s day')
 })
 
 test('changing time zone doesn\'t open a new allowance', async () => {
@@ -379,7 +380,8 @@ test('deletion needs a recent sign-in, can be cancelled, then purges after the g
   await reserve(w, 'bob', 5)
   const old = Math.floor(Date.now() / 1000) - 3600
   assert.equal((await w.call('/v1/account/delete', idToken('alice', { auth_time: old }), {})).body.error, 'reauth_required')
-  assert.ok((await w.call('/v1/account/delete', idToken('alice'), {})).body.deletionAt > Date.now())
+  const { deletionAt } = (await w.call('/v1/account/delete', idToken('alice'), {})).body
+  assert.ok(Math.abs(deletionAt - (Date.now() + 30 * 86_400_000)) < 60_000, 'the 30 days the privacy policy promises')
   assert.ok((await sync(w, 'alice')).body.account.deletionRequestedAt)
   assert.equal((await reserve(w, 'alice', 5)).body.error, 'account_deleting')
 
@@ -389,7 +391,9 @@ test('deletion needs a recent sign-in, can be cancelled, then purges after the g
   await w.call('/v1/account/delete', idToken('alice'), {})
   await housekeeping(w.env, w.fetcher)
   assert.equal(w.state.deleted.length, 0, 'not before the grace period')
-  await housekeeping(w.env, w.fetcher, Date.now() + 8 * 86_400_000)
+  await housekeeping(w.env, w.fetcher, Date.now() + 29 * 86_400_000)
+  assert.equal(w.state.deleted.length, 0, 'still inside the 30 days')
+  await housekeeping(w.env, w.fetcher, Date.now() + 31 * 86_400_000)
   assert.deepEqual(w.state.deleted, ['alice'])
   assert.equal(w.DB.rows("SELECT * FROM accounts WHERE firebase_uid = 'alice'").length, 0)
   assert.equal(w.DB.rows("SELECT * FROM installations WHERE id = 'i1'").length, 1, 'bob\'s remains')

@@ -200,13 +200,27 @@ class RulesTest {
     }
 
     @Test
-    fun reflectionContinuesInsteadOfRestarting() {
-        val (r1, start) = Runtime().reflectionFor("k", 1_000)
-        val (r2, again) = r1.reflectionFor("k", 1_000 + 30_000)
-        assertEquals(start, again)
-        assertEquals(r1, r2)
-        val (_, fresh) = r2.reflectionFor("k", 1_000 + Runtime.ReflectionReuseMs + 1)
-        assertEquals(1_000 + Runtime.ReflectionReuseMs + 1, fresh)
+    fun intentStateEndsWithItsSession() {
+        val t = DeviceTime(at("2026-11-02T10:00"), 0, 1)
+        val run = ConfigRun(
+            "r", "c", "Session",
+            intent = IntentPreset("i", "Intent", listOf("com.app1")),
+            start = t.wall - min, end = t.wall + 30 * min,
+        )
+        val used = IntentUse(15 * min, usedMs = 5 * min, expiry = IntentExpiry.Cooldown, cooldownMinutes = 10)
+        val runtime = Runtime(
+            runs = listOf(run),
+            intentUses = mapOf("com.app1" to used),
+            intentCooldowns = mapOf("com.app1" to t.wall + 10 * min),
+        )
+        val during = policyState(list, Rules(), runtime, Plan.Plus, emptySet(), emptyMap(), t, zone)!!
+        assertEquals(setOf("com.app1"), during.intentUses.keys)
+        assertEquals(setOf("com.app1"), during.intentCooldowns.keys)
+        // The timer and cooldown cannot outlive the run that asked for the app.
+        val after = t.copy(wall = t.wall + 31 * min, elapsed = t.elapsed + 31 * min)
+        val ended = policyState(list, Rules(), runtime, Plan.Plus, emptySet(), emptyMap(), after, zone)!!
+        assertTrue(ended.intentUses.isEmpty())
+        assertTrue(ended.intentCooldowns.isEmpty())
     }
 
     @Test

@@ -50,6 +50,10 @@ class AccountRepository(
     private val pendingEmailFile: File,
     private val storeEntitlement: suspend (SignedEntitlement) -> Unit,
     private val wallClock: () -> Long = System::currentTimeMillis,
+    /** A Play Integrity token for a nonce, or null when there is none (DeviceCredential.kt). */
+    private val integrityToken: suspend (nonce: String) -> String? = { null },
+    /** The server won't accept this install id any more: the next start begins a new installation. */
+    private val onDeviceRefused: () -> Unit = {},
 ) {
     val state: StateFlow<AuthState> get() = identity.state
     val serverConfigured: Boolean get() = api != null
@@ -95,6 +99,7 @@ class AccountRepository(
         when {
             result == null || (result is ApiResult.Refused && result.status == 401 && result.code in setOf("unauthenticated", "revoked")) -> endSession(SessionEnd.Expired)
             result is ApiResult.Refused && result.code == "installation_removed" -> endSession(SessionEnd.DeviceRemoved)
+            result is ApiResult.Refused && result.code == "device_proof_required" -> onDeviceRefused()
         }
         return result ?: ApiResult.Refused(401, "revoked")
     }
@@ -112,10 +117,17 @@ class AccountRepository(
                 _remote.value = r.value
                 lastSync = wallClock()
                 storeEntitlement(r.value.entitlement)
+                r.value.device?.attestNonce?.let { attest(it) }
                 true
             }
             else -> false
         }
+    }
+
+    /** Answers the server's occasional Play Integrity check. No token, or no answer, changes nothing. */
+    private suspend fun attest(nonce: String) {
+        val token = integrityToken(nonce) ?: return
+        authed { server, t -> server.attest(t, installId, token) }
     }
 
     /** Coming back to the app after a while. */

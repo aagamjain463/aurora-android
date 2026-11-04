@@ -4,11 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -17,7 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -36,7 +33,6 @@ import app.aurora.ui.components.ArtTier
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraScreen
-import app.aurora.ui.components.AuroraSwitch
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.Chip
@@ -110,7 +106,7 @@ fun IntentEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Uni
     // A new preset keeps one id for the whole flow, however often the screen recomposes.
     val fresh = rememberSaveable { newId() }
     val existing = id?.let { i -> d.rules.intentPresets.find { it.id == i } }
-    IntentEditor(vm, existing ?: IntentPreset(fresh, "", createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
+    IntentEditor(vm, existing ?: IntentPreset(fresh, "", config = IntentConfig(reflectionSeconds = 5), createdAt = System.currentTimeMillis()), onBack, onSaved, startStep)
     app.aurora.ui.protect.LimitNoticeDialog(vm, onPlus)
 }
 
@@ -124,20 +120,16 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
     var name by rememberSaveable(initial.id) { mutableStateOf(initial.name) }
     var keys by rememberSaveable(initial.id) { mutableStateOf(initial.keys) }
     var pause by rememberSaveable(initial.id) { mutableIntStateOf(c0.reflectionSeconds) }
-    var reason by rememberSaveable(initial.id) { mutableStateOf(c0.reason) }
-    var alternative by rememberSaveable(initial.id) { mutableStateOf(c0.alternative) }
-    var confirm by rememberSaveable(initial.id) { mutableStateOf(c0.confirmContinue) }
-    var usage by rememberSaveable(initial.id) { mutableStateOf(c0.defaultUsageMinutes) }
     var expiry by rememberSaveable(initial.id) { mutableStateOf(c0.expiry) }
     var cooldown by rememberSaveable(initial.id) { mutableStateOf<Int?>(c0.cooldownMinutes) }
-    var fresh by rememberSaveable(initial.id) { mutableStateOf(c0.freshEachOpen) }
     var query by rememberSaveable { mutableStateOf("") }
     var step by rememberSaveable { mutableStateOf(IntentStep.entries[startStep]) }
 
     val steps = IntentStep.entries
     val index = steps.indexOf(step)
     val back = { if (index == 0) onBack() else step = steps[index - 1] }
-    val config = IntentConfig(reason.trim(), alternative.trim(), pause, true, usage, expiry, cooldown ?: c0.cooldownMinutes, fresh, confirm)
+    // No reason, alternative or default time: the pause is the one thing set here, and the time is chosen at every opening.
+    val config = IntentConfig(reflectionSeconds = pause, expiry = expiry, cooldownMinutes = cooldown ?: c0.cooldownMinutes, confirmContinue = c0.confirmContinue)
     val canNext = when (step) {
         IntentStep.Name -> name.isNotBlank()
         IntentStep.Apps -> keys.isNotEmpty()
@@ -184,36 +176,11 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
             IntentStep.Reflect -> {
                 stepTitle(R.string.intent_reflection_title, R.string.intent_reflection_hint)
                 item(key = "pause") { SecondsPicker(pause) { pause = it } }
-                item(key = "reason") {
-                    Column(Modifier.padding(top = Space.S), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                        Text(stringResource(R.string.intent_reason_title), color = colors.textPrimary, style = AuroraType.Title)
-                        AuroraTextField(reason, { reason = it.take(140) }, stringResource(R.string.intent_reason_placeholder), capitalization = KeyboardCapitalization.Sentences, singleLine = false)
-                        Text(stringResource(R.string.intent_alternative_title), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title)
-                        AuroraTextField(alternative, { alternative = it.take(140) }, stringResource(R.string.intent_alternative_placeholder), capitalization = KeyboardCapitalization.Sentences, singleLine = false)
-                    }
-                }
-                item(key = "confirm") {
-                    Row(
-                        Modifier.padding(top = Space.S).fillMaxWidth().auroraSurface(colors).toggleableRow(confirm) { confirm = it }.padding(Space.M),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Space.M),
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(stringResource(R.string.intent_confirm_title), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                            Text(stringResource(R.string.intent_confirm_hint), color = colors.textSecondary, style = AuroraType.Secondary)
-                        }
-                        AuroraSwitch(confirm)
-                    }
-                }
             }
             IntentStep.Time -> {
                 stepTitle(R.string.intent_usage_title, R.string.intent_usage_body)
-                item(key = "usage") {
-                    DurationPicker(usage, { usage = it }, listOf(5, 10, 15, 30), title = stringResource(R.string.intent_default_title), hint = stringResource(R.string.intent_default_hint), max = 8 * 60)
-                }
-                if (usage != null) item(key = "clear") { AuroraButton(stringResource(R.string.intent_default_clear), { usage = null }, kind = ButtonKind.Quiet) }
-                // What happens when that time runs out, on the same step.
-                item(key = "after-title") { Text(stringResource(R.string.intent_expiry_title), Modifier.padding(top = Space.L), color = colors.textPrimary, style = AuroraType.Title) }
+                // What happens when the time chosen at the opening runs out.
+                item(key = "after-title") { Text(stringResource(R.string.intent_expiry_title), Modifier.padding(top = Space.S), color = colors.textPrimary, style = AuroraType.Title) }
                 item(key = "reminder") { ChoiceCard(stringResource(R.string.intent_expiry_reminder), stringResource(R.string.intent_expiry_reminder_desc), expiry == IntentExpiry.Reminder, { expiry = IntentExpiry.Reminder }) }
                 item(key = "cooldown") { ChoiceCard(stringResource(R.string.intent_expiry_cooldown), stringResource(R.string.intent_expiry_cooldown_desc), expiry == IntentExpiry.Cooldown, { expiry = IntentExpiry.Cooldown }) }
                 if (expiry == IntentExpiry.Cooldown) {
@@ -221,19 +188,6 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
                         DurationPicker(cooldown, { cooldown = it }, IntentCooldownPresets, Modifier.padding(top = Space.S), title = stringResource(R.string.intent_cooldown_title), hint = stringResource(R.string.intent_cooldown_hint), max = 12 * 60)
                     }
                     item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.violetText, style = AuroraType.BodyStrong) }
-                }
-                item(key = "fresh") {
-                    Row(
-                        Modifier.padding(top = Space.S).fillMaxWidth().auroraSurface(colors).toggleableRow(fresh) { fresh = it }.padding(Space.M),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Space.M),
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(stringResource(R.string.intent_fresh_title), color = colors.textPrimary, style = AuroraType.BodyStrong)
-                            Text(stringResource(R.string.intent_fresh_hint), color = colors.textSecondary, style = AuroraType.Secondary)
-                        }
-                        AuroraSwitch(fresh)
-                    }
                 }
             }
             IntentStep.Review -> {
@@ -251,6 +205,3 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
         }
     }
 }
-
-private fun Modifier.toggleableRow(value: Boolean, onChange: (Boolean) -> Unit) =
-    toggleable(value, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onChange)

@@ -1,17 +1,18 @@
 // A real SQL database behind the D1 API (node:sqlite), real RSA keys, and Google's endpoints faked at the fetch boundary.
 import { DatabaseSync } from 'node:sqlite'
 import { generateKeyPairSync, createSign, createVerify, createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import worker from '../src/worker.js'
 
-const MIGRATION = readFileSync(new URL('../migrations/0001_accounts.sql', import.meta.url), 'utf8')
+const dir = new URL('../migrations/', import.meta.url)
+const MIGRATIONS = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().map((f) => readFileSync(new URL(f, dir), 'utf8'))
 const tick = () => new Promise((r) => setImmediate(r))
 
 export class FakeD1 {
   constructor() {
     this.db = new DatabaseSync(':memory:')
     this.db.exec('PRAGMA foreign_keys = ON')
-    this.db.exec(MIGRATION)
+    for (const m of MIGRATIONS) this.db.exec(m)
   }
   prepare(sql) {
     const db = this.db
@@ -88,7 +89,7 @@ export function idToken(uid, over = {}, { key = firebaseKey.privateKey, kid = KI
 export const verifySignature = ({ payload, signature }) => createVerify('RSA-SHA256').update(payload).verify(signing.publicKey, signature, 'base64')
 
 export function world() {
-  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0 }
+  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, verdict: null, integrityDown: false, decoded: [] }
   const fetcher = async (url, init) => {
     const u = String(url)
     if (u.includes('/jwk/securetoken')) {
@@ -106,6 +107,12 @@ export function world() {
       state.deleted.push(JSON.parse(init.body).localId)
       return new Response('{}')
     }
+    if (u.includes('playintegrity.googleapis.com')) {
+      if (state.integrityDown) return new Response('{}', { status: 500 })
+      const token = JSON.parse(init.body).integrity_token
+      state.decoded.push(token)
+      return new Response(JSON.stringify({ tokenPayloadExternal: state.verdict?.(token) ?? {} }))
+    }
     if (u.includes('subscriptionsv2')) {
       if (state.playDown) return new Response('{}', { status: 500 })
       const token = decodeURIComponent(u.split('/tokens/')[1])
@@ -120,11 +127,11 @@ export function world() {
     DB, PACKAGE_NAME: 'app.aurora', PRODUCT_IDS: IDS.join(','), FIREBASE_PROJECT_ID: PROJECT, ENVIRONMENT: 'production',
     GOOGLE_SERVICE_ACCOUNT: account, FIREBASE_SERVICE_ACCOUNT: account, SIGNING_KEY: der(signing.privateKey), RTDN_TOKEN: 'secret',
   }
-  const call = async (path, token, body = {}) => {
+  const call = async (path, token, body = {}, headers = {}) => {
     const res = await worker.fetch(new Request(`https://x${path}`, {
       method: 'POST',
-      headers: token ? { authorization: `Bearer ${token}` } : {},
-      body: JSON.stringify(body),
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
     }), env, null, fetcher)
     const text = await res.text()
     return { status: res.status, body: text ? JSON.parse(text) : null }
@@ -136,3 +143,20 @@ export const FUTURE = () => new Date(Date.now() + 30 * 86_400_000).toISOString()
 export const PAST = () => new Date(Date.now() - 86_400_000).toISOString()
 export const activeSub = (over = {}) => ({ subscriptionState: 'SUBSCRIPTION_STATE_ACTIVE', lineItems: [{ productId: IDS[0], expiryTime: FUTURE(), autoRenewingPlan: { autoRenewEnabled: true } }], ...over })
 export const sha256Hex = (v) => createHash('sha256').update(v).digest('hex')
+
+/** A phone's Keystore key, as the app makes it: ECDSA P-256, signatures in DER. */
+export function deviceKey() {
+  const pair = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+  const publicKey = pair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
+  const proof = (path, token, raw) => {
+    const message = `aurora-device-v1\n${path}\n${sha256Hex(token)}\n${sha256Hex(raw)}`
+    return { 'x-aurora-device-key': publicKey, 'x-aurora-device-signature': createSign('SHA256').update(message).sign(pair.privateKey).toString('base64') }
+  }
+  return { publicKey, proof }
+}
+
+/** [call], signed by [key] the way the app signs. */
+export const signedCall = (w, key, path, token, body = {}) => {
+  const raw = JSON.stringify(body)
+  return w.call(path, token, raw, key.proof(path, token, raw))
+}

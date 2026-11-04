@@ -47,7 +47,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
  */
 class OverlayShieldPresenter(
     private val service: AccessibilityService,
-    private val content: @Composable (request: ShieldRequest, close: (home: Boolean) -> Unit) -> Unit,
+    private val content: @Composable (request: ShieldRequest, close: (ShieldClose) -> Unit) -> Unit,
 ) : ShieldPresenter {
     private val windows = service.getSystemService(WindowManager::class.java)
     private val audio = service.getSystemService(AudioManager::class.java)
@@ -58,8 +58,8 @@ class OverlayShieldPresenter(
     private var host: Host? = null
     private val request = mutableStateOf<ShieldRequest?>(null)
 
-    /** Called when the person closed the Shield: [home] true for the home screen, false for access granted. */
-    var onClosed: (home: Boolean) -> Unit = {}
+    /** Called when the person closed the Shield, with what they went on to do ([ShieldClose]). */
+    var onClosed: (ShieldClose) -> Unit = {}
 
     /** True while the overlay window is attached: the Shield is really on screen, not just requested. */
     val showing: Boolean get() = host?.view?.isAttachedToWindow == true
@@ -70,7 +70,7 @@ class OverlayShieldPresenter(
             if (request.fresh) timeFirstFrame(host!!, request)
             return true
         }
-        val h = Host(service) { close(home = true) }
+        val h = Host(service) { close(ShieldClose.Home) }
         h.view.addView(ComposeView(service).apply {
             setContent { this@OverlayShieldPresenter.request.value?.let { content(it, ::close) } }
         })
@@ -135,11 +135,13 @@ class OverlayShieldPresenter(
      */
     var leaveAction: (key: String) -> Int? = { AccessibilityService.GLOBAL_ACTION_HOME }
 
-    /** The person closed the Shield: out (see [leaveAction]), or into the app they were just granted. */
-    private fun close(home: Boolean) {
-        if (home) request.value?.let { leaveAction(it.packageName) }?.let(service::performGlobalAction)
+    /** The person closed the Shield: out (see [leaveAction]) when they left, otherwise into the app. */
+    private fun close(how: ShieldClose) {
+        // Take the overlay down first: a Back must reach the app underneath, not this window.
+        val action = if (how == ShieldClose.Home) request.value?.let { leaveAction(it.packageName) } else null
         dismiss()
-        onClosed(home)
+        action?.let(service::performGlobalAction)
+        onClosed(how)
     }
 
     /** One overlay window: its view and the owners Compose expects from an activity. Also used by [ContentService]'s cover. */

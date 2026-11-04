@@ -147,11 +147,14 @@ class ScreenshotTest(private val variant: Variant) {
             compose.onAllNodesWithText("Succeeded").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen == "track_goals") compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("Create a Goal").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Create a Habit").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen == "track_usage" || screen == "insights") compose.waitUntil(5_000) {
             compose.onAllNodesWithText("since midnight", substring = true).fetchSemanticsNodes().isNotEmpty() ||
                 compose.onAllNodesWithText("See where your time goes").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (screen == "habit_history") compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Read every day").fetchSemanticsNodes().isNotEmpty()
         }
         if (screen.startsWith("shield_")) compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Photos", substring = true).fetchSemanticsNodes().isNotEmpty()
@@ -285,17 +288,31 @@ class ScreenshotTest(private val variant: Variant) {
     }
 
     @Test fun onboardingShield() {
-        runBlocking { application.preferences.setOnboardingStep(3) }
+        runBlocking { application.preferences.setOnboardingStep(app.aurora.ui.onboarding.ShieldPage) }
         capture("onboarding_shield") { OnboardingScreen(onFinish = {}) }
     }
 
-    /** Apps chosen: the third step starts the first session. */
-    @Test fun onboardingReady() {
+    /** The tour, one page per tab. */
+    @Test fun onboardingTourShield() = tour(1, "onboarding_tour_shield")
+    @Test fun onboardingTourIntent() = tour(2, "onboarding_tour_intent")
+    @Test fun onboardingTourHome() = tour(3, "onboarding_tour_home")
+    @Test fun onboardingTourTrack() = tour(4, "onboarding_tour_track")
+
+    private fun tour(step: Int, name: String) {
+        runBlocking { application.preferences.setOnboardingStep(step) }
+        capture(name) { OnboardingScreen(onFinish = {}) }
+    }
+
+    /** Habits completed move to History, with their results. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun habitHistory() {
+        library()
         runBlocking {
-            application.protection.add(app.aurora.plan.ProtectedItem.App.of("com.example.photos")!!, application.plan)
-            application.preferences.setOnboardingStep(2)
+            application.rules.update { r ->
+                r.copy(trackGoals = r.trackGoals + app.aurora.progress.Goal("done", "Read every day", GoalKind.Session, app.aurora.progress.GoalPeriod.Daily, 30, configId = "c1", createdAt = System.currentTimeMillis() - 86_400_000L * 9, status = app.aurora.progress.GoalStatus.Completed, pauses = listOf(app.aurora.progress.GoalPause(System.currentTimeMillis() - 86_400_000L))))
+            }
         }
-        capture("onboarding_ready") { OnboardingScreen(onFinish = {}) }
+        capture("habit_history") { app.aurora.ui.track.HabitHistoryScreen(onBack = {}) }
     }
 
     /** Review as a person sees it with Shield on, and with Shield off. */
@@ -383,7 +400,11 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun shieldCooldown() = capture("shield_cooldown") { ShieldContent(shield(ShieldReason.Cooldown)) { } }
 
-    @Test fun shieldIntentCooldown() = capture("shield_intent_cooldown") { ShieldContent(shield(ShieldReason.IntentCooldown)) { } }
+    /** A running Intent session, so the cooldown belongs to one and the Shield shows its timer. */
+    @Test fun shieldIntentCooldown() {
+        library(running = true)
+        capture("shield_intent_cooldown") { ShieldContent(shield(ShieldReason.IntentCooldown)) { } }
+    }
 
     private fun shield(reason: ShieldReason, until: Long? = System.currentTimeMillis() + 5_400_000) = ShieldRequest(
         "com.example.photos", reason, until, 0, 0, 0,
@@ -400,7 +421,11 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun shieldFriction() = capture("shield_friction") { ShieldContent(shield(ShieldReason.Friction)) { } }
 
-    @Test fun shieldIntent() = capture("shield_intent") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
+    /** Intent only exists inside a session: without one, the Shield says the timer ended. */
+    @Test fun shieldIntent() {
+        library(running = true)
+        capture("shield_intent") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
+    }
 
     /** A session started with the person's own reason: it shows under every Shield the session raises. */
     private fun noted() {

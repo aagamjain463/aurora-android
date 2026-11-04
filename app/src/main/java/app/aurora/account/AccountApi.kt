@@ -19,7 +19,15 @@ import java.net.URL
 @Serializable data class RemoteAccount(val id: String = "", val email: String? = null, val displayName: String? = null, val deletionRequestedAt: Long? = null)
 @Serializable data class RemoteQuota(val usedMs: Long = 0, val limitMs: Long = 0, val remainingMs: Long = 0, val resetAt: Long = 0)
 @Serializable data class RemoteDevice(val id: String = "", val label: String? = null, val registeredAt: Long = 0, val lastSeenAt: Long = 0, val current: Boolean = false)
-@Serializable data class SyncResponse(val account: RemoteAccount = RemoteAccount(), val entitlement: SignedEntitlement = SignedEntitlement(), val quota: RemoteQuota? = null, val devices: List<RemoteDevice> = emptyList())
+/** This installation as the server sees it. [attestNonce]: a Play Integrity check is due, for this nonce. */
+@Serializable data class RemoteInstallation(val proved: Boolean = false, val integrity: String = "unknown", val attestNonce: String? = null)
+@Serializable data class SyncResponse(
+    val account: RemoteAccount = RemoteAccount(),
+    val entitlement: SignedEntitlement = SignedEntitlement(),
+    val quota: RemoteQuota? = null,
+    val devices: List<RemoteDevice> = emptyList(),
+    val device: RemoteInstallation? = null,
+)
 @Serializable data class ReserveResponse(
     val allowed: Boolean = false,
     val tier: String = "free",
@@ -62,10 +70,13 @@ sealed interface ApiResult<out T> {
 
 data class HttpReply(val status: Int, val body: String)
 
-/** Sends one request. Null when the server can't be reached. */
-typealias Transport = suspend (path: String, token: String, body: String) -> HttpReply?
+/** Sends one request, with [headers] besides the token. Null when the server can't be reached. */
+typealias Transport = suspend (path: String, token: String, body: String, headers: Map<String, String>) -> HttpReply?
 
-fun httpTransport(baseUrl: String): Transport = { path, token, body ->
+/** The installation's proof for one request: headers that sign [body] for [path] under [token]. */
+typealias DeviceProof = (path: String, token: String, body: String) -> Map<String, String>
+
+fun httpTransport(baseUrl: String): Transport = { path, token, body, headers ->
     withContext(Dispatchers.IO) {
         runCatching {
             val c = URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection
@@ -77,6 +88,7 @@ fun httpTransport(baseUrl: String): Transport = { path, token, body ->
                 c.readTimeout = 12_000
                 c.setRequestProperty("Content-Type", "application/json")
                 c.setRequestProperty("Authorization", "Bearer $token")
+                headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
                 c.outputStream.use { it.write(body.toByteArray()) }
                 val status = c.responseCode
                 val stream = if (status in 200..299) c.inputStream else c.errorStream
@@ -88,9 +100,11 @@ fun httpTransport(baseUrl: String): Transport = { path, token, body ->
     }
 }
 
-class AccountApi(private val transport: Transport) {
+class AccountApi(private val transport: Transport, private val prove: DeviceProof = { _, _, _ -> emptyMap() }) {
     private suspend fun <T> call(path: String, token: String, body: JsonObject, serializer: KSerializer<T>): ApiResult<T> {
-        val reply = transport(path, token, body.toString()) ?: return ApiResult.Unreachable
+        val text = body.toString()
+        val headers = withContext(Dispatchers.Default) { runCatching { prove(path, token, text) }.getOrDefault(emptyMap()) }
+        val reply = transport(path, token, text, headers) ?: return ApiResult.Unreachable
         if (reply.status == 503 || reply.status >= 500) return ApiResult.Unreachable
         if (reply.status !in 200..299) return ApiResult.Refused(reply.status, runCatching { AuroraJson.decodeFromString(ErrorBody.serializer(), reply.body).error }.getOrDefault(""))
         return runCatching { ApiResult.Ok(AuroraJson.decodeFromString(serializer, reply.body)) }.getOrDefault(ApiResult.Unreachable)
@@ -121,6 +135,9 @@ class AccountApi(private val transport: Transport) {
             put("installId", installId)
             put("entries", JsonArray(entries.map { (start, end, zone) -> buildJsonObject { put("start", JsonPrimitive(start)); put("end", JsonPrimitive(end)); put("zone", zone) } }))
         }, Empty.serializer())
+
+    suspend fun attest(token: String, installId: String, integrityToken: String) =
+        call("/v1/device/attest", token, buildJsonObject { put("installId", installId); put("token", integrityToken) }, Empty.serializer())
 
     suspend fun removeDevice(token: String, installId: String, currentInstallId: String) =
         call("/v1/installations/remove", token, buildJsonObject { put("installId", installId); put("currentInstallId", currentInstallId) }, DevicesResponse.serializer())

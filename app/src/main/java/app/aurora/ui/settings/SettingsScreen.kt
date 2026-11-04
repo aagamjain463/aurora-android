@@ -119,7 +119,7 @@ class SettingsViewModel(val app: AuroraApplication) : ViewModel() {
     }
 }
 
-private enum class Sheet { DefaultMode, Privacy, Stored, ClearHistory, DeleteAll, Help, Licenses, Disclosure, Diagnostics }
+private enum class Sheet { WebDisclosure, DefaultMode, Privacy, Stored, ClearHistory, DeleteAll, Help, Licenses, Disclosure, Diagnostics }
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () -> Unit = {}, onPlus: () -> Unit = {}, onOpenWeb: () -> Unit = {}, onOpenStrict: () -> Unit = {}, onOpenGuide: () -> Unit = {}) {
@@ -132,8 +132,10 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
     val context = LocalContext.current
     val usageAccess = rememberAccess(Access.Usage)
     var notificationsOn by remember { mutableStateOf(true) }
+    var uninstallOn by remember { mutableStateOf(false) }
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
         notificationsOn = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+        uninstallOn = app.aurora.protect.UninstallGuard.active(context)
         onPauseOrDispose { }
     }
     val shieldAccess = rememberAccess(Access.Accessibility)
@@ -221,6 +223,20 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
             SectionLabel(stringResource(R.string.today_protection_title), Modifier.padding(top = Space.S))
             RowGroup {
                 SettingRow(
+                    title = stringResource(R.string.settings_preferred_mode_for_new_apps),
+                    icon = app.aurora.ui.protect.modeIcon(rules.defaultRule.mode),
+                    onClick = { sheet = Sheet.DefaultMode },
+                    trailing = { Value(modeName(rules.defaultRule.mode)) },
+                )
+                RowDivider(Inset)
+                SettingRow(stringResource(R.string.settings_strict_row), AuroraIcons.Lock, onClick = onOpenStrict)
+            }
+        }
+        item(key = "permissions") {
+            // Every permission Aurora can use, in one place.
+            SectionLabel(stringResource(R.string.settings_permissions))
+            RowGroup {
+                SettingRow(
                     title = stringResource(R.string.onb_shield_eyebrow),
                     subtitle = when {
                         protection == null -> Access.Accessibility.why
@@ -234,18 +250,22 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
                 )
                 RowDivider(Inset)
                 SettingRow(
-                    title = stringResource(R.string.settings_preferred_mode_for_new_apps),
-                    icon = app.aurora.ui.protect.modeIcon(rules.defaultRule.mode),
-                    onClick = { sheet = Sheet.DefaultMode },
-                    trailing = { Value(modeName(rules.defaultRule.mode)) },
+                    title = Access.Content.title,
+                    subtitle = if (contentAccess == AccessState.Granted) null else Access.Content.why,
+                    icon = AuroraIcons.Globe,
+                    onClick = { if (contentAccess == AccessState.Granted) openAccessSettings(context, Access.Content) else sheet = Sheet.WebDisclosure },
+                    trailing = { Allowed(contentAccess == AccessState.Granted) },
                 )
                 RowDivider(Inset)
-                SettingRow(stringResource(R.string.settings_strict_row), AuroraIcons.Lock, onClick = onOpenStrict)
-            }
-        }
-        item(key = "permissions") {
-            SectionLabel(stringResource(R.string.settings_permissions))
-            RowGroup {
+                SettingRow(
+                    title = stringResource(R.string.strict_admin_title),
+                    subtitle = stringResource(if (uninstallOn) R.string.strict_admin_on else R.string.strict_admin_off),
+                    icon = AuroraIcons.Trash,
+                    // Turning it off lives with Strict protection, where it is locked during a commitment.
+                    onClick = { if (uninstallOn) onOpenStrict() else runCatching { context.startActivity(app.aurora.protect.UninstallGuard.enableIntent(context)) } },
+                    trailing = { Allowed(uninstallOn) },
+                )
+                RowDivider(Inset)
                 SettingRow(
                     title = Access.Usage.title,
                     subtitle = if (usageAccess == AccessState.Revoked) stringResource(R.string.settings_turned_off_in_android_settings_insights_and_daily_limits_need_it) else null,
@@ -425,6 +445,15 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
                 openAccessSettings(context, Access.Accessibility)
             },
             onDismiss = close,
+        )
+        Sheet.WebDisclosure -> AuroraDialog(
+            title = stringResource(R.string.web_disclosure_title),
+            body = stringResource(R.string.web_disclosure_body),
+            confirmLabel = stringResource(R.string.web_open_settings),
+            onConfirm = { close(); openAccessSettings(context, Access.Content) },
+            dismissLabel = stringResource(R.string.action_not_now),
+            onDismiss = close,
+            icon = AuroraIcons.Globe,
         )
         Sheet.Diagnostics -> ShieldDiagnostics(trace = remember { ShieldService.trace.snapshot() }, onDismiss = close)
         null -> Unit

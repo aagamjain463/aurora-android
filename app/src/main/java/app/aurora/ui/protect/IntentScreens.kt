@@ -64,7 +64,7 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
 
-val ReflectionPresets = listOf(0, 5, 15, 30, 60)
+val ReflectionPresets = listOf(0, 5, 30)
 val IntentCooldownPresets = listOf(5, 15, 30, 60)
 
 @Composable
@@ -76,26 +76,33 @@ fun intentSummary(c: IntentConfig): String = listOf(
     },
 ).joinToString(" · ")
 
-/** Reflection pause: presets in seconds, and a custom number of seconds typed directly. */
+/** Reflection pause: No pause, 5 s, 30 s, or a custom number of seconds typed below the chips. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SecondsPicker(value: Int, onChange: (Int) -> Unit) {
     var custom by rememberSaveable { mutableStateOf(value !in ReflectionPresets) }
     var text by rememberSaveable { mutableStateOf(if (value !in ReflectionPresets) value.toString() else "") }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        ReflectionPresets.forEach { s -> Chip(secondsText(s), !custom && value == s) { custom = false; onChange(s) } }
-        Chip(stringResource(R.string.duration_custom), custom) { custom = true }
+    // One column with real gaps: the typed seconds never sit flush against the Custom chip.
+    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+            ReflectionPresets.forEach { s -> Chip(secondsText(s), !custom && value == s) { custom = false; onChange(s) } }
+            Chip(stringResource(R.string.duration_custom), custom) { custom = true }
+        }
+        if (custom) {
+            val n = text.toIntOrNull()
+            val valid = n != null && n in 1..600
+            Column(Modifier.padding(top = Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                AuroraTextField(
+                    text, { text = it.filter(Char::isDigit).take(3); text.toIntOrNull()?.takeIf { s -> s in 1..600 }?.let(onChange) },
+                    stringResource(R.string.intent_seconds_placeholder), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                Text(
+                    if (valid || text.isEmpty()) stringResource(R.string.intent_seconds_hint) else stringResource(R.string.intent_seconds_problem),
+                    Modifier.padding(start = 4.dp),
+                    color = if (valid || text.isEmpty()) Aurora.colors.textTertiary else Aurora.colors.danger,
+                    style = AuroraType.Caption,
+                )
+            }
+        }
     }
-    if (custom) {
-        val n = text.toIntOrNull()
-        val valid = n != null && n in 1..600
-        AuroraTextField(text, { text = it.filter(Char::isDigit).take(3); text.toIntOrNull()?.takeIf { s -> s in 1..600 }?.let(onChange) },
-            stringResource(R.string.intent_seconds_placeholder), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-        Text(
-            if (valid || text.isEmpty()) stringResource(R.string.intent_seconds_hint) else stringResource(R.string.intent_seconds_problem),
-            color = if (valid || text.isEmpty()) Aurora.colors.textTertiary else Aurora.colors.danger,
-            style = AuroraType.Caption,
-        )
-    }
-    Box(Modifier.height(0.dp))
 }
