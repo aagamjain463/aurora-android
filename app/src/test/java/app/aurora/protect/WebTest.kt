@@ -150,11 +150,14 @@ class WebTest {
     /** Card labels as YouTube 21.41 (English) writes them, from a real phone. */
     @Test fun cardsNameTheirChannel() {
         assertEquals("Veritasium", cardChannel("Fiber Optics are so much cooler than I thought – 34 minutes, 32 seconds –  – Veritasium, verified - 1.4 crore views - 3 weeks ago – play video"))
-        assertEquals("HollyGood", cardChannel("Celebrities Surprise Fans When They Least Expect It! – 17 minutes, 42 seconds – Go to channel HollyGood – HollyGood - 18 lakh views - 3 months ago – play video"))
-        assertEquals("Neon Man", cardChannel("LAFDA LAFDA LAFDA Kaashvi Vs Bigg Boss, MC Stan Vs Srushti, Salman Khan, Ramayana | – 13 minutes, 5 seconds – Go to channel Neon Man – Neon Man, verified - 5 lakh views - 18 hours ago – play video"))
+        assertEquals("HollyGood – HollyGood", cardChannel("Celebrities Surprise Fans When They Least Expect It! – 17 minutes, 42 seconds – Go to channel HollyGood – HollyGood - 18 lakh views - 3 months ago – play video"))
+        assertEquals("Neon Man – Neon Man", cardChannel("LAFDA LAFDA LAFDA Kaashvi Vs Bigg Boss, MC Stan Vs Srushti, Salman Khan, Ramayana | – 13 minutes, 5 seconds – Go to channel Neon Man – Neon Man, verified - 5 lakh views - 18 hours ago – play video"))
         assertEquals("IShowSpeed", cardChannel("HALLOWEEN SPIDER-MAN SPEED-VERSE IRL STREAM – 2 hours, 20 seconds –  – IShowSpeed, verified - 38 lakh views - Streamed 3 days ago – play video"))
         assertEquals("StarTalk", cardChannel("Is It Possible That Gravity Doesn’t Exist!?, 54 lakh views, StarTalk, 2 years ago – play Short"))
         assertEquals("Sauce +", cardChannel("Veritasium proves that sometimes you’ve gotta take a literal leap of faith, 10 lakh views, Sauce +, 2 years ago – play Short"))
+        val dashed = cardChannel("Why School Trained You to Be a Cog – 3 minutes, 13 seconds – Go to channel Ali Abdaal – Lifestyle Business Academy – Ali Abdaal – Lifestyle Business Academy - 308 views - 2 hours ago – play video")!!
+        assertTrue(fromChannels(listOf(dashed), listOf("Ali Abdaal – Lifestyle Business Academy")))
+        assertFalse(fromChannels(listOf(dashed), listOf("IShowSpeed")))
         // A channel's own shelf names no channel: left to the check when it opens.
         assertNull(cardChannel("SPIDERMAN BACKFLIP RACE!, 33 lakh views – play Short"))
         assertNull(cardChannel("Play video"))

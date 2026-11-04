@@ -97,6 +97,9 @@ const val PlayShort = " – play Short"
 fun cardChannel(label: String): String? {
     val t = label.trim()
     val name = when {
+        // After "Go to channel" the name comes twice, up to the view count: "X – X - 18 lakh views". A name can hold
+        // a dash itself ("Ali Abdaal – Lifestyle Business Academy"), so all of it is kept: matching is by whole name.
+        " – Go to channel " in t -> t.substringAfter(" – Go to channel ").substringBefore(" - ")
         t.endsWith(PlayVideo) -> t.removeSuffix(PlayVideo).split(" – ").takeIf { it.size >= 3 }?.last()?.substringBefore(" - ")
         t.endsWith(PlayShort) -> {
             val parts = t.removeSuffix(PlayShort).split(", ")
@@ -268,8 +271,6 @@ data class YouTubeScreen(
     val related: List<List<Int>> = emptyList(),
     /** What YouTube shows around the playing video or Short: its title, channel, handle. */
     val texts: List<String> = emptyList(),
-    /** The open video's row of actions (like, dislike, share) is in sight: its channel row has loaded beside it. */
-    val actionsShown: Boolean = false,
 )
 
 sealed interface YouTubeVerdict {
