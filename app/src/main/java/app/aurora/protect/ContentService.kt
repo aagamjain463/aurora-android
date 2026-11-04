@@ -38,8 +38,8 @@ import kotlin.math.abs
  *   goes back inside the app. A held-back band (Instagram posts, YouTube's recommendations) is covered;
  *   tapping the cover shows the Shield. See [instagramVerdict] and [youTubeVerdict]. Detection uses view
  *   IDs those apps can change at any update.
- * - Only chosen YouTube channels: a clear [guard] over all of YouTube judges every tap as it lands ([judgeTap]).
- *   What isn't proven safe opens nothing, so a video from another channel never opens to be taken away again.
+ * - Only chosen YouTube channels: every video and Short that opens is covered until what YouTube shows names
+ *   its channel, and it's a chosen one ([checkYouTube]). Any other is blanked, paused and sent back.
  *
  * Nothing it reads is stored, logged or sent.
  */
@@ -92,18 +92,18 @@ class ContentService : AccessibilityService() {
     /** Since when the open video's channel has been unknown, 0 when it's known. */
     private var unknownSince = 0L
     private var wasJudging = false
-    /** The open video was opened by a tap [judgeTap] let through as a chosen channel's (or the small player's). */
-    private var trustedOpen = false
-    /** When [judgeTap] last let a tap through to a chosen channel's video or the small player. Set on [taps]. */
-    @Volatile private var lastChosenTap = 0L
-    /** The small player holds a video judged to be from a chosen channel. Set on [worker], read on [taps]. */
-    @Volatile private var miniTrusted = false
     /**
-     * Only chosen channels: one clear window over all of YouTube but the playing video. Every tap is judged as it
-     * lands ([judgeTap]) and goes through only when it can't open another channel's video; swipes go through when
-     * the finger lifts. Nothing found in YouTube can be missed: what isn't proven safe does nothing.
+     * The open video was opened from a card that names a chosen channel (or is the small player's, already judged):
+     * it shows at once while its channel is confirmed. Any other waits covered and silent.
      */
-    private var guard: Cover? = null
+    private var trustedOpen = false
+    /** When a video card was last tapped in YouTube, and whether it named a chosen channel. Set on the main thread. */
+    @Volatile private var cardTapAt = 0L
+    @Volatile private var cardTapChosen = false
+    /** The last [cardTapAt] a look has acted on. */
+    private var cardTapSeen = 0L
+    /** The small player holds a video judged to be from a chosen channel. */
+    private var miniTrusted = false
     /** Aurora muted media while an open video's channel wasn't known ([hush]). */
     @Volatile private var hushed = false
     /** When Aurora last showed the player's controls (they name the channel in full screen) or closed an ad panel. */
@@ -155,7 +155,7 @@ class ContentService : AccessibilityService() {
     }
 
     private fun lookNow() {
-        val root = rootInActiveWindow
+        val root = frontRoot()
         val app = application as AuroraApplication
         val now = SystemClock.uptimeMillis()
         val pkg = root?.packageName?.toString()
@@ -178,6 +178,27 @@ class ContentService : AccessibilityService() {
         lookTries = 0
     }
 
+    /**
+     * The app in front, as its window's root. Usually the active window; but a system window can be marked active
+     * while it hides nothing: some phones (MIUI 14) leave the lock screen's empty shade marked active after
+     * unlocking, and a notification popping in at the top is a system window too. The app under it would never be
+     * looked at. So the topmost app window is taken, unless the system window covers most of the screen and shows
+     * something (the lock screen, the notification shade pulled down: covers go).
+     */
+    private fun frontRoot(): AccessibilityNodeInfo? {
+        val active = rootInActiveWindow ?: return null
+        if (active.packageName?.toString() != SystemUi) return active
+        val all = windows
+        val system = all.firstOrNull { it.isActive }?.let { Rect().also(it::getBoundsInScreen) }
+        val screen = screenBounds()
+        val coversScreen = system != null && system.width().toLong() * system.height() >= screen.width().toLong() * screen.height() * 3 / 4
+        if (coversScreen && showsAnything(active)) return active
+        return all.firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }?.root ?: active
+    }
+
+    /** Whether [root] shows any text or label (an empty scrim shows none). */
+    private fun showsAnything(root: AccessibilityNodeInfo): Boolean = nodes(root).any { it.isVisibleToUser && textOf(it) != null }
+
     private fun ui(block: () -> Unit) {
         handler.post(block)
     }
@@ -191,7 +212,7 @@ class ContentService : AccessibilityService() {
         override fun run() {
             val browser = clearing ?: return
             val now = SystemClock.uptimeMillis()
-            val root = rootInActiveWindow
+            val root = frontRoot()
             val barId = BrowserAddressBars[browser]
             when {
                 // No bar to read (a browser update changed its ID): don't press Back blindly.
@@ -223,7 +244,6 @@ class ContentService : AccessibilityService() {
             }
         }
         gate = Gate(this)
-        guard = Cover(this, onCoverTap, clear = true)
         veil = Cover(this, { _, _, _, _ -> }, translucent = true)
         connectedState.value = true
     }
@@ -250,6 +270,16 @@ class ContentService : AccessibilityService() {
                 storyOpeningUntil = now + StoryOpenMs
                 covers.forEach { it.hide() }
             }
+            // A video card was tapped: the video it opens is judged afresh, and shows at once only when the card names
+            // a chosen channel.
+            if (pkg == YouTube) {
+                val label = event.source?.let(::textOf) ?: event.contentDescription?.toString() ?: event.text.joinToString(" ")
+                if (isVideoCard(label)) {
+                    cardTapChosen = cardChannel(label)?.let { c -> chosenChannels?.let { isChosen(c, it) } } == true
+                    cardTapAt = now
+                    requestLook()
+                }
+            }
             return
         }
         // Content changes arrive in floods; one look per app every 120 ms keeps covers on what they hide.
@@ -261,7 +291,7 @@ class ContentService : AccessibilityService() {
             requestLook()
             return
         }
-        val root = rootInActiveWindow ?: return
+        val root = frontRoot() ?: return
         if (root.packageName?.toString() != pkg) return
         BrowserAddressBars[pkg]?.let { checkSite(application as AuroraApplication, pkg, root, it, now) }
     }
@@ -378,8 +408,8 @@ class ContentService : AccessibilityService() {
 
     private fun anyCover() = coversOwner() != null
 
-    /** The app the covers, catchers, guard and gate now showing are over, null when none shows. */
-    private fun coversOwner(): String? = (covers + buttonCovers + listOfNotNull(guard)).firstOrNull { it.showing }?.owner ?: gate?.owner
+    /** The app the covers, catchers and gate now showing are over, null when none shows. */
+    private fun coversOwner(): String? = (covers + buttonCovers).firstOrNull { it.showing }?.owner ?: gate?.owner
 
     /** Whether [node] is inside Instagram's row of stories or a profile's highlights. */
     private fun inStoryTray(node: AccessibilityNodeInfo): Boolean {
@@ -402,7 +432,6 @@ class ContentService : AccessibilityService() {
     private fun hideCovers() {
         covers.forEach { it.hide() }
         buttonCovers.forEach { it.hide() }
-        guard?.hide()
         gate?.hide()
     }
 
@@ -559,16 +588,7 @@ class ContentService : AccessibilityService() {
         val m = resources.displayMetrics
         val screen = if (shorts != null || feed != null || channels != null) readYouTube(root, scan) else null
         val channelShield = channelShields.firstOrNull()?.second
-        // Only chosen channels: the guard goes over YouTube first, before anything else is worked out.
         val shortsArea = if (screen?.shorts == true) YtShortsIds.firstNotNullOfOrNull { scan.shown(it).firstOrNull() }?.let(::boundsOf) else null
-        val guardArea = if (channels == null || channelShield == null) null else guardArea()
-        ui {
-            if (guardArea == null) guard?.hide()
-            else {
-                guard?.show(guardArea, YouTube, channels!!.first, channelShield!!, R.string.part_no_video, passSwipes = true, judge = ::judgeTap)
-                watchSoon()
-            }
-        }
         var revealAt: PointF? = null
         // Only chosen channels: an open video plays only once something names its channel and it's a chosen one.
         // Until then its picture is covered; a video still unknown after [UnknownMs] is held back like any other.
@@ -576,22 +596,40 @@ class ContentService : AccessibilityService() {
         // ("Recommendations are off") isn't a video.
         val shortShown = shortsArea?.let { area -> seen.any { l -> Rect.intersects(l.bounds, area) && ShortLabels.any { it in l.text.lowercase() } } } == true
         val judging = channels != null && screen != null && (screen.watch != null || shortShown)
-        // A video newly open is judged afresh. Opened by a tap the guard let through as a chosen channel's (or the
-        // small player's), it shows and sounds at once while its channel is confirmed; opened any other way (a
-        // link, a notification), it waits covered and silent.
-        if (judging && !wasJudging) {
+        // A video newly open, or a card tapped while one is open (it opens another in its place), is judged afresh.
+        // Opened from a card that names a chosen channel, or from the small player holding one, it shows and sounds
+        // at once while its channel is confirmed; opened any other way (a link, a notification, autoplay, a card that
+        // names no channel), it waits covered and silent.
+        val recentTap = now - cardTapAt < TrustedOpenMs
+        val tapped = judging && cardTapAt > cardTapSeen && recentTap
+        if (judging) cardTapSeen = cardTapAt
+        if (judging && (!wasJudging || tapped)) {
+            trustedOpen = if (recentTap) cardTapChosen else miniTrusted && !wasJudging
             videoAllowed = null
-            trustedOpen = now - lastChosenTap < TrustedOpenMs
+            videoSeen = null
         }
         wasJudging = judging
         if (judging) {
-            // An open panel (comments, a description) names other people, never the video's channel: what was seen
-            // before it opened stands. A video seen to be from a chosen channel stays so until another one opens.
+            // What names the video's channel is read while it isn't known: the topmost channel row's own words
+            // ([strongChannels]: further down, a suggestion has Subscribe buttons of its own), else an @handle. Once
+            // known it stays for that video (told apart by its length); a Short is read again on every look. An open
+            // panel (comments, a description) names other people: what was seen before it opened stands.
             val panel = screen!!.panelOpen
             if (screen.shorts) { if (!panel) videoAllowed = null }
-            else videoKey(seen)?.let { key -> if (key != videoSeen) { if (videoSeen != null) videoAllowed = null; videoSeen = key } }
-            if (!panel && (screen.shorts || videoAllowed != true)) {
-                videoChannels(screen.texts).takeIf { it.isNotEmpty() }?.let { videoAllowed = fromChannels(it, channels!!.second) }
+            else videoKey(seen)?.let { key ->
+                if (key != videoSeen) {
+                    // Another video in the same page (a suggestion, the next in a playlist): trusted only from a card
+                    // naming a chosen channel.
+                    if (videoSeen != null) {
+                        videoAllowed = null
+                        trustedOpen = recentTap && cardTapChosen
+                    }
+                    videoSeen = key
+                }
+            }
+            if (!panel && videoAllowed == null) {
+                (strongChannels(screen.texts).firstOrNull() ?: channelsNamed(screen.texts).firstOrNull())
+                    ?.let { videoAllowed = isChosen(it, channels!!.second) }
             }
             if (videoAllowed != null) unknownSince = 0L
             else if (panel) unknownSince = now
@@ -625,12 +663,7 @@ class ContentService : AccessibilityService() {
         val shortsTab = tabShield?.let {
             scan.shown("pivot_bar").firstOrNull()?.let(::pivotTabs)?.firstOrNull { textOf(it).equals("Shorts", ignoreCase = true) }?.let(::boundsOf)
         }
-        val buttons = buildList {
-            shortsTab?.let { add(Button(it, if (shorts != null) PartShorts else PartYouTubeFeed, tabShield!!, R.string.part_no_shorts)) }
-            // The player's Next video plays whatever comes next, from any channel: it does nothing either.
-            if (channelShield != null) scan.shown("player_control_next_button").firstOrNull()?.let(::boundsOf)?.takeUnless(Rect::isEmpty)
-                ?.let { add(Button(it, channels!!.first, channelShield, R.string.part_no_video)) }
-        }
+        val buttons = listOfNotNull(shortsTab?.let { Button(it, if (shorts != null) PartShorts else PartYouTubeFeed, tabShield!!, R.string.part_no_shorts) })
         // A video from another channel that opens anyway (a link, a playlist, a card that names no channel) is
         // paused and sent back at once, and the small player it shrinks into is closed.
         // Only judged once the page names its channel for certain, so it's acted on at once.
@@ -655,8 +688,8 @@ class ContentService : AccessibilityService() {
         val blank = when {
             other != null -> if (screen?.watch == null && mini != null) mini else Rect(0, statusBar, m.widthPixels, m.heightPixels)
             otherInMini -> mini
-            // Not known yet, and not opened from a guarded list: the picture is covered, the page under it (which names
-            // the channel) is not.
+            // Not known yet, and not opened from a chosen channel's card: the picture is covered, the page under it
+            // (which names the channel) is not.
             guarded -> screen!!.watch?.let { Rect(it[0], it[1], it[2], it[3]) } ?: screenBounds()
             else -> null
         }
@@ -673,12 +706,9 @@ class ContentService : AccessibilityService() {
             // Home's blank covers all of its feed, so swipes can go through: pulling down brings back the Home and
             // Subscriptions row, and nothing can be scrolled into sight.
             else keepCovers(YouTube, c?.areas.orEmpty().map(::rect), c?.key, feed, passSwipes = screen?.homeFeed != null)
-            // Only chosen channels: a Short can't be swiped to the next one, which could be anyone's.
-            val shortsGate = shortsArea?.takeIf { channels != null }
-            keepGate(YouTube, c?.gate?.let(::rect) ?: shortsGate, if (c?.gate == null && shortsGate != null) R.string.part_no_video else R.string.yt_cover_feed)
+            keepGate(YouTube, c?.gate?.let(::rect), R.string.yt_cover_feed)
             keepButtons(YouTube, buttons)
-            // Aurora's own tap goes through the guard too: it isn't the person's, and isn't judged.
-            (closeAt ?: revealAt?.takeUnless { it === NoTap })?.let { at -> covers.firstOrNull { it.showing }?.tapThrough(at, listOfNotNull(guard)) }
+            (closeAt ?: revealAt?.takeUnless { it === NoTap })?.let { at -> covers.firstOrNull { it.showing }?.tapThrough(at) }
             if (verdict !is YouTubeVerdict.Leave && blank == null) settled(now)
             when {
                 verdict is YouTubeVerdict.Leave -> present(verdict.key, (if (verdict.key == PartShorts) shorts else feed)!!, YouTube, now, says = verdict.says)
@@ -689,17 +719,11 @@ class ContentService : AccessibilityService() {
         }
     }
 
-    /** A video card in one of YouTube's lists: where it is, and the channel it names (null when it names none). */
-    private class Card(val bounds: Rect, val channel: String?)
-
     /** A labelled view YouTube shows: the node, where it is, and its text or description. */
     private class Label(val node: AccessibilityNodeInfo, val bounds: Rect, val text: String)
 
-    /** A tappable view: where it is, its label if it has one, and whether it sits in a list or is a preview playing over one. */
-    private class Tappable(val bounds: Rect, val text: String?, val inList: Boolean, val preview: Boolean)
-
     /** One look at YouTube: every labelled view in sight, every tappable one, and every view in sight by its ID. */
-    private class Scan(val labels: List<Label>, val tappables: List<Tappable>, private val ids: Map<String, List<AccessibilityNodeInfo>>) {
+    private class Scan(val labels: List<Label>, private val ids: Map<String, List<AccessibilityNodeInfo>>) {
         fun shown(id: String): List<AccessibilityNodeInfo> = ids["$YouTube:id/$id"].orEmpty()
     }
 
@@ -712,13 +736,11 @@ class ContentService : AccessibilityService() {
      */
     private fun scan(root: AccessibilityNodeInfo): Scan {
         val out = ArrayList<Label>()
-        val taps = ArrayList<Tappable>()
         val ids = HashMap<String, MutableList<AccessibilityNodeInfo>>()
-        // Each node with whether it's inside a list, and inside the layer where YouTube plays previews over a list.
-        val queue = ArrayDeque(listOf(Triple(root, false, false)))
+        val queue = ArrayDeque(listOf(root))
         var seen = 0
         while (queue.isNotEmpty() && seen < WalkMax) {
-            val (n, inList, inPreview) = queue.removeFirst()
+            val n = queue.removeFirst()
             seen++
             if (!n.isVisibleToUser) continue
             val id = n.viewIdResourceName
@@ -726,140 +748,13 @@ class ContentService : AccessibilityService() {
             val text = textOf(n)
             val bounds = boundsOf(n)
             if (text != null) out += Label(n, bounds, text)
-            if (n.isClickable && !bounds.isEmpty) taps += Tappable(bounds, text, inList, inPreview)
             if (text != null && isVideoCard(text)) continue
-            val childInList = inList || n.className?.endsWith("RecyclerView") == true
-            val childInPreview = inPreview || id == "$YouTube:id/inline_player_container"
             for (i in 0 until n.childCount) {
                 val child = if (Build.VERSION.SDK_INT >= 33) n.getChild(i, AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_HYBRID) else n.getChild(i)
-                child?.let { queue.addLast(Triple(it, childInList, childInPreview)) }
+                child?.let(queue::addLast)
             }
         }
-        return Scan(out, taps, ids)
-    }
-
-    /**
-     * Everything in sight in YouTube's lists that can open a video, with its channel (YouTube 21.41, English).
-     *
-     * Held back by default: any card-sized tappable thing in a list, and any preview playing over one, is taken for a
-     * video, whatever its label says (labels change with the screen: a Short in a landscape shelf is labelled with its
-     * title alone). Its channel comes from its own label ([cardChannel]), else a "Go to channel" button or @handle
-     * inside it, else the shelf it heads ("Latest from Veritasium") or the channel page it's on. Only one proven to be
-     * from a chosen channel opens; the rest are caught. Left alone: a channel (it opens a channel, not a video), small
-     * controls, an open panel's rows (comments) unless labelled as a video, and an open video's own details above its first suggestion.
-     */
-    private fun cardsIn(scan: Scan): List<Card> {
-        val labels = scan.labels
-        val dp = resources.displayMetrics.density
-        fun inside(outer: Rect, inner: Rect) = outer.contains(inner) && outer != inner
-        // A shelf names the cards right under its title; a channel's page (its tabs show Videos) names all of them.
-        val shelves = labels.filter { it.text.startsWith("Latest from ") }
-        val channelPage = scan.shown("tabs_bar_text_tab_view").any { textOf(it) == "Videos" }
-        val pageOwner = if (!channelPage) null else labels.filter { pageChannel(it.text) != null && !it.text.startsWith("Latest from ") }
-            .minByOrNull { it.bounds.top }?.text?.let(::pageChannel)
-        fun context(card: Rect) = shelves.firstOrNull { card.top >= it.bounds.bottom - 1 && card.top <= it.bounds.bottom + (48 * dp).toInt() }
-            ?.text?.let(::pageChannel) ?: pageOwner
-        fun innerChannel(card: Rect) = labels.firstNotNullOfOrNull { l ->
-            if (!inside(card, l.bounds)) null
-            else if (l.text.startsWith(GoToChannel)) l.text.removePrefix(GoToChannel).trim().takeIf(String::isNotEmpty)
-            else l.text.trim().takeIf { Regex("^@[\\p{L}\\p{N}._\\-]+$").matches(it) }
-        }
-        val panels = scan.shown("engagement_panel").map(::boundsOf)
-        // An open video's page: its title, channel row, comments and shop come first; only what follows is a suggestion.
-        val watchList = scan.shown("watch_list").firstOrNull()?.let(::boundsOf)
-        val firstSuggestion = labels.filter { isVideoCard(it.text) && watchList != null && Rect.intersects(it.bounds, watchList) }.minOfOrNull { it.bounds.top }
-        val channelHeads = labels.filter { l -> ChannelButtons.any { l.text.startsWith(it) } }.map { it.bounds }
-        val candidates = scan.tappables.filter { t ->
-            val b = t.bounds
-            val card = t.text?.let(::isVideoCard) == true
-            // A card labelled as a video counts anywhere (the player's suggestion when a video ends, too).
-            (card || (t.inList || t.preview) && b.width() >= 100 * dp && b.height() >= 80 * dp) &&
-                (card || t.text == null || NotVideo.none { t.text.startsWith(it) }) &&
-                // A channel result (it holds a Subscribe button) opens the channel.
-                (card || channelHeads.none { inside(b, it) }) &&
-                (card || panels.none { Rect.intersects(it, b) }) &&
-                (watchList == null || !Rect.intersects(watchList, b) || card || firstSuggestion != null && b.top >= firstSuggestion)
-        }
-        // A tappable box that holds another (a row around its cards) isn't one itself: the innermost are the cards.
-        val cards = candidates.filter { t -> t.preview || candidates.none { o -> !o.preview && inside(t.bounds, o.bounds) } }
-            .filterNot { it.preview }
-            .map { t -> Card(t.bounds, t.text?.let(::cardChannel) ?: innerChannel(t.bounds) ?: context(t.bounds)) }
-        // A preview playing over a card is that card's: it opens the same video.
-        val previews = candidates.filter { it.preview }.map { p ->
-            val under = cards.filter { Rect.intersects(it.bounds, p.bounds) }.maxByOrNull { Rect(it.bounds).let { r -> if (r.intersect(p.bounds)) r.width() * r.height() else 0 } }
-            Card(p.bounds, under?.channel)
-        }
-        return cards + previews
-    }
-
-    /** The buttons only a channel (not a video) has: a box holding one is a channel. */
-    private val ChannelButtons = listOf("Subscribe to", "Unsubscribe from", "View Channel")
-
-    /** What can't open a video, by how its label starts (English): a channel, a shelf's title, a button, a panel. */
-    private val NotVideo = listOf(
-        "Subscribe", "Unsubscribe", "View Channel", "Latest from", "Comments", "Shop", "Notify", "Description",
-        "Show more", "Show less", "Search", "Filter", "Action menu", "More actions", "Join", "Visit", "Go to channel",
-        // The Library's own playlists ("Playlist - Watch Later - Private - 11 videos") open a list, judged card by card.
-        "Playlist - ",
-    )
-
-    /** Buttons that play videos from any channel (English): they open nothing. */
-    private val PlaysAny = listOf("Play all", "Shuffle", "Play now")
-
-    /** Where the guard goes: all of YouTube between the system bars, the playing video too, but never the keyboard. */
-    private fun guardArea(): Rect {
-        val all = screenBounds()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bars = getSystemService(WindowManager::class.java).currentWindowMetrics.windowInsets
-                .getInsets(android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars())
-            all.set(all.left + bars.left, all.top + bars.top, all.right - bars.right, all.bottom - bars.bottom)
-        } else all.top = statusBarHeight()
-        windows.firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-            ?.let { Rect().also(it::getBoundsInScreen) }?.takeUnless(Rect::isEmpty)?.let { all.bottom = minOf(all.bottom, it.top) }
-        return all
-    }
-
-    /**
-     * A tap on the guard, judged on [taps] against what YouTube shows the moment it lands. Through when nothing under
-     * it can open a video, or when it's a card from a chosen channel. A card from another channel, one whose channel
-     * can't be told, and the Shorts tab keep the tap: nothing opens, and the guard says why.
-     */
-    private fun judgeTap(at: PointF, done: (Boolean) -> Unit) {
-        taps.post {
-            val chosen = chosenChannels
-            // The window in front can be another for a moment (the keyboard just closed): YouTube's own is found.
-            val root = rootInActiveWindow?.takeIf { it.packageName?.toString() == YouTube }
-                ?: windows.firstNotNullOfOrNull { w -> w.root?.takeIf { it.packageName?.toString() == YouTube } }
-            val x = at.x.toInt()
-            val y = at.y.toInt()
-            val pass = if (chosen == null || root == null) false else {
-                val scan = scan(root)
-                val under = cardsIn(scan).filter { it.bounds.contains(x, y) }
-                val pivot = scan.shown("pivot_bar").firstOrNull()?.let(::boundsOf)
-                val shortsTab = pivot != null && scan.tappables.any { it.text.equals("Shorts", ignoreCase = true) && it.bounds.contains(x, y) && pivot.contains(it.bounds) }
-                val playsAny = scan.tappables.any { t -> t.bounds.contains(x, y) && t.text?.let { l -> PlaysAny.any { l.startsWith(it, ignoreCase = true) } } == true }
-                val mini = scan.shown("floaty_bar_controls_view").firstOrNull()?.let(::boundsOf)?.contains(x, y) == true
-                // In the player, anything big enough to be a video (a suggestion when one ends, its Play now, an end
-                // screen's cards) opens nothing; its own controls are small, and the picture itself is the player.
-                val dp = resources.displayMetrics.density
-                val player = YtPlayerIds.flatMap(scan::shown).map(::boundsOf).filter { it.contains(x, y) }.maxByOrNull { it.width() * it.height() }
-                val playerVideo = player != null && scan.tappables.any { t ->
-                    val b = t.bounds
-                    b.contains(x, y) && player.contains(b) && b.width() >= 80 * dp && b.height() >= 36 * dp && b.width() * b.height() < player.width() * player.height() / 2 &&
-                        t.text?.let { l -> SafePlayerButtons.any { l.startsWith(it, ignoreCase = true) } } != true
-                }
-                // The small player floats over the list: a tap on it opens the video it plays. Only one judged to be from
-                // a chosen channel opens as it is; any other is judged again first, covered and silent.
-                when {
-                    shortsTab || playsAny -> false
-                    mini -> true.also { if (miniTrusted) lastChosenTap = SystemClock.uptimeMillis() }
-                    under.isNotEmpty() -> under.all { it.channel != null && fromChannels(listOf(it.channel), chosen) }
-                        .also { if (it) lastChosenTap = SystemClock.uptimeMillis() }
-                    else -> !playerVideo
-                }
-            }
-            ui { done(pass) }
-        }
+        return Scan(out, ids)
     }
 
     /** Pauses whatever is playing (YouTube, in front): the same as a headset's pause button. */
@@ -950,7 +845,7 @@ class ContentService : AccessibilityService() {
         }
         val texts = if (area == null) emptyList() else seen.filter { l ->
             Rect.intersects(l.bounds, area) && ChannelLabels.any { it in l.text }
-        }.map { it.text }
+        }.sortedBy { it.bounds.top }.map { it.text }
         // Home is the tab bar's first tab, Shorts its second.
         val chosenTab = pivot?.let(::pivotTabs)?.indexOfFirst(::selectedWithin)?.takeIf { it >= 0 }
         // Home has its own row of tabs (Home, Subscriptions): only its first is the feed. Like the tab bar, the row
@@ -1065,9 +960,12 @@ class ContentService : AccessibilityService() {
         private const val CollapseAd = "Collapse ad"
         /** What a Short shows around it: its channel and its buttons (English, lower case). */
         private val ShortLabels = listOf("go to channel", "subscribe", "@", "like", "share", "comment")
-        /** How long an open video may go without its channel being known before it's held back. */
-        private const val UnknownMs = 4_000L
-        /** A video that opens this soon after a guarded list was in sight was opened from it. */
+        /**
+         * How long an open video may go without its channel being known before it's held back. Meanwhile it's covered
+         * and silent (unless opened from a chosen channel's card), so a slow page never shows another channel's video.
+         */
+        private const val UnknownMs = 8_000L
+        /** A video that opens this soon after a card was tapped was opened from it. */
         private const val TrustedOpenMs = 1_500L
         /** How often Aurora brings out a hidden channel name (shows full screen's controls, closes an ad panel). */
         private const val RevealEveryMs = 900L
@@ -1087,8 +985,6 @@ class ContentService : AccessibilityService() {
         /** YouTube view IDs. They change with app updates: experimental. */
         private val YtShortsIds = listOf("reel_player_page_container", "reel_recycler", "reel_watch_player")
         private val YtPlayerIds = listOf("watch_player", "player_view", "player_fragment_container")
-        /** Big buttons in YouTube's player that open no video (English). */
-        private val SafePlayerButtons = listOf("Close", "Cancel", "Skip", "Dismiss", "Replay")
         private val YtSearchIds = listOf("search_query", "search_edit_text", "search_box")
         /** Instagram's stories row on Home and a profile's highlights. Checked against Instagram 453. */
         private val StoryTrayIds = setOf(IgId + "reels_tray_container", IgId + "highlights_tray")
@@ -1098,6 +994,7 @@ class ContentService : AccessibilityService() {
         private val IgSheetIds = listOf("bottom_sheet_container", "bottom_sheet_container_view", "bottom_sheet_drag_handle", "bottom_sheet_drag_handle_frame")
         /** How long a tapped story has to open before covers may come back over it. */
         private const val StoryOpenMs = 1_000L
+        private const val SystemUi = "com.android.systemui"
         private val connectedState = MutableStateFlow(false)
         val connected: StateFlow<Boolean> = connectedState
     }
@@ -1134,8 +1031,6 @@ private class Cover(
         pending?.also { pending = null }?.invoke()
     }
 
-    /** When set, a tap is checked again as it lands: passed through to the app, or held back. */
-    private var judge: ((PointF, (Boolean) -> Unit) -> Unit)? = null
     private val slop = ViewConfiguration.get(service).scaledTouchSlop
     private val points = ArrayList<PointF>()
     private var downAt = 0L
@@ -1161,18 +1056,9 @@ private class Cover(
                     points += PointF(e.rawX, e.rawY)
                     val moved = abs(points.last().x - points.first().x) > slop || abs(points.last().y - points.first().y) > slop
                     val duration = e.eventTime - downAt
-                    val judged = judge
                     when {
                         moved && passSwipes -> replayer.play(points.toList(), duration, moved = true)
                         moved -> Unit
-                        judged != null -> {
-                            val at = points.first()
-                            judged(at) { pass ->
-                                if (!added) return@judged
-                                if (pass) replayer.play(listOf(at), duration, moved = false)
-                                else decision?.let { onTap(key, it, owner ?: return@let, says) }
-                            }
-                        }
                         else -> decision?.let { onTap(key, it, owner ?: return@let, says) }
                     }
                     lifted()
@@ -1203,18 +1089,16 @@ private class Cover(
 
     fun show(
         bounds: Rect, owner: String, key: String, decision: Decision.Shield, @StringRes says: Int = 0, passSwipes: Boolean = false,
-        judge: ((PointF, (Boolean) -> Unit) -> Unit)? = null,
         /** A plain blank with no line: something is only being checked, not refused. */
         quiet: Boolean = false,
     ) {
         // A finger is on it: moving or taking it away now would cancel that touch (a swipe that never scrolls).
         // It stays put until the finger lifts, then catches up.
         if (touching) {
-            pending = { show(bounds, owner, key, decision, says, passSwipes, judge, quiet) }
+            pending = { show(bounds, owner, key, decision, says, passSwipes, quiet) }
             return
         }
         this.passSwipes = passSwipes
-        this.judge = judge
         this.owner = owner
         this.says = says
         this.key = key
@@ -1247,13 +1131,10 @@ private class Cover(
         }
     }
 
-    /** A real tap at [at], through this cover (and [through], whichever is on top), to the app under it. */
-    fun tapThrough(at: PointF, through: List<Cover> = emptyList()) {
-        if (added) replayer.play(listOf(at), 1L, moved = false, through = through.map { c -> { on: Boolean -> c.touchable(on) } })
+    /** A real tap at [at], through this cover, to the app under it. */
+    fun tapThrough(at: PointF) {
+        if (added) replayer.play(listOf(at), 1L, moved = false)
     }
-
-    /** Lets touches through this cover ([on] false) or catches them again. */
-    fun touchable(on: Boolean) = setTouchable(windows, view, params, on)
 
     fun hide(fade: Boolean = false) {
         if (!added) return
@@ -1391,12 +1272,7 @@ private class Replayer(
     private var echoed = false
     private var swallowing = false
 
-    /** Other overlays the gesture passes through as well. */
-    private var through: List<(Boolean) -> Unit> = emptyList()
-
-    fun play(points: List<PointF>, duration: Long, moved: Boolean, through: List<(Boolean) -> Unit> = emptyList()) {
-        this.through.forEach { it(true) }
-        this.through = through
+    fun play(points: List<PointF>, duration: Long, moved: Boolean) {
         val path = Path().apply {
             moveTo(points.first().x.coerceAtLeast(0f), points.first().y.coerceAtLeast(0f))
             if (moved) points.drop(1).forEach { lineTo(it.x.coerceAtLeast(0f), it.y.coerceAtLeast(0f)) }
@@ -1456,7 +1332,6 @@ private class Replayer(
 
     private fun touchable(on: Boolean) {
         setTouchable(windows, view, params, on)
-        through.forEach { it(on) }
     }
 }
 

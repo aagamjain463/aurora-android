@@ -184,8 +184,24 @@ class WebTest {
 
     /** From a real phone (YouTube 21.41): a commenter's @handle under a video never names its channel. */
     @Test fun theChannelRowOutranksACommentersHandle() {
-        assertEquals(listOf("IShowSpeed"), videoChannels(listOf("@IShowSpeed  ", "IShowSpeed 6.22 crore subscribers", "@HeisenbergFam", "Speed's character development is actually admirable")))
-        assertEquals(listOf("@IShowSpeed"), videoChannels(listOf("@IShowSpeed")))
+        assertEquals(listOf("IShowSpeed"), strongChannels(listOf("@IShowSpeed  ", "IShowSpeed 6.22 crore subscribers", "@HeisenbergFam", "Speed's character development is actually admirable")))
+        assertEquals(emptyList<String>(), strongChannels(listOf("@HeisenbergFam")))
+        assertEquals(listOf("@MoreKSIVideos"), channelsNamed(listOf("@MoreKSIVideos +1  ")))
+    }
+
+    /** Only the chosen channel itself: fan channels that carry its name are other channels. */
+    @Test fun aChosenChannelIsMatchedWhole() {
+        val chosen = listOf("IShowSpeed")
+        assertTrue(isChosen("IShowSpeed", chosen))
+        assertTrue(isChosen("@IShowSpeed", chosen))
+        assertTrue(isChosen("IShowSpeed, verified", chosen))
+        assertTrue(isChosen("IShowSpeed – IShowSpeed", chosen))
+        assertFalse(isChosen("IShowSpeed Clips", chosen))
+        assertFalse(isChosen("Live Speedy – Live Speedy", chosen))
+        assertFalse(isChosen("FGtheexplainer", chosen))
+        assertFalse(isChosen("NeverMissClip", chosen))
+        assertTrue(isChosen("@aliabdaal", listOf("Ali Abdaal")))
+        assertFalse(isChosen("", chosen))
     }
 
     /** From a real phone (YouTube 21.41): shelves and channel pages name the channel above their cards. */

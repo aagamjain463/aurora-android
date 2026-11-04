@@ -77,7 +77,8 @@ private val SubscriberRow = Regex("^(.+?) [\\d.,]+\\s*(?:[KMB]|lakh|crore|thousa
 fun channelsNamed(texts: List<String>): List<String> = texts.mapNotNull { text ->
     val t = text.trim()
     when {
-        Regex("^@[\\p{L}\\p{N}._\\-]+$").matches(t) -> t
+        // A video by several channels names the first: "@MoreKSIVideos +1".
+        Regex("^@[\\p{L}\\p{N}._\\-]+(?: \\+\\d+)?$").matches(t) -> t.substringBefore(" +")
         t.startsWith("Subscribe to ") -> t.removePrefix("Subscribe to ").trimEnd('.').trim().takeIf(String::isNotEmpty)
         t.startsWith("Unsubscribe from ") -> t.removePrefix("Unsubscribe from ").trimEnd('.').trim().takeIf(String::isNotEmpty)
         else -> SubscriberRow.find(t)?.groupValues?.get(1)?.trim()?.takeIf(String::isNotEmpty)
@@ -85,12 +86,24 @@ fun channelsNamed(texts: List<String>): List<String> = texts.mapNotNull { text -
 }
 
 /**
- * The open video's channel from what YouTube shows around it ([channelsNamed]): its channel row's own words (the
- * Subscribe button, the subscriber count) when they show, an @handle only when nothing else does. A lone @handle can
- * be a commenter's.
+ * The channels [texts] name by the channel row's own words: the Subscribe button or the subscriber count, never an
+ * @handle alone (it can be a commenter's). They change the moment another video opens in the same page.
  */
-fun videoChannels(texts: List<String>): List<String> =
-    channelsNamed(texts.filterNot { it.trim().startsWith("@") }).ifEmpty { channelsNamed(texts) }
+fun strongChannels(texts: List<String>): List<String> = channelsNamed(texts.filterNot { it.trim().startsWith("@") })
+
+/** A channel name or handle reduced to its letters and digits: "@IShowSpeed", "ishowspeed" and "I Show Speed" agree. */
+private fun channelId(name: String): String =
+    name.trim().removeSuffix(", verified").removeSuffix(", Official Artist Channel").lowercase().filter(Char::isLetterOrDigit)
+
+/**
+ * Whether [channel] (a name YouTube shows, or a handle) is one of [chosen], as a whole: "IShowSpeed Clips" and
+ * "Live Speedy" are other channels. A card's "Go to channel" part names it twice ("X – X"); that counts as X.
+ */
+fun isChosen(channel: String, chosen: List<String>): Boolean {
+    val whole = channelId(channel)
+    val twice = channel.split(" – ").takeIf { it.size == 2 && channelId(it[0]) == channelId(it[1]) }?.let { channelId(it[0]) }
+    return chosen.map(::channelId).filter(String::isNotEmpty).any { it == whole || it == twice }
+}
 
 /** How a video card's label ends in YouTube's lists (YouTube 21.41, English). */
 const val PlayVideo = " – play video"

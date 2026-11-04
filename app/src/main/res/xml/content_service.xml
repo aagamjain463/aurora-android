@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The optional Web & content Shield. Separate from Shield so it is never on unless the person turns it on.
-     Only the listed browsers and apps send events. It reads view IDs and the browser's address field, and where the
-     keyboard is (so nothing of Aurora's ever sits over it);
+     Only the listed browsers and apps send events. It reads view IDs and the browser's address field, and which window
+     is in front (some phones leave an empty system window marked active);
      it never stores, logs or sends what it sees. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
