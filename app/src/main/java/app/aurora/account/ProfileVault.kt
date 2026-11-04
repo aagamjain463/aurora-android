@@ -54,7 +54,8 @@ class ProfileVault(private val store: DataStore<Preferences>, private val dir: F
         val rtRaw = p[runtimeKey]
         if (!hasContent(rtRaw)) return false
         val rt = runCatching { AuroraJson.decodeFromString(app.aurora.protect.Runtime.serializer(), rtRaw!!) }.getOrNull() ?: return true
-        return rt.runs.any { !it.carried } || rt.sessions.isNotEmpty() || rt.ledger.isNotEmpty()
+        // The ledger alone is this phone's committed time, carried across accounts: it isn't anybody's to keep.
+        return rt.runs.any { !it.carried } || rt.sessions.isNotEmpty()
     }
 
     private fun hasContent(raw: String?) = !raw.isNullOrBlank() && raw != "{}" && raw != "[]"

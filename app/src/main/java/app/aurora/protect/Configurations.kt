@@ -239,8 +239,16 @@ fun Rules.requestedIntent(now: Long, zone: ZoneId): List<String> =
  * This is computed, never stored, so a downgrade is one idempotent function of the plan and the saved
  * configuration: it survives process death, deletes nothing, and renewing restores everything at once.
  */
-fun Rules.retainedShield(plan: Plan, now: Long, zone: ZoneId): Set<String>? =
-    if (limit(plan, Allowance.ProtectedItems) == null) null else keepActive(plan, Allowance.ProtectedItems, requestedShield(now, zone), keep.shield).toSet()
+fun Rules.retainedShield(plan: Plan, now: Long, zone: ZoneId, reserved: Set<String> = emptySet()): Set<String>? =
+    if (limit(plan, Allowance.ProtectedItems) == null) null
+    else keepActive(plan, Allowance.ProtectedItems, reserved.toList() + requestedShield(now, zone), reserved + keep.shield).toSet()
+
+/**
+ * The targets of commitments another account on this phone left running ([app.aurora.account.mergeCarried]). They
+ * hold Free's slots first, so switching accounts can't put more than Free's targets under protection at once.
+ */
+fun Runtime.carriedShield(t: DeviceTime): Set<String> =
+    runs.filter { it.carried && !it.isOver(t) }.flatMap { it.shield?.keys.orEmpty() }.map(::canonicalKey).toSet()
 
 fun Rules.retainedIntent(plan: Plan, now: Long, zone: ZoneId): Set<String>? =
     if (limit(plan, Allowance.IntentApps) == null) null else keepActive(plan, Allowance.IntentApps, requestedIntent(now, zone), keep.intent).toSet()
@@ -249,10 +257,10 @@ fun Rules.retainedIntent(plan: Plan, now: Long, zone: ZoneId): Set<String>? =
  * The activations [plan] enforces: enabled ones with something left to do once [retainedShield] and
  * [retainedIntent] are applied. The rest stay saved and paused.
  */
-fun Rules.entitledActivations(plan: Plan, now: Long, zone: ZoneId): Set<String> {
+fun Rules.entitledActivations(plan: Plan, now: Long, zone: ZoneId, reserved: Set<String> = emptySet()): Set<String> {
     val enabled = activations.filter { it.enabled }
     if (plan == Plan.Plus) return enabled.map { it.id }.toSet()
-    val shieldKeep = retainedShield(plan, now, zone).orEmpty()
+    val shieldKeep = retainedShield(plan, now, zone, reserved).orEmpty()
     val intentKeep = retainedIntent(plan, now, zone).orEmpty()
     return enabled.filter { a ->
         val c = configs.find { it.id == a.configId } ?: return@filter false
@@ -280,9 +288,9 @@ fun Rules.shieldOf(c: UsageConfig): ShieldPreset? = c.shield ?: c.shieldId?.let 
 fun Rules.intentOf(c: UsageConfig): IntentPreset? = c.intent ?: c.intentId?.let { id -> intentPresets.find { it.id == id } }
 
 /** A run for the occurrence of [a] in [window], from the presets as they are now, over what [plan] retains. */
-fun Rules.runFor(a: Activation, window: Pair<Long, Long>, plan: Plan, now: Long, zone: ZoneId): ConfigRun? {
+fun Rules.runFor(a: Activation, window: Pair<Long, Long>, plan: Plan, now: Long, zone: ZoneId, reserved: Set<String> = emptySet()): ConfigRun? {
     val c = configs.find { it.id == a.configId } ?: return null
-    val shieldKeep = retainedShield(plan, now, zone)
+    val shieldKeep = retainedShield(plan, now, zone, reserved)
     val intentKeep = retainedIntent(plan, now, zone)
     val shield = shieldOf(c)?.let { s -> if (shieldKeep == null) s else s.copy(keys = s.keys.filter { canonicalKey(it) in shieldKeep }) }?.takeIf { it.keys.isNotEmpty() || shieldOf(c)?.keys.isNullOrEmpty() }
     val intent = intentOf(c)?.let { p -> if (intentKeep == null) p else p.copy(keys = p.keys.filter { it in intentKeep }) }?.takeIf { it.keys.isNotEmpty() || intentOf(c)?.keys.isNullOrEmpty() }
@@ -310,13 +318,14 @@ fun Runtime.quotaToday(plan: Plan, t: DeviceTime, zone: ZoneId): app.aurora.plan
 /** Occurrences not stored yet, in start order: those that may run, and those the day's allowance refuses. */
 private fun occurrences(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId): Pair<List<ConfigRun>, List<ConfigRun>> {
     val known = runtime.runs.map { it.id }.toSet() + runtime.closed.keys
-    val entitled = rules.entitledActivations(plan, t.wall, zone)
+    val reserved = runtime.carriedShield(t)
+    val entitled = rules.entitledActivations(plan, t.wall, zone, reserved)
     val due = rules.activations.filter { it.id in entitled }.flatMap { a ->
         a.windows(t.wall, zone).mapNotNull { w ->
             val id = occurrenceId(a, w.first)
             // A Phase 3 schedule migrated with its id: its committed Strict window is already a session.
             val legacy = runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }
-            if (id in known || legacy) null else rules.runFor(a, w, plan, t.wall, zone)
+            if (id in known || legacy) null else rules.runFor(a, w, plan, t.wall, zone, reserved)
         }
     }.sortedBy { it.start }
     val allowed = mutableListOf<ConfigRun>()
@@ -385,10 +394,11 @@ data class PendingOccurrence(val run: ConfigRun, val minutes: Int, val mode: Mod
 fun occurrencesToAuthorize(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTime, zone: ZoneId, lookAheadMs: Long): List<PendingOccurrence> {
     if (plan == Plan.Plus) return emptyList()
     val known = runtime.runs.map { it.id }.toSet() + runtime.closed.keys + runtime.quotaDenied.keys + runtime.authorizations.keys
-    val entitled = rules.entitledActivations(plan, t.wall, zone)
+    val reserved = runtime.carriedShield(t)
+    val entitled = rules.entitledActivations(plan, t.wall, zone, reserved)
     return rules.activations.filter { it.id in entitled }.flatMap { a ->
         a.windows(t.wall, zone).filter { it.first <= t.wall + lookAheadMs && it.second != Long.MAX_VALUE }.mapNotNull { w ->
-            val run = rules.runFor(a, w, plan, t.wall, zone) ?: return@mapNotNull null
+            val run = rules.runFor(a, w, plan, t.wall, zone, reserved) ?: return@mapNotNull null
             val mode = run.shield?.mode?.takeIf { it.usesQuota } ?: return@mapNotNull null
             if (run.id in known || runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }) return@mapNotNull null
             PendingOccurrence(run, ((w.second - w.first) / 60_000).toInt(), mode)
@@ -447,7 +457,7 @@ data class ActiveTargets(val shield: Set<String>, val intent: Set<String>)
 fun activeTargets(rules: Rules, runtime: Runtime, t: DeviceTime, zone: ZoneId, plan: Plan, focusKeys: Set<String> = emptySet()): ActiveTargets {
     val runs = runtime.runs.filterNot { it.isOver(t) }
     return ActiveTargets(
-        ((rules.retainedShield(plan, t.wall, zone) ?: rules.requestedShield(t.wall, zone)) + runs.flatMap { it.shield?.keys.orEmpty() } + runtime.sessions.filterNot { it.time.isOver(t) }.flatMap { it.keys } + focusKeys).map(::canonicalKey).toSet(),
+        ((rules.retainedShield(plan, t.wall, zone, runtime.carriedShield(t)) ?: rules.requestedShield(t.wall, zone)) + runs.flatMap { it.shield?.keys.orEmpty() } + runtime.sessions.filterNot { it.time.isOver(t) }.flatMap { it.keys } + focusKeys).map(::canonicalKey).toSet(),
         ((rules.retainedIntent(plan, t.wall, zone) ?: rules.requestedIntent(t.wall, zone)) + runs.flatMap { it.intent?.keys.orEmpty() }).toSet(),
     )
 }

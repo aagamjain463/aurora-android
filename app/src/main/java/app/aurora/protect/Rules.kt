@@ -463,7 +463,7 @@ fun policyState(
     val intents = (legacyIntents.keys + configured.keys).associateWith { k ->
         listOfNotNull(legacyIntents[k], configured[k]).reduce(::stricter)
     }
-    val retained = rules.retainedShield(plan, now, zone)
+    val retained = rules.retainedShield(plan, now, zone, runtime.carriedShield(time))
     val limits = rules.activeLimits().filter { it.key in active && (retained == null || it.key in retained) }.associate { it.key to it.minutes * 60_000L }
     return PolicyState(
         protectedPackages = active + restrictions.flatMap { it.keys } + intents.keys,

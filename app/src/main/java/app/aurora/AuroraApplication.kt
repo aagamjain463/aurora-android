@@ -32,7 +32,10 @@ import app.aurora.account.Identity
 import app.aurora.account.ProfileState
 import app.aurora.account.ProfileVault
 import app.aurora.account.Transport
+import app.aurora.account.DeviceCredential
 import app.aurora.account.bindProfile
+import app.aurora.account.playIntegrityToken
+import app.aurora.account.resetInstallation
 import app.aurora.account.httpTransport
 import app.aurora.plan.installId
 import app.aurora.plan.BillingRepository
@@ -103,9 +106,13 @@ open class AuroraApplication : Application() {
     val vault by lazy { ProfileVault(dataStore, java.io.File(noBackupFilesDir, "profiles")) }
 
     val account: AccountRepository by lazy {
+        val install = installId(this)
+        val credential = DeviceCredential(install)
         AccountRepository(
-            createIdentity(), accountServer?.let(::AccountApi), installId(this), Build.MODEL.orEmpty().take(80), entitlementPublicKey, packageName,
+            createIdentity(), accountServer?.let { AccountApi(it, credential::headers) }, install, Build.MODEL.orEmpty().take(80), entitlementPublicKey, packageName,
             java.io.File(noBackupFilesDir, "pending_email"), storeEntitlement = { billing.store(it) },
+            integrityToken = { nonce -> playIntegrityToken(this, BuildConfig.PLAY_CLOUD_PROJECT_NUMBER, nonce) },
+            onDeviceRefused = { resetInstallation(this, install) },
         )
     }
 

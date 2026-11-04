@@ -18,8 +18,12 @@ import java.time.ZoneId
 
 val Mode.serverName: String get() = if (this == Mode.Cooldown) "cooldown" else "always_block"
 
-/** What a commitment made under [this] leaves running, with nothing that says what it was for. */
+/**
+ * What a commitment made under [this] leaves running, with nothing that says what it was for, and the phone's
+ * committed time: Free's allowance belongs to the phone as well as the account, so no account switch refills it.
+ */
 fun Runtime.carriedCommitments(t: DeviceTime, label: String): Runtime = Runtime(
+    ledger = ledger,
     sessions = sessions.filter { !it.cancellable && !it.time.isOver(t) },
     runs = runs.filter { !it.cancellable(t) && !it.isOver(t) }.map { run ->
         run.copy(
@@ -29,13 +33,17 @@ fun Runtime.carriedCommitments(t: DeviceTime, label: String): Runtime = Runtime(
     },
 )
 
-/** The incoming account's runtime, plus what must keep running from the last one. Its ledger and the rest stay behind. */
+/**
+ * The incoming account's runtime, plus what must keep running from the last one and the phone's committed time.
+ * Only time intervals cross over: what the last account configured, named or kept stays behind.
+ */
 fun mergeCarried(active: Runtime?, incoming: Runtime?, t: DeviceTime, label: String): Runtime {
     val carried = active?.carriedCommitments(t, label) ?: Runtime()
     val base = incoming ?: Runtime()
     return base.copy(
         sessions = base.sessions + carried.sessions.filter { c -> base.sessions.none { it.id == c.id } },
         runs = base.runs + carried.runs.filter { c -> base.runs.none { it.id == c.id } },
+        ledger = (base.ledger + carried.ledger).distinctBy { it.start to it.end },
     )
 }
 
@@ -130,7 +138,7 @@ suspend fun AuroraApplication.afterDeletionRequested() {
     val carried = runtime.value?.carriedCommitments(t, label) ?: Runtime()
     deleteAllData()
     if (uid != null) vault.forget(uid)
-    if (carried.runs.isNotEmpty() || carried.sessions.isNotEmpty()) {
+    if (carried.runs.isNotEmpty() || carried.sessions.isNotEmpty() || carried.ledger.isNotEmpty()) {
         runCatching { runtime.update { carried } }
     } else {
         runCatching { runtime.reset() }

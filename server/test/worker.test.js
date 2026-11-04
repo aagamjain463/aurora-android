@@ -310,11 +310,12 @@ test('a duplicate request returns the first reservation, and creates nothing', a
   assert.equal(w.DB.rows("SELECT * FROM quota_reservations WHERE idempotency_key = 'same'").length, 1)
 })
 
-test('each account has its own ledger', async () => {
+test('each account has its own ledger, and one phone has one allowance', async () => {
   const w = world()
   await reserve(w, 'alice', 120)
-  assert.equal((await reserve(w, 'bob', 120)).body.allowed, true)
+  assert.equal((await reserve(w, 'bob', 120, { installId: 'bobs-phone' })).body.allowed, true)
   assert.equal(await remaining(w, 'bob'), 0)
+  assert.equal(await remaining(w, 'carol'), 0, 'alice already used this phone\'s day')
 })
 
 test('changing time zone doesn\'t open a new allowance', async () => {

@@ -92,12 +92,14 @@ class FakeServer(private val app: () -> AuroraApplication) {
     var offline = false
     var denyQuota = false
     var forgeSignature = false
+    /** Rewrites a reservation's signed payload: a genuine authorization, but for something else. */
+    var tamper: (String) -> String = { it }
     /** Status and error code for the next requests, for testing refusals. */
     var refuseWith: Pair<Int, String>? = null
     val requests = mutableListOf<String>()
     private fun signed(payload: String) = """{"payload":${Json.encodeToString(kotlinx.serialization.serializer<String>(), payload)},"signature":"${if (forgeSignature) "AAAA" else TestKeys.signature(payload)}"}"""
 
-    val transport: Transport = { path, _, body ->
+    val transport: Transport = { path, _, body, _ ->
         requests += path
         val refuse = refuseWith
         when {
@@ -129,7 +131,7 @@ class FakeServer(private val app: () -> AuroraApplication) {
             return HttpReply(200, """{"allowed":false,"usedMs":${q.usedMs},"limitMs":${q.limitMs},"remainingMs":${q.remainingMs},"resetAt":${q.resetAt}}""")
         }
         val payload = """{"type":"reservation","reservationId":"${UUID.randomUUID()}","uid":"${a.account.uid}","installId":"${j.getValue("installId").jsonPrimitive.content}","commitmentId":"${j.getValue("commitmentId").jsonPrimitive.content}","start":$start,"end":$end,"tier":"free","usedMs":0,"limitMs":7200000,"remainingMs":7200000,"resetAt":${now + 3_600_000},"packageName":"${a.packageName}"}"""
-        return HttpReply(200, """{"allowed":true,"tier":"free","authorization":${signed(payload)}}""")
+        return HttpReply(200, """{"allowed":true,"tier":"free","authorization":${signed(tamper(payload))}}""")
     }
 }
 
