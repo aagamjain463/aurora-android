@@ -10,7 +10,7 @@ PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
 APPLE_BUNDLE_ID = "com.aagamjain.Aurora"
 APPLE_PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
 # App Review buys with a sandbox account in the production app, so this has to be "1" while Apple reviews a build.
-# Its cost: TestFlight testers can get Plus from a sandbox purchase. See docs/APP_STORE_BILLING.md.
+# Sandbox receipts create only ios_sandbox review access; production Plus and quota ignore them.
 APPLE_ALLOW_SANDBOX = "1"
 # The Firebase project whose ID tokens this server accepts.
 FIREBASE_PROJECT_ID = "aurora-24aa9"

@@ -1,6 +1,6 @@
 -- App Store purchases share the purchases table with Google Play's (docs/APP_STORE_BILLING.md). Additive: every existing
 -- row is a Google Play purchase, and a Worker that doesn't know these columns keeps working.
--- An App Store row's token_hash is sha256("apple:" + originalTransactionId).
+-- An App Store row's token_hash is sha256("apple:" + environment + ":" + originalTransactionId).
 --
 -- Rollback: deploy the previous Worker, then, only once no App Store row needs keeping:
 --   DELETE FROM purchases WHERE store = 'app_store';

@@ -1,3 +1,5 @@
+> Security update (2026-11-04): automatic account reassignment is disabled for both Apple and Google Play. Both transfer endpoints return `403 transfer_disabled`. Earlier move/cooldown instructions below are historical, not the current contract. Recover the original account and restore there. See [APP_STORE_BILLING.md](APP_STORE_BILLING.md).
+
 # Billing and purchase verification
 
 Plus is unlocked by one thing: a snapshot signed by Aurora's verification server after verifying the purchase with Google Play. A flag on the phone, a purchase token alone, or Play's local purchase list cannot grant it. Entitlements belong to the verified Aurora account, not just a single device.

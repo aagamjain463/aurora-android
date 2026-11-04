@@ -1,0 +1,1705 @@
+diff --git a/server/migrations/0004_app_store.sql b/server/migrations/0004_app_store.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..65fa7c702222578169e958b119a0d53993f6b858
+--- /dev/null
++++ b/server/migrations/0004_app_store.sql
+@@ -0,0 +1,12 @@
++-- App Store purchases share the purchases table with Google Play's (docs/APP_STORE_BILLING.md). Additive: every existing
++-- row is a Google Play purchase, and a Worker that doesn't know these columns keeps working.
++-- An App Store row's token_hash is sha256("apple:" + environment + ":" + originalTransactionId).
++--
++-- Rollback: deploy the previous Worker, then, only once no App Store row needs keeping:
++--   DELETE FROM purchases WHERE store = 'app_store';
++--   ALTER TABLE purchases DROP COLUMN store; ALTER TABLE purchases DROP COLUMN store_ref; ALTER TABLE purchases DROP COLUMN environment;
++
++ALTER TABLE purchases ADD COLUMN store TEXT NOT NULL DEFAULT 'google_play' CHECK (store IN ('google_play', 'app_store'));
++-- The original transaction id, to ask Apple again without the app. Useless without our App Store Connect key.
++ALTER TABLE purchases ADD COLUMN store_ref TEXT;
++ALTER TABLE purchases ADD COLUMN environment TEXT;
+diff --git a/server/src/apple.js b/server/src/apple.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..7a16bd445cbbab6bd2729aa999e995e75cc29c50
+--- /dev/null
++++ b/server/src/apple.js
+@@ -0,0 +1,281 @@
++// The App Store side of Aurora Plus, with Web Crypto and no dependencies (docs/APP_STORE_BILLING.md).
++//
++// Decoding a JWS proves nothing, so nothing here returns a payload before its signature checks out to Apple's root.
++// Even then a signed transaction the app sends is only a pointer: what grants Plus is the App Store Server API's
++// current answer, fetched here over TLS with our own key, and itself verified.
++
++const PRODUCTION = 'https://api.storekit.apple.com'
++const SANDBOX = 'https://api.storekit-sandbox.apple.com'
++const AUTO_RENEWABLE = 'Auto-Renewable Subscription'
++const SKEW_MS = 60_000
++
++// Apple Root CA - G3, from apple.com/certificateauthority. SHA-256 63343abf...653e9179, pinned by test/apple.test.js.
++const APPLE_ROOT_G3 = 'MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQLDB1BcHBsZSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTETMBEGA1UECgwKQXBwbGUgSW5jLjELMAkGA1UEBhMCVVMwHhcNMTQwNDMwMTgxOTA2WhcNMzkwNDMwMTgxOTA2WjBnMRswGQYDVQQDDBJBcHBsZSBSb290IENBIC0gRzMxJjAkBgNVBAsMHUFwcGxlIENlcnRpZmljYXRpb24gQXV0aG9yaXR5MRMwEQYDVQQKDApBcHBsZSBJbmMuMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABJjpLz1AcqTtkyJygRMc3RCV8cWjTnHcFBbZDuWmBSp3ZHtfTjjTuxxEtX/1H7YyYl3J6YRbTzBPEVoA/VhYDKX1DyxNB0cTddqXl5dvMVztK517IDvYuVTZXpmkOlEKMaNCMEAwHQYDVR0OBBYEFLuw3qFYM4iapIqZ3r6966/ayySrMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMDA2gAMGUCMQCD6cHEFl4aXTQY2e3v9GwOAEZLuN+yRhHFD/3meoyhpmvOwgPUnPWTxnS4at+qIxUCMG1mihDK1A3UT82NQz60imOlM27jbdoXt2QfyFMm+YhidDkLF1vLUagM6BgD56KyKA=='
++
++const unb64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0))
++const unb64url = (text) => unb64(text.replace(/-/g, '+').replace(/_/g, '/'))
++const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
++const utf8 = (text) => new TextEncoder().encode(text)
++const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('')
++
++// Not a Worker setting on purpose: no configuration or request can change what we trust. Only tests replace it.
++export const appleTrust = { root: unb64(APPLE_ROOT_G3) }
++
++export class AppleInvalid extends Error {}
++
++// ---- X.509, as far as Apple's chain needs it -----------------------------------------------------------------
++
++// Object identifiers, as the hex of their DER content.
++const OID = {
++  ecPublicKey: '2a8648ce3d0201',
++  ecdsaSha256: '2a8648ce3d040302',
++  ecdsaSha384: '2a8648ce3d040303',
++  p256: '2a8648ce3d030107',
++  p384: '2b81040022',
++  basicConstraints: '551d13',
++  keyUsage: '551d0f',
++  appleIntermediate: '2a864886f76364060201', // 1.2.840.113635.100.6.2.1
++  appleReceiptSigning: '2a864886f76364060b01', // 1.2.840.113635.100.6.11.1
++}
++const HASHES = { [OID.ecdsaSha256]: 'SHA-256', [OID.ecdsaSha384]: 'SHA-384' }
++const CURVES = { [OID.p256]: { namedCurve: 'P-256', size: 32 }, [OID.p384]: { namedCurve: 'P-384', size: 48 } }
++
++/** One DER element at [at]. Bounds are checked here, so a hostile length can't read past its parent. */
++function tlv(der, at, limit = der.length) {
++  if (at + 2 > limit || (der[at] & 0x1f) === 0x1f) throw new AppleInvalid()
++  let length = der[at + 1]
++  let start = at + 2
++  if (length & 0x80) {
++    const count = length & 0x7f
++    if (count < 1 || count > 3 || start + count > limit) throw new AppleInvalid()
++    length = 0
++    for (let i = 0; i < count; i++) length = length * 256 + der[start++]
++  }
++  if (start + length > limit) throw new AppleInvalid()
++  return { tag: der[at], at, start, end: start + length }
++}
++
++function children(der, node) {
++  const out = []
++  for (let at = node.start; at < node.end;) {
++    const child = tlv(der, at, node.end)
++    out.push(child)
++    at = child.end
++  }
++  return out
++}
++
++const content = (der, node) => der.subarray(node.start, node.end)
++const element = (der, node) => der.subarray(node.at, node.end)
++
++function timeOf(der, node) {
++  const value = new TextDecoder().decode(content(der, node))
++  const match = (node.tag === 0x17 ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/ : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/).exec(value)
++  if (!match || (node.tag !== 0x17 && node.tag !== 0x18)) throw new AppleInvalid()
++  const year = node.tag === 0x17 ? Number(match[1]) + (Number(match[1]) < 50 ? 2000 : 1900) : Number(match[1])
++  return Date.UTC(year, match[2] - 1, match[3], match[4], match[5], match[6])
++}
++
++function parseCertificate(der) {
++  const certificate = tlv(der, 0)
++  if (certificate.tag !== 0x30 || certificate.end !== der.length) throw new AppleInvalid()
++  const [tbs, algorithm, signature, ...extra] = children(der, certificate)
++  if (extra.length || signature?.tag !== 0x03 || der[signature.start] !== 0) throw new AppleInvalid()
++  const [version, , innerAlgorithm, issuer, validity, subject, spki, extensions] = children(der, tbs)
++  if (version?.tag !== 0xa0 || extensions?.tag !== 0xa3) throw new AppleInvalid()
++  if (hex(element(der, innerAlgorithm)) !== hex(element(der, algorithm))) throw new AppleInvalid()
++  const hash = HASHES[hex(content(der, children(der, algorithm)[0]))]
++  const [keyType, curve] = children(der, children(der, spki)[0])
++  const curveInfo = CURVES[hex(content(der, curve))]
++  if (!hash || !curveInfo || hex(content(der, keyType)) !== OID.ecPublicKey) throw new AppleInvalid()
++  const [notBefore, notAfter] = children(der, validity)
++  const parsedExtensions = new Map()
++  for (const extension of children(der, children(der, extensions)[0])) {
++    const parts = children(der, extension)
++    const value = parts.at(-1)
++    parsedExtensions.set(hex(content(der, parts[0])), {
++      critical: parts.length === 3 && der[parts[1].start] !== 0,
++      value: content(der, value),
++    })
++  }
++  return {
++    tbs: element(der, tbs),
++    issuer: hex(element(der, issuer)),
++    subject: hex(element(der, subject)),
++    notBefore: timeOf(der, notBefore),
++    notAfter: timeOf(der, notAfter),
++    spki: element(der, spki),
++    curve: curveInfo,
++    hash,
++    signature: der.subarray(signature.start + 1, signature.end),
++    extensions: parsedExtensions,
++  }
++}
++
++function isCa(certificate) {
++  const value = certificate.extensions.get(OID.basicConstraints)?.value
++  if (!value) return false
++  const [flag] = children(value, tlv(value, 0))
++  return flag?.tag === 0x01 && value[flag.start] !== 0
++}
++
++const importKey = (certificate) => crypto.subtle.importKey('spki', certificate.spki, { name: 'ECDSA', namedCurve: certificate.curve.namedCurve }, false, ['verify'])
++
++/** X.509 carries ECDSA signatures as a DER pair of integers. Web Crypto wants them as fixed-width r || s. */
++function rawSignature(der, size) {
++  const pair = tlv(der, 0)
++  const [r, s, ...extra] = children(der, pair)
++  if (pair.tag !== 0x30 || pair.end !== der.length || extra.length || r?.tag !== 0x02 || s?.tag !== 0x02) throw new AppleInvalid()
++  const out = new Uint8Array(size * 2)
++  ;[r, s].forEach((integer, i) => {
++    let value = content(der, integer)
++    // Exactly one form per number: a zero byte only where the next byte's top bit would otherwise read as negative.
++    if (value.length === 0 || value[0] & 0x80 || (value[0] === 0 && value.length > 1 && !(value[1] & 0x80))) throw new AppleInvalid()
++    if (value[0] === 0 && value.length > 1) value = value.subarray(1)
++    if (value.length > size) throw new AppleInvalid()
++    out.set(value, (i + 1) * size - value.length)
++  })
++  return out
++}
++
++async function assertIssued(child, parent) {
++  if (child.issuer !== parent.subject) throw new AppleInvalid()
++  const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: child.hash }, await importKey(parent), rawSignature(child.signature, parent.curve.size), child.tbs)
++  if (!ok) throw new AppleInvalid()
++}
++
++function assertUsable(certificate, at) {
++  if (at < certificate.notBefore - SKEW_MS || at > certificate.notAfter + SKEW_MS) throw new AppleInvalid()
++  for (const [oid, { critical }] of certificate.extensions) {
++    if (critical && oid !== OID.basicConstraints && oid !== OID.keyUsage) throw new AppleInvalid()
++  }
++}
++
++/**
++ * The signing key of an x5c chain that runs to the pinned root at the instant [at]. Same rules as Apple's own library,
++ * minus its OCSP lookup: a signature here only ever points at the Server API, which is what decides (see above).
++ * x5c[2] is never read: the root is ours, not the sender's.
++ */
++export async function verifyChain(x5c, at) {
++  if (!Array.isArray(x5c) || x5c.length !== 3) throw new AppleInvalid()
++  const root = parseCertificate(appleTrust.root)
++  const intermediate = parseCertificate(unb64(x5c[1]))
++  const leaf = parseCertificate(unb64(x5c[0]))
++  await assertIssued(intermediate, root)
++  await assertIssued(leaf, intermediate)
++  for (const certificate of [root, intermediate, leaf]) assertUsable(certificate, at)
++  if (!isCa(intermediate) || isCa(leaf)) throw new AppleInvalid()
++  if (!intermediate.extensions.has(OID.appleIntermediate) || !leaf.extensions.has(OID.appleReceiptSigning)) throw new AppleInvalid()
++  if (leaf.curve.namedCurve !== 'P-256') throw new AppleInvalid()
++  return importKey(leaf)
++}
++
++/** The payload of a JWS Apple really signed. Anything else throws AppleInvalid. */
++export async function verifySigned(jws, now = Date.now()) {
++  try {
++    const parts = typeof jws === 'string' ? jws.split('.') : []
++    if (parts.length !== 3) throw new AppleInvalid()
++    const decode = (part) => JSON.parse(new TextDecoder().decode(unb64url(part)))
++    const header = decode(parts[0])
++    const payload = decode(parts[1])
++    if (header?.alg !== 'ES256' || !payload || typeof payload !== 'object') throw new AppleInvalid()
++    // Certificates are judged when Apple signed, so a device's older transaction outlives its leaf certificate.
++    if (!Number.isFinite(payload.signedDate) || payload.signedDate > now + SKEW_MS) throw new AppleInvalid()
++    const key = await verifyChain(header.x5c, payload.signedDate)
++    const signature = unb64url(parts[2])
++    if (signature.length !== 64) throw new AppleInvalid()
++    const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, utf8(`${parts[0]}.${parts[1]}`))
++    if (!ok) throw new AppleInvalid()
++    return payload
++  } catch {
++    throw new AppleInvalid()
++  }
++}
++
++// ---- App Store Server API -----------------------------------------------------------------------------------
++
++async function apiToken(env) {
++  const pkcs8 = unb64(env.APPLE_PRIVATE_KEY.replace(/-----[A-Z ]+-----|\s/g, ''))
++  const key = await crypto.subtle.importKey('pkcs8', pkcs8, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
++  const now = Math.floor(Date.now() / 1000)
++  const encode = (value) => b64url(utf8(JSON.stringify(value)))
++  const unsigned = `${encode({ alg: 'ES256', kid: env.APPLE_KEY_ID, typ: 'JWT' })}.${encode({ iss: env.APPLE_ISSUER_ID, iat: now, exp: now + 1800, aud: 'appstoreconnect-v1', bid: env.APPLE_BUNDLE_ID })}`
++  return `${unsigned}.${b64url(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, utf8(unsigned)))}`
++}
++
++export const sandboxAllowed = (env) => env.APPLE_ALLOW_SANDBOX === '1'
++export const environmentAllowed = (env, environment) => environment === 'Production' || (environment === 'Sandbox' && sandboxAllowed(env))
++
++/** Use the environment in verified Apple evidence; never cross environments on a 404. */
++export async function appleStatus(env, transactionId, fetcher, environment = 'Production') {
++  if (!environmentAllowed(env, environment)) throw new Error('apple environment')
++  const token = await apiToken(env)
++  const host = environment === 'Sandbox' ? SANDBOX : PRODUCTION
++  const res = await fetcher(`${host}/inApps/v1/subscriptions/${encodeURIComponent(transactionId)}`, { headers: { authorization: `Bearer ${token}` } })
++  if (res.status === 404) return null
++  if (!res.ok) throw new Error(`apple ${res.status}`)
++  return { environment, body: await res.json() }
++}
++
++const PLUS_STATUS = new Set([1, 4]) // 1 active, 4 billing grace period.
++const STATE = { 1: 'active', 2: 'expired', 3: 'on_hold', 4: 'in_grace_period', 5: 'revoked' }
++
++function entitlementOf(item, tx, renewal, products, now) {
++  const paidThrough = item.status === 4 ? Math.max(tx.expiresDate, renewal.gracePeriodExpiresDate ?? 0) : tx.expiresDate
++  const revoked = Number.isFinite(tx.revocationDate)
++  const plus = tx.inAppOwnershipType === 'PURCHASED' && PLUS_STATUS.has(item.status) && !revoked && tx.isUpgraded !== true && paidThrough > now
++  const renewing = renewal.autoRenewStatus === 1
++  let state = STATE[item.status] ?? 'unknown'
++  if (revoked) state = 'revoked'
++  else if (item.status === 1 && !renewing) state = 'canceled' // Paid through its end, and won't renew: Google's word for the same thing.
++  return {
++    known: products.includes(tx.productId),
++    tier: plus ? 'plus' : 'free',
++    state,
++    productId: tx.productId,
++    paidThrough,
++    autoRenewing: plus && renewing,
++    appAccountToken: typeof tx.appAccountToken === 'string' && tx.appAccountToken ? tx.appAccountToken.toLowerCase() : null,
++    ownership: tx.inAppOwnershipType,
++  }
++}
++
++/**
++ * What Apple's answer says about exactly [originalTransactionId], in the same shape entitlementFrom gives for Google.
++ * The answer covers every subscription of that customer, so anything else in it is ignored, never chosen by position.
++ * Only Apple's signed fields count. A response that isn't what Apple documents throws: an outage, not a verdict.
++ */
++export async function appleEntitlement(answer, originalTransactionId, { bundleId, productIds }, now = Date.now()) {
++  const unknown = { known: false }
++  if (!answer) return unknown
++  const { body, environment } = answer
++  if (!Array.isArray(body?.data)) throw new Error('apple response')
++  if (body.bundleId !== bundleId || body.environment !== environment) return unknown
++  const items = body.data.flatMap((group) => (Array.isArray(group?.lastTransactions) ? group.lastTransactions : [])).filter((item) => item?.originalTransactionId === originalTransactionId)
++  let best = unknown
++  for (const item of items) {
++    const tx = await verifySigned(item.signedTransactionInfo, now)
++    const renewal = item.signedRenewalInfo ? await verifySigned(item.signedRenewalInfo, now) : {}
++    const consistent = tx.originalTransactionId === originalTransactionId && tx.bundleId === bundleId && tx.environment === environment && tx.type === AUTO_RENEWABLE && Number.isFinite(tx.expiresDate)
++      && (!item.signedRenewalInfo || (renewal.originalTransactionId === originalTransactionId && renewal.environment === environment))
++    if (!consistent) continue
++    const entitlement = { ...entitlementOf(item, tx, renewal, productIds, now), environment }
++    if (!entitlement.known) continue
++    const better = !best.known || (entitlement.tier === 'plus' && best.tier !== 'plus') || (entitlement.tier === best.tier && entitlement.paidThrough > best.paidThrough)
++    if (better) best = entitlement
++  }
++  return best
++}
++
++/**
++ * The appAccountToken a purchase by this Firebase user carries: its UID's SHA-256 shaped as a UUID, the App Store's
++ * version of Google's obfuscatedAccountId. The server derives it from the verified token and never accepts it from a
++ * client. Knowing someone's UID only lets you pay for their subscription.
++ */
++export async function appAccountToken(uid) {
++  const bytes = new Uint8Array((await crypto.subtle.digest('SHA-256', utf8(uid))).slice(0, 16))
++  bytes[6] = (bytes[6] & 0x0f) | 0x50
++  bytes[8] = (bytes[8] & 0x3f) | 0x80
++  const h = hex(bytes)
++  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
++}
+diff --git a/server/src/worker.js b/server/src/worker.js
+index 237c55b3a8073f709472842022144bc3a099304b..f7fba4e42c4281e779a6cf1935f7c5250dcae7a0 100644
+--- a/server/src/worker.js
++++ b/server/src/worker.js
+@@ -1,3 +1,4 @@
++import { appAccountToken, appleEntitlement, appleStatus, environmentAllowed, verifySigned } from './apple.js'
+ // Aurora's account service: a Cloudflare Worker with D1 and no dependencies (docs/ACCOUNT_SYSTEM.md, docs/BILLING.md).
+ //
+ // Every /v1 route but /v1/rtdn needs a verified Firebase ID token, and every query is scoped to that token's
+@@ -19,7 +20,6 @@ const PLUS_SEATS = 5
+ const FRESH_AUTH_S = 10 * 60
+ // The same 30 days the privacy policy, the deletion page and the app promise.
+ export const DELETION_GRACE_MS = 30 * 86_400_000
+-const TRANSFER_COOLDOWN_MS = 30 * 86_400_000
+ const LOOK_AHEAD_MS = 12 * 3_600_000
+ const LEDGER_LOOKBACK_MS = 3 * 86_400_000
+ const LEDGER_RETENTION_MS = 35 * 86_400_000
+@@ -191,14 +191,18 @@ async function seated(env, account, installId) {
+ /** What the account's verified purchases grant this installation, ready to store. */
+ async function accountSnapshot(env, account, uid, installId, now, extra = {}) {
+   const { results: rows } = await env.DB.prepare('SELECT * FROM purchases WHERE account_id = ? ORDER BY paid_through DESC').bind(account.id).all()
+-  const best = rows.find((r) => r.tier === 'plus' && r.paid_through > now)
++  const productionRows = rows.filter((r) => r.environment !== 'Sandbox')
++  const best = productionRows.find((r) => r.tier === 'plus' && r.paid_through > now)
++  const review = environmentAllowed(env, 'Sandbox') ? rows.find((r) => r.environment === 'Sandbox' && r.tier === 'plus' && r.paid_through > now) : null
+   const seat = await seated(env, account, installId)
+-  const shown = best ?? rows[0]
++  const shown = best ?? productionRows[0]
+   const tier = best && seat ? 'plus' : 'free'
+   return signed(env, {
+     tier,
+     state: best && !seat ? 'too_many_devices' : (shown?.state ?? 'none'),
+     productId: shown?.product_id ?? null,
++    store: shown?.store ?? null,
++    iosSandbox: review && seat ? { scope: 'ios_sandbox', productId: review.product_id, expiresAt: Math.min(review.paid_through, now + 15 * 60_000) } : null,
+     paidThrough: shown?.paid_through ?? 0,
+     autoRenewing: tier === 'plus' && Boolean(best.auto_renewing),
+     issuedAt: now,
+@@ -215,9 +219,10 @@ const devicesOf = async (env, account, installId) => {
+ }
+ 
+ /** Plus here and now: a verified, paid-through purchase, on one of the account's seats. A sixth phone is Free. */
+-const hasPlus = async (env, account, installId, now) =>
+-  Boolean(await env.DB.prepare("SELECT 1 FROM purchases WHERE account_id = ? AND tier = 'plus' AND paid_through > ? LIMIT 1").bind(account.id, now).first()) &&
+-  (await seated(env, account, installId))
++const hasPlus = async (env, account, installId, now) => {
++  const { results } = await env.DB.prepare("SELECT * FROM purchases WHERE account_id = ? AND tier = 'plus' AND paid_through > ?").bind(account.id, now).all()
++  return results.some((row) => row.environment !== 'Sandbox') && await seated(env, account, installId)
++}
+ 
+ async function ledgerOf(env, account, now) {
+   const { results } = await env.DB.prepare("SELECT * FROM quota_reservations WHERE account_id = ? AND status <> 'released' AND end_at > ?").bind(account.id, now - LEDGER_LOOKBACK_MS).all()
+@@ -369,32 +374,168 @@ async function verify(request, env, fetcher) {
+   return json(200, await accountSnapshot(env, account, claims.sub, installId, now, { purchaseValid: true }))
+ }
+ 
+-/** The person moves a purchase they hold on this phone to this account: a recent sign-in, Google's word, and rarely. */
++/** Purchase tokens are replayable; a destination sign-in does not authorize reassignment. */
+ async function transfer(request, env, fetcher) {
+-  const claims = await authenticate(request, env, fetcher, { fresh: true, revocation: true })
+-  const { purchaseToken, installId } = await body(request)
+-  if (!text(purchaseToken, 4096) || !isId(installId)) return json(400, { error: 'bad_request' })
+-  if (!(await allowed(env, `transfer:${claims.sub}`, 5, 3600))) return json(429, { error: 'slow_down' })
++  await authenticate(request, env, fetcher, { revocation: true })
++  return json(403, { error: 'transfer_disabled' })
++}
++
++
++// ---- App Store --------------------------------------------------------------------------------------------------
++//
++// The route decides the platform, never the request. Ownership, in order: a purchase already bound stays with its
++// account; an unbound one binds only to the account its Apple-signed appAccountToken names; anything else takes the
++// explicit move below. A notification or a re-check can change a purchase's state, and never its owner.
++
++const APPLE_SETTINGS = ['APPLE_BUNDLE_ID', 'APPLE_PRODUCT_IDS', 'APPLE_ISSUER_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY']
++const appleReady = (env) => APPLE_SETTINGS.every((name) => env[name])
++const appleConfig = (env) => ({ bundleId: env.APPLE_BUNDLE_ID, productIds: env.APPLE_PRODUCT_IDS.split(',').map((s) => s.trim()) })
++const appleKey = (id, environment) => tokenKey(`apple:${environment}:${id}`)
++const APPLE_LAPSE_RECHECK_MS = 6 * 3_600_000
++
++async function appleAsk(env, originalTransactionId, fetcher, environment = 'Production') {
++  return appleEntitlement(await appleStatus(env, originalTransactionId, fetcher, environment), originalTransactionId, appleConfig(env))
++}
++
++/** Apple's current answer about the transaction this app holds, or the response that refuses it. */
++async function appleAnswer(env, signedTransaction, fetcher) {
++  let claimed
++  try {
++    claimed = await verifySigned(signedTransaction)
++  } catch {
++    return { refused: json(400, { error: 'invalid_transaction' }) }
++  }
++  if (claimed.bundleId !== env.APPLE_BUNDLE_ID) return { refused: json(400, { error: 'wrong_package' }) }
++  if (!environmentAllowed(env, claimed.environment)) return { refused: json(400, { error: 'wrong_environment' }) }
++  if (claimed.inAppOwnershipType !== 'PURCHASED') return { refused: json(403, { error: 'family_sharing_disabled' }) }
++  const id = claimed.originalTransactionId
++  if (!text(id, 64)) return { refused: json(400, { error: 'invalid_transaction' }) }
++  const checkedAt = Date.now()
++  try {
++    const entitlement = await appleAsk(env, id, fetcher, claimed.environment)
++    if (entitlement.known && entitlement.ownership !== 'PURCHASED') return { refused: json(403, { error: 'family_sharing_disabled' }) }
++    return { id, checkedAt, entitlement: entitlement.environment === claimed.environment ? entitlement : { known: false } }
++  } catch {
++    return { refused: json(503, { error: 'try_again' }) } // Apple is unreachable, or said something unverifiable. We never guess.
++  }
++}
++
++/** Atomic on the purchase: simultaneous claims bind it once. An answer older than the stored one changes nothing. */
++async function storeApple(env, account, key, { id, checkedAt, entitlement: e }) {
++  const { meta } = await env.DB.prepare(
++    `INSERT INTO purchases (token_hash, account_id, product_id, tier, state, paid_through, auto_renewing, checked_at, event_at, bound_at, store, store_ref, environment)
++     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?8, 'app_store', ?9, ?10)
++     ON CONFLICT (token_hash) DO UPDATE SET product_id = ?3, tier = ?4, state = ?5, paid_through = ?6, auto_renewing = ?7, checked_at = ?8,
++       account_id = COALESCE(purchases.account_id, ?2), store_ref = ?9, environment = ?10
++     WHERE (purchases.account_id IS NULL OR purchases.account_id = ?2) AND purchases.checked_at <= ?8`,
++  ).bind(key, account.id, e.productId, e.tier, e.state, e.paidThrough, e.autoRenewing ? 1 : 0, checkedAt, id, e.environment).run()
++  return meta.changes > 0
++}
++
++async function verifyApple(request, env, fetcher) {
++  const claims = await authenticate(request, env, fetcher, { revocation: true })
++  const { signedTransaction, installId, bundleId } = await body(request)
++  if (!text(installId, 64) || !text(bundleId) || !text(signedTransaction, 16384)) return json(400, { error: 'bad_request' })
++  if (!appleReady(env)) return json(503, { error: 'try_again' })
++  if (bundleId !== env.APPLE_BUNDLE_ID) return json(400, { error: 'wrong_package' })
++  if (!(await allowed(env, `verify:${claims.sub}`, 30, 60))) return json(429, { error: 'slow_down' })
+   const now = Date.now()
+   const account = await ensureAccount(env, claims, now)
+   if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
+-  let sub
++
++  const answer = await appleAnswer(env, signedTransaction, fetcher)
++  if (answer.refused) return answer.refused
++  const snapshot = (extra) => accountSnapshot(env, account, claims.sub, installId, now, extra)
++  if (!answer.entitlement.known) return json(200, await snapshot({ purchaseValid: false }))
++
++  const key = await appleKey(answer.id, answer.entitlement.environment)
++  const conflict = async (owner, extra = {}) => {
++    const holder = owner ? await env.DB.prepare('SELECT email FROM accounts WHERE id = ?').bind(owner).first() : null
++    return json(200, { ...(await snapshot({ purchaseValid: true })), conflict: true, conflictHint: maskEmail(holder?.email), ...extra })
++  }
++  const ownerOf = async () => (await env.DB.prepare('SELECT account_id FROM purchases WHERE token_hash = ?').bind(key).first())?.account_id
++  const owner = await ownerOf()
++  if (owner && owner !== account.id) return conflict(owner)
++  if (!owner) {
++    const token = answer.entitlement.appAccountToken
++    // No token, or bought by a family member: nothing Apple signed names an account, so the person has to choose.
++    if (!token || answer.entitlement.ownership !== 'PURCHASED') return conflict(null, { claimRequired: true })
++    if (token !== (await appAccountToken(claims.sub))) return conflict(null)
++  }
++  if (!(await storeApple(env, account, key, answer))) {
++    const holder = await ownerOf() // Lost the race, or a newer answer got there first.
++    if (holder !== account.id) return conflict(holder)
++  }
++  return json(200, await snapshot({ purchaseValid: true }))
++}
++
++/** A signed transaction is replayable evidence, not authority to change its owner. */
++async function transferApple(request, env, fetcher) {
++  await authenticate(request, env, fetcher, { revocation: true })
++  return json(403, { error: 'transfer_disabled' })
++}
++
++/** Writes Apple's current state over a purchase we already hold, and nothing about who owns it. */
++async function refreshApple(env, key, e, checkedAt, eventAt = 0) {
++  await env.DB.prepare(
++    `UPDATE purchases SET tier = ?1, state = ?2, paid_through = ?3, auto_renewing = ?4, product_id = COALESCE(?5, product_id), environment = COALESCE(?6, environment),
++       checked_at = ?7, event_at = MAX(event_at, ?8)
++     WHERE token_hash = ?9 AND checked_at <= ?7`,
++  ).bind(e.known ? e.tier : 'free', e.known ? e.state : 'unknown', e.known ? e.paidThrough : 0, e.autoRenewing ? 1 : 0, e.productId ?? null, e.environment ?? null, checkedAt, eventAt, key).run()
++}
++
++/**
++ * App Store Server Notifications V2. Anyone can reach this URL, so a notification only ever says "ask Apple again", and
++ * only once Apple's signature on it checks out. Its own fields never set a state, so order and replays can't either.
++ * 2xx acknowledges. Anything else, Apple sends again (after 1, 12, 24, 48 and 72 hours).
++ */
++async function appleNotification(request, env, fetcher) {
++  if (!appleReady(env)) return json(503, { error: 'try_again' })
++  const raw = await rawBody(request)
++  if (raw.length > 65_536) return json(413, { error: 'too_large' })
++  const ack = () => new Response(null, { status: 200 })
++  let note, tx
+   try {
+-    sub = await playSubscription(env, purchaseToken, fetcher)
++    note = await verifySigned(JSON.parse(raw)?.signedPayload)
++    if (note.data?.signedTransactionInfo) tx = await verifySigned(note.data.signedTransactionInfo)
++  } catch {
++    return json(403, { error: 'forbidden' })
++  }
++  // Test notifications and summaries name no transaction. Another app's or a disabled environment's are not ours to act on.
++  const data = note.data
++  if (!tx || data.bundleId !== env.APPLE_BUNDLE_ID || tx.bundleId !== env.APPLE_BUNDLE_ID) return ack()
++  if (!environmentAllowed(env, data.environment) || tx.environment !== data.environment) return ack()
++  if (!text(tx.originalTransactionId, 64)) return ack()
++  const key = await appleKey(tx.originalTransactionId, data.environment)
++  const known = await env.DB.prepare('SELECT event_at, store, environment FROM purchases WHERE token_hash = ?').bind(key).first()
++  // Nothing bound yet: the app's own verify will bind it. A repeat or a delayed message says nothing new: the state we
++  // hold was read from Apple after an event at least this recent.
++  if (!known || known.store !== 'app_store' || known.environment !== data.environment || note.signedDate <= known.event_at) return ack()
++  const checkedAt = Date.now()
++  let entitlement
++  try {
++    entitlement = await appleAsk(env, tx.originalTransactionId, fetcher, data.environment)
+   } catch {
+     return json(503, { error: 'try_again' })
+   }
+-  const entitlement = entitlementFrom(sub, productIdsOf(env), now)
+-  if (!entitlement.known) return json(404, { error: 'not_found' })
+-  const key = await tokenKey(purchaseToken)
+-  const row = await env.DB.prepare('SELECT transferred_at FROM purchases WHERE token_hash = ?').bind(key).first()
+-  if (row?.transferred_at && now - row.transferred_at < TRANSFER_COOLDOWN_MS) return json(429, { error: 'transfer_limit', retryAt: row.transferred_at + TRANSFER_COOLDOWN_MS })
+-  await env.DB.prepare(
+-    `INSERT INTO purchases (token_hash, account_id, product_id, tier, state, paid_through, auto_renewing, checked_at, bound_at, transferred_at)
+-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?8)
+-     ON CONFLICT (token_hash) DO UPDATE SET account_id = ?2, product_id = ?3, tier = ?4, state = ?5, paid_through = ?6, auto_renewing = ?7, checked_at = ?8, transferred_at = ?8`,
+-  ).bind(key, account.id, entitlement.productId, entitlement.tier, entitlement.state, entitlement.paidThrough, entitlement.autoRenewing ? 1 : 0, now).run()
+-  return json(200, await accountSnapshot(env, account, claims.sub, installId, now, { purchaseValid: true }))
++  await refreshApple(env, key, entitlement, checkedAt, note.signedDate)
++  return ack()
++}
++
++/** Daily: a renewing subscription that passed its date with no word from Apple. An Android phone can't ask StoreKit. */
++async function recheckLapsedApple(env, fetcher, now) {
++  // ponytail: 20 a day keeps a run under the free plan's 50 subrequests (two fetches each). Raise it with a paid plan.
++  const { results } = await env.DB.prepare(
++    "SELECT token_hash, store_ref, environment FROM purchases WHERE store = 'app_store' AND auto_renewing = 1 AND paid_through < ? AND checked_at < ? ORDER BY checked_at LIMIT 20",
++  ).bind(now, now - APPLE_LAPSE_RECHECK_MS).all()
++  for (const row of results) {
++    try {
++      const checkedAt = Date.now()
++      await refreshApple(env, row.token_hash, await appleAsk(env, row.store_ref, fetcher, row.environment), checkedAt)
++    } catch {
++      // Tomorrow's run tries again. The clock has already taken Plus away.
++    }
++  }
+ }
+ 
+ const MODES = new Set(['cooldown', 'always_block'])
+@@ -644,6 +785,7 @@ async function rtdn(request, env, fetcher) {
+ 
+ /** Daily: finishes deletions past their grace, and drops what no longer serves a purpose. */
+ export async function housekeeping(env, fetcher, now = Date.now()) {
++  if (appleReady(env)) await recheckLapsedApple(env, fetcher, now)
+   const { results } = await env.DB.prepare("SELECT id, firebase_uid FROM accounts WHERE status = 'deletion_requested' AND deletion_requested_at < ? LIMIT 100").bind(now - DELETION_GRACE_MS).all()
+   for (const a of results) {
+     try {
+@@ -678,6 +820,9 @@ const ROUTES = {
+   '/v1/account/delete/cancel': cancelDeletion,
+   '/v1/installations/remove': removeInstallation,
+   '/v1/verify': verify,
++  '/v1/verify/apple': verifyApple,
++  '/v1/purchases/transfer/apple': transferApple,
++  '/v1/apple/notifications': appleNotification,
+   '/v1/purchases/transfer': transfer,
+   '/v1/quota/reserve': reserve,
+   '/v1/quota/release': release,
+@@ -695,7 +840,7 @@ export default {
+     try {
+       if ((await rawBody(request)).length > MAX_BODY) return json(413, { error: 'too_large' })
+       const ip = request.headers.get('cf-connecting-ip')
+-      if (path !== '/v1/rtdn' && ip && !(await allowed(env, `ip:${b64url(await sha256(ip))}`, 300, 60))) return json(429, { error: 'slow_down' })
++      if (path !== '/v1/rtdn' && path !== '/v1/apple/notifications' && ip && !(await allowed(env, `ip:${b64url(await sha256(ip))}`, 300, 60))) return json(429, { error: 'slow_down' })
+       return await route(request, env, fetcher)
+     } catch (e) {
+       if (e instanceof AuthError) return json(e.status, { error: e.code })
+diff --git a/server/test/apple-crypto.test.js b/server/test/apple-crypto.test.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ce68153331894cbeeddcc7c86102c37216adf0d
+--- /dev/null
++++ b/server/test/apple-crypto.test.js
+@@ -0,0 +1,178 @@
++// Signature and certificate rules. The first block needs the real pinned root, so it runs before anything replaces it.
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import { createHash, createHmac } from 'node:crypto'
++import { readFileSync } from 'node:fs'
++import { AppleInvalid, appAccountToken, appleTrust, verifyChain, verifySigned } from '../src/apple.js'
++
++const pinned = appleTrust.root
++const { OID, certificate, jwsOf, makePki, transaction } = await import('./apple-fixture.js')
++const testRoot = appleTrust.root
++const fixture = (name) => readFileSync(new URL(`./apple-fixtures/${name}`, import.meta.url))
++const real = JSON.parse(fixture('real-chain.json'))
++const withRoot = async (root, run) => {
++  const before = appleTrust.root
++  appleTrust.root = root
++  try {
++    return await run()
++  } finally {
++    appleTrust.root = before
++  }
++}
++const invalid = (promise, label) => assert.rejects(promise, AppleInvalid, label)
++const b64 = (der) => der.toString('base64')
++
++// ---- Apple's own certificates and signed data (Apple's app-store-server-library-node test resources, MIT) ------
++
++test('the pinned root is Apple Root CA - G3, by its published SHA-256 fingerprint', () => {
++  assert.equal(createHash('sha256').update(pinned).digest('hex'), '63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179')
++  assert.equal(Buffer.from(pinned).toString('base64'), real.root)
++})
++
++test('Apple\'s real production chain verifies to the pinned root, and only in its validity window', async () => {
++  await withRoot(pinned, async () => {
++    const x5c = [real.leaf, real.intermediate, real.root]
++    const key = await verifyChain(x5c, real.effectiveDate)
++    assert.deepEqual(key.algorithm, { name: 'ECDSA', namedCurve: 'P-256' })
++    await invalid(verifyChain(x5c, Date.UTC(2020, 0, 1)), 'before the certificates')
++    await invalid(verifyChain(x5c, Date.UTC(2040, 0, 1)), 'after the certificates')
++    await invalid(verifyChain([real.intermediate, real.leaf, real.root], real.effectiveDate), 'swapped')
++    await invalid(verifyChain([real.leaf, real.intermediate], real.effectiveDate), 'too short')
++    const tampered = Buffer.from(real.leaf, 'base64')
++    tampered[200] ^= 1
++    await invalid(verifyChain([tampered.toString('base64'), real.intermediate, real.root], real.effectiveDate), 'one bit changed')
++  })
++})
++
++test('Apple\'s real chain means nothing under another root, and x5c[2] can\'t choose the root', async () => {
++  await invalid(verifyChain([real.leaf, real.intermediate, real.root], real.effectiveDate))
++  const rogue = makePki()
++  await withRoot(pinned, () => invalid(verifySigned(jwsOf(transaction({ signedDate: real.effectiveDate }), rogue))))
++})
++
++test('Apple\'s own signed fixtures verify under Apple\'s test CA, and not under the production root', async () => {
++  const testCA = fixture('testCA.der')
++  for (const name of ['transactionInfo', 'renewalInfo', 'testNotification']) {
++    const jws = fixture(name).toString().trim()
++    const payload = await withRoot(testCA, () => verifySigned(jws))
++    assert.ok(payload.signedDate > 0, name)
++    await withRoot(pinned, () => invalid(verifySigned(jws), `${name} under the production root`))
++    const [head, body, signature] = jws.split('.')
++    const changed = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url')), bundleId: 'other' })).toString('base64url')
++    await withRoot(testCA, () => invalid(verifySigned(`${head}.${changed}.${signature}`), `${name} tampered`))
++  }
++})
++
++// ---- Attacks and malformed input, against a chain built for the purpose ----------------------------------------
++
++test('decoding is not verifying: unsigned, re-signed and spliced tokens are refused', async () => {
++  const pki = makePki()
++  appleTrust.root = pki.rootDer
++  try {
++    const payload = transaction()
++    const good = jwsOf(payload, pki)
++    assert.equal((await verifySigned(good)).originalTransactionId, '2000')
++    const [head, body, signature] = good.split('.')
++    const encode = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
++    const x5c = pki.x5c
++    const hmac = createHmac('sha256', Buffer.from(x5c[0], 'base64')).update(`${encode({ alg: 'HS256', x5c })}.${body}`).digest('base64url')
++    const cases = {
++      'alg none': `${encode({ alg: 'none', x5c })}.${body}.`,
++      'HS256 keyed with the public certificate': `${encode({ alg: 'HS256', x5c })}.${body}.${hmac}`,
++      'no signature': `${head}.${body}.`,
++      'another payload under this signature': `${head}.${encode({ ...payload, productId: 'x' })}.${signature}`,
++      'a truncated signature': `${head}.${body}.${signature.slice(0, 40)}`,
++      'no chain': jwsOf(payload, pki, { x5c: undefined }),
++      'two certificates': jwsOf(payload, pki, { x5c: x5c.slice(0, 2) }),
++      'four certificates': jwsOf(payload, pki, { x5c: [...x5c, x5c[2]] }),
++      'junk certificates': jwsOf(payload, pki, { x5c: ['abc', 'def', 'ghi'] }),
++      'not base64': jwsOf(payload, pki, { x5c: ['***', '***', '***'] }),
++      'a future signing date': jwsOf(transaction({ signedDate: Date.now() + 3_600_000 }), pki),
++      'no signing date': jwsOf(transaction({ signedDate: undefined }), pki),
++      'a payload that is not an object': `${head}.${encode(5)}.${signature}`,
++      'two parts': `${head}.${body}`,
++    }
++    for (const [label, jws] of Object.entries(cases)) await invalid(verifySigned(jws), label)
++    for (const jws of [undefined, null, 5, {}, '', '..']) await invalid(verifySigned(jws), String(jws))
++    // Our own valid chain, and a signature from a key that isn't its leaf.
++    const other = makePki()
++    other.x5c = x5c
++    await invalid(verifySigned(jwsOf(payload, other)), 'signed by another key')
++  } finally {
++    appleTrust.root = testRoot
++  }
++})
++
++test('every chain rule refuses on its own', async () => {
++  const YEAR = 365 * 86_400_000
++  const bad = {
++    'intermediate without Apple\'s marker': { intermediate: { oids: [] } },
++    'intermediate marked as a leaf': { intermediate: { oids: [OID.leaf] } },
++    'intermediate that is not a CA': { intermediate: { ca: false } },
++    'expired intermediate': { intermediate: { notAfter: Date.now() - YEAR / 2 } },
++    'intermediate not yet valid': { intermediate: { notBefore: Date.now() + YEAR / 2 } },
++    'intermediate with an unknown critical extension': { intermediate: { critical: ['551d1e'] } },
++    'leaf without Apple\'s marker': { leaf: { oids: [] } },
++    'leaf marked as an intermediate': { leaf: { oids: [OID.intermediate] } },
++    'leaf that is a CA': { leaf: { ca: true } },
++    'expired leaf': { leaf: { notAfter: Date.now() - YEAR / 2 } },
++    'leaf with an unknown critical extension': { leaf: { critical: ['551d1e'] } },
++    'leaf naming a different issuer': { leaf: { issuer: 'Someone Else' } },
++    'intermediate naming a different issuer': { intermediate: { issuer: 'Someone Else' } },
++  }
++  for (const [label, over] of Object.entries(bad)) {
++    const pki = makePki(over)
++    appleTrust.root = pki.rootDer
++    await invalid(verifySigned(jwsOf(transaction(), pki)), label)
++  }
++  const sane = makePki()
++  appleTrust.root = sane.rootDer
++  assert.ok(await verifySigned(jwsOf(transaction(), sane)), 'the same builder with nothing bent passes')
++
++  // A leaf signed directly by a key other than the intermediate's, carrying the right names.
++  const forged = certificate({ subject: 'Test Leaf', issuer: 'Test Intermediate', publicKey: sane.leaf.publicKey, signingKey: makePki().intermediate.privateKey, hash: 'sha384', oids: [OID.leaf] })
++  await invalid(verifySigned(jwsOf(transaction(), { ...sane, x5c: [b64(forged), sane.x5c[1], sane.x5c[2]] })), 'forged leaf')
++  // A certificate is judged when Apple signed: an old transaction outlives its leaf, but one signed after expiry doesn't.
++  const old = makePki({ leaf: { notBefore: Date.now() - YEAR * 0.9, notAfter: Date.now() - YEAR / 2 } })
++  appleTrust.root = old.rootDer
++  assert.ok(await verifySigned(jwsOf(transaction({ signedDate: Date.now() - YEAR * 0.7 }), old)), 'signed while valid')
++  await invalid(verifySigned(jwsOf(transaction({ signedDate: Date.now() - YEAR * 0.2 }), old)), 'signed after expiry')
++  appleTrust.root = testRoot
++})
++
++test('hostile DER only ever fails closed', async () => {
++  const pki = makePki()
++  appleTrust.root = pki.rootDer
++  const at = Date.now()
++  const mutate = (der, seed) => {
++    const out = Buffer.from(der)
++    out[seed % out.length] = (seed * 2654435761) & 0xff
++    return out.toString('base64')
++  }
++  for (let seed = 0; seed < 400; seed++) {
++    const leaf = mutate(pki.leafDer, seed * 7 + 1)
++    const intermediate = mutate(pki.midDer, seed * 13 + 1)
++    await verifyChain([leaf, pki.x5c[1], pki.x5c[2]], at).then(
++      () => assert.equal(leaf, pki.x5c[0], `a changed leaf passed, seed ${seed}`),
++      (e) => assert.ok(e instanceof Error, seed),
++    )
++    await verifyChain([pki.x5c[0], intermediate, pki.x5c[2]], at).then(
++      () => assert.equal(intermediate, pki.x5c[1], `a changed intermediate passed, seed ${seed}`),
++      (e) => assert.ok(e instanceof Error, seed),
++    )
++  }
++  for (const der of [Buffer.from([0x30, 0x84, 0xff, 0xff, 0xff, 0xff]), Buffer.from([0x30, 0x80, 0, 0]), Buffer.from([0x30]), Buffer.alloc(0), Buffer.from([0x30, 0x7f, 1])]) {
++    await assert.rejects(verifyChain([der.toString('base64'), pki.x5c[1], pki.x5c[2]], at))
++  }
++  appleTrust.root = testRoot
++})
++
++// ---- appAccountToken ----------------------------------------------------------------------------------------------
++
++test('appAccountToken matches what Swift\'s Billing computes, byte for byte', async () => {
++  // Generated by running the app's own derivation under swift (docs/APP_STORE_BILLING.md).
++  const vectors = JSON.parse(fixture('account-token-vectors.json'))
++  for (const [uid, token] of Object.entries(vectors)) assert.equal(await appAccountToken(uid), token.toLowerCase(), uid)
++  assert.match(await appAccountToken('x'), /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
++  assert.notEqual(await appAccountToken('a'), await appAccountToken('b'))
++})
+diff --git a/server/test/apple-fixture.js b/server/test/apple-fixture.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..a1227ee67e69795e61cbe95f00a5f9ea4a45adb1
+--- /dev/null
++++ b/server/test/apple-fixture.js
+@@ -0,0 +1,122 @@
++// A stand-in Apple: a real ECDSA certificate chain built here, real signatures, and the App Store Server API faked at the
++// fetch boundary. Nothing that passes against this proves Apple accepts or sends these exact bytes: that takes real
++// purchases (docs/APP_STORE_BILLING.md). test/apple-crypto.test.js also runs the verifier over Apple's own certificates.
++import { createPublicKey, createSign, createVerify, generateKeyPairSync } from 'node:crypto'
++import { appAccountToken, appleTrust } from '../src/apple.js'
++import { idToken, world } from './fixture.js'
++
++const length = (n) => (n < 128 ? [n] : n < 256 ? [0x81, n] : [0x82, n >> 8, n & 255])
++const tlv = (tag, ...parts) => {
++  const body = Buffer.concat(parts)
++  return Buffer.concat([Buffer.from([tag, ...length(body.length)]), body])
++}
++const seq = (...parts) => tlv(0x30, ...parts)
++const oid = (hexValue) => tlv(0x06, Buffer.from(hexValue, 'hex'))
++const name = (cn) => seq(tlv(0x31, seq(oid('550403'), tlv(0x0c, Buffer.from(cn)))))
++const time = (ms) => tlv(0x18, Buffer.from(new Date(ms).toISOString().replace(/[-:T]|\.\d+/g, '')))
++const extension = (id, value, critical = false) => seq(oid(id), ...(critical ? [tlv(0x01, Buffer.from([0xff]))] : []), tlv(0x04, value))
++const YEAR = 365 * 86_400_000
++export const OID = { intermediate: '2a864886f76364060201', leaf: '2a864886f76364060b01' }
++
++/** An X.509 v3 ECDSA certificate. Its issuer's key signs it, as a real CA would. */
++export function certificate({ subject, issuer = subject, publicKey, signingKey, hash = 'sha256', ca = false, oids = [], notBefore = Date.now() - YEAR, notAfter = Date.now() + YEAR, critical = [] }) {
++  const algorithm = seq(oid(hash === 'sha384' ? '2a8648ce3d040303' : '2a8648ce3d040302'))
++  const extensions = [
++    extension('551d13', ca ? seq(tlv(0x01, Buffer.from([0xff]))) : seq(), true),
++    ...oids.map((id) => extension(id, tlv(0x05))),
++    ...critical.map((id) => extension(id, tlv(0x05), true)),
++  ]
++  const tbs = seq(
++    tlv(0xa0, tlv(0x02, Buffer.from([2]))), tlv(0x02, Buffer.from([1])), algorithm, name(issuer),
++    seq(time(notBefore), time(notAfter)), name(subject), publicKey.export({ type: 'spki', format: 'der' }), tlv(0xa3, seq(...extensions)),
++  )
++  const signature = createSign(hash).update(tbs).sign(signingKey)
++  return seq(tbs, algorithm, tlv(0x03, Buffer.from([0]), signature))
++}
++
++const ec = (namedCurve) => generateKeyPairSync('ec', { namedCurve })
++
++/** A chain shaped like Apple's: a P-384 root, a P-384 intermediate, a P-256 leaf. [over] bends one link for a test. */
++export function makePki({ intermediate: mid = {}, leaf: end = {} } = {}) {
++  const root = ec('secp384r1')
++  const intermediate = ec('secp384r1')
++  const leaf = ec('prime256v1')
++  const rootDer = certificate({ subject: 'Test Root', publicKey: root.publicKey, signingKey: root.privateKey, hash: 'sha384', ca: true })
++  const midDer = certificate({ subject: 'Test Intermediate', issuer: 'Test Root', publicKey: intermediate.publicKey, signingKey: root.privateKey, hash: 'sha384', ca: true, oids: [OID.intermediate], ...mid })
++  const leafDer = certificate({ subject: 'Test Leaf', issuer: 'Test Intermediate', publicKey: leaf.publicKey, signingKey: intermediate.privateKey, hash: 'sha384', oids: [OID.leaf], ...end })
++  return { root, intermediate, leaf, rootDer, midDer, leafDer, x5c: [leafDer, midDer, rootDer].map((d) => d.toString('base64')) }
++}
++
++export const jwsOf = (payload, pki, header = {}) => {
++  const unsigned = `${Buffer.from(JSON.stringify({ alg: 'ES256', x5c: pki.x5c, ...header })).toString('base64url')}.${Buffer.from(JSON.stringify(payload)).toString('base64url')}`
++  const signature = createSign('sha256').update(unsigned).sign({ key: pki.leaf.privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url')
++  return `${unsigned}.${signature}`
++}
++
++export const BUNDLE = 'com.aagamjain.Aurora'
++export const APPLE_IDS = ['aurora_ios_plus_monthly', 'aurora_ios_plus_annual']
++export const DAY = 86_400_000
++const API_KEY = ec('prime256v1')
++export const trustedPki = makePki()
++appleTrust.root = trustedPki.rootDer
++
++export const transaction = (over = {}) => ({
++  transactionId: '1001', originalTransactionId: '2000', webOrderLineItemId: '3000', bundleId: BUNDLE, productId: APPLE_IDS[0], type: 'Auto-Renewable Subscription',
++  purchaseDate: Date.now() - DAY, originalPurchaseDate: Date.now() - DAY, expiresDate: Date.now() + 30 * DAY, signedDate: Date.now(), inAppOwnershipType: 'PURCHASED',
++  environment: 'Production', ...over,
++})
++export const renewal = (over = {}) => ({ originalTransactionId: '2000', productId: APPLE_IDS[0], autoRenewProductId: APPLE_IDS[0], autoRenewStatus: 1, environment: 'Production', signedDate: Date.now(), ...over })
++
++export function appleWorld(options) {
++  const w = world(options)
++  Object.assign(w.env, {
++    APPLE_BUNDLE_ID: BUNDLE, APPLE_PRODUCT_IDS: APPLE_IDS.join(', '), APPLE_ISSUER_ID: 'issuer', APPLE_KEY_ID: 'KEY123',
++    APPLE_PRIVATE_KEY: API_KEY.privateKey.export({ type: 'pkcs8', format: 'pem' }),
++  })
++  const apple = { Production: new Map(), Sandbox: new Map(), calls: [], down: false, status: null, body: null, hold: null, bundleId: BUNDLE }
++  w.apple = apple
++  w.state.apple = async (url, init) => {
++    const environment = url.startsWith('https://api.storekit.apple.com/') ? 'Production' : url.startsWith('https://api.storekit-sandbox.apple.com/') ? 'Sandbox' : null
++    if (!environment) throw new Error(`unexpected Apple host ${url}`)
++    apple.calls.push(url)
++    const [head, claims, signature] = init.headers.authorization.replace('Bearer ', '').split('.')
++    const ok = createVerify('sha256').update(`${head}.${claims}`).verify({ key: createPublicKey(API_KEY.privateKey), dsaEncoding: 'ieee-p1363' }, signature, 'base64url')
++    const decoded = JSON.parse(Buffer.from(claims, 'base64url'))
++    if (!ok || JSON.parse(Buffer.from(head, 'base64url')).kid !== 'KEY123' || decoded.aud !== 'appstoreconnect-v1' || decoded.bid !== BUNDLE || decoded.iss !== 'issuer') return new Response('{}', { status: 401 })
++    if (apple.down) return new Response('{}', { status: apple.status ?? 500 })
++    const response = apple.body ? { ...apple.body } : null
++    const entry = apple[environment].get(decodeURIComponent(url.split('/subscriptions/')[1]))
++    const reply = response ?? (entry ? { environment, bundleId: apple.bundleId, appAppleId: 1, data: entry } : null)
++    if (apple.hold) {
++      const { hold } = apple
++      apple.hold = null
++      await hold
++    }
++    return reply ? new Response(JSON.stringify(reply)) : new Response('{"errorCode":4040010}', { status: 404 })
++  }
++  return w
++}
++
++/** One lastTransactions item, signed. */
++export const lastTransaction = (status, tx = transaction(), info = renewal(), pki = trustedPki) => ({
++  originalTransactionId: tx.originalTransactionId, status, signedTransactionInfo: jwsOf(tx, pki), ...(info ? { signedRenewalInfo: jwsOf(info, pki) } : {}),
++})
++export const group = (...items) => [{ subscriptionGroupIdentifier: 'plus', lastTransactions: items }]
++
++/** Apple's state for this subscription, and the signed transaction a phone would hold for it. */
++export async function subscribed(w, uid, { status = 1, tx = {}, info = {}, environment = 'Production', id = '2000' } = {}) {
++  const token = uid === null || tx.appAccountToken !== undefined ? {} : { appAccountToken: await appAccountToken(uid) }
++  const signedTx = transaction({ originalTransactionId: id, environment, ...token, ...tx })
++  w.apple[environment].set(id, group(lastTransaction(status, signedTx, renewal({ originalTransactionId: id, environment, ...info }))))
++  return jwsOf(signedTx, trustedPki)
++}
++
++export const verifyApple = (w, uid, signedTransaction, over = {}) => w.call('/v1/verify/apple', idToken(uid), { signedTransaction, installId: 'ios-1', bundleId: BUNDLE, productId: APPLE_IDS[0], ...over })
++export const moveApple = (w, uid, signedTransaction, over = {}, tokenOver = {}) => w.call('/v1/purchases/transfer/apple', idToken(uid, tokenOver), { signedTransaction, installId: 'ios-1', ...over })
++export const notify = (w, payload, pki = trustedPki) => w.call('/v1/apple/notifications', null, { signedPayload: jwsOf(payload, pki) })
++export const notification = (tx, over = {}) => ({
++  notificationType: 'DID_RENEW', notificationUUID: crypto.randomUUID(), version: '2.0', signedDate: Date.now(),
++  data: { bundleId: BUNDLE, environment: 'Production', signedTransactionInfo: jwsOf(tx ?? transaction(), trustedPki) },
++  ...over,
++})
++export const snapshotOf = (res) => JSON.parse(res.body.entitlement?.payload ?? res.body.payload)
+diff --git a/server/test/apple-fixtures/account-token-vectors.json b/server/test/apple-fixtures/account-token-vectors.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..e5aa9d135bab7fc7d6d72b771a3c75457a70a152
+--- /dev/null
++++ b/server/test/apple-fixtures/account-token-vectors.json
+@@ -0,0 +1,5 @@
++{
++  "alice": "2BD806C9-7F0E-50AF-9A1F-C3328FA763A9",
++  "Yx3kL9aQmZc1Rt7VbN2pW4sEfGh1": "6B573FCF-791F-59A6-AAAF-03B1CB9E5C7C",
++  "ユーザー": "11F06DE5-67B8-5713-B38D-648531553541"
++}
+diff --git a/server/test/apple-fixtures/real-chain.json b/server/test/apple-fixtures/real-chain.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..6a94c760dee2e1ee360339f6463f6a197a7c2170
+--- /dev/null
++++ b/server/test/apple-fixtures/real-chain.json
+@@ -0,0 +1,6 @@
++{
++ "root": "MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQLDB1BcHBsZSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTETMBEGA1UECgwKQXBwbGUgSW5jLjELMAkGA1UEBhMCVVMwHhcNMTQwNDMwMTgxOTA2WhcNMzkwNDMwMTgxOTA2WjBnMRswGQYDVQQDDBJBcHBsZSBSb290IENBIC0gRzMxJjAkBgNVBAsMHUFwcGxlIENlcnRpZmljYXRpb24gQXV0aG9yaXR5MRMwEQYDVQQKDApBcHBsZSBJbmMuMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABJjpLz1AcqTtkyJygRMc3RCV8cWjTnHcFBbZDuWmBSp3ZHtfTjjTuxxEtX/1H7YyYl3J6YRbTzBPEVoA/VhYDKX1DyxNB0cTddqXl5dvMVztK517IDvYuVTZXpmkOlEKMaNCMEAwHQYDVR0OBBYEFLuw3qFYM4iapIqZ3r6966/ayySrMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMDA2gAMGUCMQCD6cHEFl4aXTQY2e3v9GwOAEZLuN+yRhHFD/3meoyhpmvOwgPUnPWTxnS4at+qIxUCMG1mihDK1A3UT82NQz60imOlM27jbdoXt2QfyFMm+YhidDkLF1vLUagM6BgD56KyKA==",
++ "intermediate": "MIIDFjCCApygAwIBAgIUIsGhRwp0c2nvU4YSycafPTjzbNcwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQLDB1BcHBsZSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTETMBEGA1UECgwKQXBwbGUgSW5jLjELMAkGA1UEBhMCVVMwHhcNMjEwMzE3MjAzNzEwWhcNMzYwMzE5MDAwMDAwWjB1MUQwQgYDVQQDDDtBcHBsZSBXb3JsZHdpZGUgRGV2ZWxvcGVyIFJlbGF0aW9ucyBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTELMAkGA1UECwwCRzYxEzARBgNVBAoMCkFwcGxlIEluYy4xCzAJBgNVBAYTAlVTMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEbsQKC94PrlWmZXnXgtxzdVJL8T0SGYngDRGpngn3N6PT8JMEb7FDi4bBmPhCnZ3/sq6PF/cGcKXWsL5vOteRhyJ45x3ASP7cOB+aao90fcpxSv/EZFbniAbNgZGhIhpIo4H6MIH3MBIGA1UdEwEB/wQIMAYBAf8CAQAwHwYDVR0jBBgwFoAUu7DeoVgziJqkipnevr3rr9rLJKswRgYIKwYBBQUHAQEEOjA4MDYGCCsGAQUFBzABhipodHRwOi8vb2NzcC5hcHBsZS5jb20vb2NzcDAzLWFwcGxlcm9vdGNhZzMwNwYDVR0fBDAwLjAsoCqgKIYmaHR0cDovL2NybC5hcHBsZS5jb20vYXBwbGVyb290Y2FnMy5jcmwwHQYDVR0OBBYEFD8vlCNR01DJmig97bB85c+lkGKZMA4GA1UdDwEB/wQEAwIBBjAQBgoqhkiG92NkBgIBBAIFADAKBggqhkjOPQQDAwNoADBlAjBAXhSq5IyKogMCPtw490BaB677CaEGJXufQB/EqZGd6CSjiCtOnuMTbXVXmxxcxfkCMQDTSPxarZXvNrkxU3TkUMI33yzvFVVRT4wxWJC994OsdcZ4+RGNsYDyR5gmdr0nDGg=",
++ "leaf": "MIIEMTCCA7agAwIBAgIQR8KHzdn554Z/UoradNx9tzAKBggqhkjOPQQDAzB1MUQwQgYDVQQDDDtBcHBsZSBXb3JsZHdpZGUgRGV2ZWxvcGVyIFJlbGF0aW9ucyBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTELMAkGA1UECwwCRzYxEzARBgNVBAoMCkFwcGxlIEluYy4xCzAJBgNVBAYTAlVTMB4XDTI1MDkxOTE5NDQ1MVoXDTI3MTAxMzE3NDcyM1owgZIxQDA+BgNVBAMMN1Byb2QgRUNDIE1hYyBBcHAgU3RvcmUgYW5kIGlUdW5lcyBTdG9yZSBSZWNlaXB0IFNpZ25pbmcxLDAqBgNVBAsMI0FwcGxlIFdvcmxkd2lkZSBEZXZlbG9wZXIgUmVsYXRpb25zMRMwEQYDVQQKDApBcHBsZSBJbmMuMQswCQYDVQQGEwJVUzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNnVvhcv7iT+7Ex5tBMBgrQspHzIsXRi0Yxfek7lv8wEmj/bHiWtNwJqc2BoHzsQiEjP7KFIIKg4Y8y0/nynuAmjggIIMIICBDAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFD8vlCNR01DJmig97bB85c+lkGKZMHAGCCsGAQUFBwEBBGQwYjAtBggrBgEFBQcwAoYhaHR0cDovL2NlcnRzLmFwcGxlLmNvbS93d2RyZzYuZGVyMDEGCCsGAQUFBzABhiVodHRwOi8vb2NzcC5hcHBsZS5jb20vb2NzcDAzLXd3ZHJnNjAyMIIBHgYDVR0gBIIBFTCCAREwggENBgoqhkiG92NkBQYBMIH+MIHDBggrBgEFBQcCAjCBtgyBs1JlbGlhbmNlIG9uIHRoaXMgY2VydGlmaWNhdGUgYnkgYW55IHBhcnR5IGFzc3VtZXMgYWNjZXB0YW5jZSBvZiB0aGUgdGhlbiBhcHBsaWNhYmxlIHN0YW5kYXJkIHRlcm1zIGFuZCBjb25kaXRpb25zIG9mIHVzZSwgY2VydGlmaWNhdGUgcG9saWN5IGFuZCBjZXJ0aWZpY2F0aW9uIHByYWN0aWNlIHN0YXRlbWVudHMuMDYGCCsGAQUFBwIBFipodHRwOi8vd3d3LmFwcGxlLmNvbS9jZXJ0aWZpY2F0ZWF1dGhvcml0eS8wHQYDVR0OBBYEFIFioG4wMMVA1ku9zJmGNPAVn3eqMA4GA1UdDwEB/wQEAwIHgDAQBgoqhkiG92NkBgsBBAIFADAKBggqhkjOPQQDAwNpADBmAjEA+qXnREC7hXIWVLsLxznjRpIzPf7VHz9V/CTm8+LJlrQepnmcPvGLNcX6XPnlcgLAAjEA5IjNZKgg5pQ79knF4IbTXdKv8vutIDMXDmjPVT3dGvFtsGRwXOywR2kZCdSrfeot",
++ "effectiveDate": 1761962975000
++}
+\ No newline at end of file
+diff --git a/server/test/apple-fixtures/renewalInfo b/server/test/apple-fixtures/renewalInfo
+new file mode 100644
+index 0000000000000000000000000000000000000000..d14a20dc86e0d1feb17775017279c76f239d28d3
+--- /dev/null
++++ b/server/test/apple-fixtures/renewalInfo
+@@ -0,0 +1 @@
++eyJ4NWMiOlsiTUlJQm9EQ0NBVWFnQXdJQkFnSUJEREFLQmdncWhrak9QUVFEQXpCRk1Rc3dDUVlEVlFRR0V3SlZVekVMTUFrR0ExVUVDQXdDUTBFeEVqQVFCZ05WQkFjTUNVTjFjR1Z5ZEdsdWJ6RVZNQk1HQTFVRUNnd01TVzUwWlhKdFpXUnBZWFJsTUI0WERUSXpNREV3TlRJeE16RXpORm9YRFRNek1ERXdNVEl4TXpFek5Gb3dQVEVMTUFrR0ExVUVCaE1DVlZNeEN6QUpCZ05WQkFnTUFrTkJNUkl3RUFZRFZRUUhEQWxEZFhCbGNuUnBibTh4RFRBTEJnTlZCQW9NQkV4bFlXWXdXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBVGl0WUhFYVlWdWM4ZzlBalRPd0VyTXZHeVB5a1BhK3B1dlRJOGhKVEhaWkRMR2FzMnFYMStFcnhnUVRKZ1ZYdjc2bm1MaGhSSkgrajI1QWlBSThpR3NveTh3TFRBSkJnTlZIUk1FQWpBQU1BNEdBMVVkRHdFQi93UUVBd0lIZ0RBUUJnb3Foa2lHOTJOa0Jnc0JCQUlGQURBS0JnZ3Foa2pPUFFRREF3TklBREJGQWlCWDRjK1QwRnA1bko1UVJDbFJmdTVQU0J5UnZOUHR1YVRzazB2UEIzV0FJQUloQU5nYWF1QWovWVA5czBBa0VoeUpoeFFPLzZRMnpvdVorSDFDSU9laG5NelEiLCJNSUlCbnpDQ0FVV2dBd0lCQWdJQkN6QUtCZ2dxaGtqT1BRUURBekEyTVFzd0NRWURWUVFHRXdKVlV6RVRNQkVHQTFVRUNBd0tRMkZzYVdadmNtNXBZVEVTTUJBR0ExVUVCd3dKUTNWd1pYSjBhVzV2TUI0WERUSXpNREV3TlRJeE16RXdOVm9YRFRNek1ERXdNVEl4TXpFd05Wb3dSVEVMTUFrR0ExVUVCaE1DVlZNeEN6QUpCZ05WQkFnTUFrTkJNUkl3RUFZRFZRUUhEQWxEZFhCbGNuUnBibTh4RlRBVEJnTlZCQW9NREVsdWRHVnliV1ZrYVdGMFpUQlpNQk1HQnlxR1NNNDlBZ0VHQ0NxR1NNNDlBd0VIQTBJQUJCVU41VjlyS2pmUmlNQUlvakVBMEF2NU1wMG9GK08wY0w0Z3pyVEYxNzhpblVIdWdqN0V0NDZOcmtRN2hLZ01WbmpvZ3E0NVExck1zK2NNSFZOSUxXcWpOVEF6TUE4R0ExVWRFd1FJTUFZQkFmOENBUUF3RGdZRFZSMFBBUUgvQkFRREFnRUdNQkFHQ2lxR1NJYjNZMlFHQWdFRUFnVUFNQW9HQ0NxR1NNNDlCQU1EQTBnQU1FVUNJUUNtc0lLWXM0MXVsbHNzSFg0clZ2ZVVUMFo3SXM1L2hMSzFsRlBUdHVuM2hBSWdjMisyUkc1K2dOY0ZWY3MrWEplRWw0R1orb2psM1JPT21sbCt5ZTdkeW5RPSIsIk1JSUJnakNDQVNtZ0F3SUJBZ0lKQUxVYzVBTGlINXBiTUFvR0NDcUdTTTQ5QkFNRE1EWXhDekFKQmdOVkJBWVRBbFZUTVJNd0VRWURWUVFJREFwRFlXeHBabTl5Ym1saE1SSXdFQVlEVlFRSERBbERkWEJsY25ScGJtOHdIaGNOTWpNd01UQTFNakV6TURJeVdoY05Nek13TVRBeU1qRXpNREl5V2pBMk1Rc3dDUVlEVlFRR0V3SlZVekVUTUJFR0ExVUVDQXdLUTJGc2FXWnZjbTVwWVRFU01CQUdBMVVFQnd3SlEzVndaWEowYVc1dk1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRWMrL0JsK2dvc3BvNnRmOVo3aW81dGRLZHJsTjFZZFZucUVoRURYRFNoemRBSlBRaWphbVhJTUhmOHhXV1RhMXpnb1lUeE9LcGJ1SnREcGx6MVhyaVRhTWdNQjR3REFZRFZSMFRCQVV3QXdFQi96QU9CZ05WSFE4QkFmOEVCQU1DQVFZd0NnWUlLb1pJemowRUF3TURSd0F3UkFJZ2VtV1FYbk1BZFRhZDJKREpXbmc5VTR1QkJMNW1BN1dJMDVIN29IN2M2aVFDSUhpUnFNak5melVBeWl1OWg2ck9VL0sraVRSMEkvM1kvTlNXc1hIWCthY2MiXSwidHlwIjoiSldUIiwiYWxnIjoiRVMyNTYifQ.eyJlbnZpcm9ubWVudCI6IlNhbmRib3giLCJzaWduZWREYXRlIjoxNjcyOTU2MTU0MDAwfQ.FbK2OL-t6l4892W7fzWyus_g9mIl2CzWLbVt7Kgcnt6zzVulF8bzovgpe0v_y490blROGixy8KDoe2dSU53-Xw
+\ No newline at end of file
+diff --git a/server/test/apple-fixtures/testCA.der b/server/test/apple-fixtures/testCA.der
+new file mode 100644
+index 0000000000000000000000000000000000000000..54a42b6819d776228bc61c5284cd96772880748c
+GIT binary patch
+literal 390
+zcmXqLVr(*KV$@u~%*4pV#L2K#<_Xgy`B~8hTx=X#Z64=rS(up(%nZ2=IN6v(S=fY`
+zLW2#34Fo|P4jwM&#GK5u{Gz<fL_;A10gxa&52tf!L26M+W?sI5oH(zMv4Nq1sga?v
+zfss*^IIl5?YXs$zZEmE2FdIAAbxe#<XEHOgGdnS`6u&<>{e{M+Syo&BN50dt+<Iy5
+zy5Q2ptLZB|TzCsEwVOMrd{OFMIbGr4{m-J)eAgB?wFw`2v@-8eF5k@Jt5uJD7b_UZ
+z8Snr-A}h?oYQW6M_}_pJ#N!9DSXh8z#D*L&%<c>ZE=&qlsT1Og8A{FO-k5MQs=_w7
+zyOCvI8uQkU%M*VusJrt@g-M}e;))Yz>rEL>Y42@cbuReRzD|=8<-a%nT$#49@cPf?
+FG5{`Qc$NSF
+
+literal 0
+HcmV?d00001
+
+diff --git a/server/test/apple-fixtures/testNotification b/server/test/apple-fixtures/testNotification
+new file mode 100644
+index 0000000000000000000000000000000000000000..7bb78cf115ff2e0ca6ca61853e5c8e01304f528f
+--- /dev/null
++++ b/server/test/apple-fixtures/testNotification
+@@ -0,0 +1 @@
++eyJ4NWMiOlsiTUlJQm9EQ0NBVWFnQXdJQkFnSUJDekFLQmdncWhrak9QUVFEQWpCTk1Rc3dDUVlEVlFRR0V3SlZVekVUTUJFR0ExVUVDQXdLUTJGc2FXWnZjbTVwWVRFU01CQUdBMVVFQnd3SlEzVndaWEowYVc1dk1SVXdFd1lEVlFRS0RBeEpiblJsY20xbFpHbGhkR1V3SGhjTk1qTXdNVEEwTVRZek56TXhXaGNOTXpJeE1qTXhNVFl6TnpNeFdqQkZNUXN3Q1FZRFZRUUdFd0pWVXpFVE1CRUdBMVVFQ0F3S1EyRnNhV1p2Y201cFlURVNNQkFHQTFVRUJ3d0pRM1Z3WlhKMGFXNXZNUTB3Q3dZRFZRUUtEQVJNWldGbU1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRTRyV0J4R21GYm5QSVBRSTB6c0JLekx4c2o4cEQydnFicjB5UElTVXgyV1F5eG1yTnFsOWZoSzhZRUV5WUZWNysrcDVpNFlVU1Ivbzl1UUlnQ1BJaHJLTWZNQjB3Q1FZRFZSMFRCQUl3QURBUUJnb3Foa2lHOTJOa0Jnc0JCQUlUQURBS0JnZ3Foa2pPUFFRREFnTklBREJGQWlFQWtpRVprb0ZNa2o0Z1huK1E5alhRWk1qWjJnbmpaM2FNOE5ZcmdmVFVpdlFDSURKWVowRmFMZTduU0lVMkxXTFRrNXRYVENjNEU4R0pTWWYvc1lSeEVGaWUiLCJNSUlCbHpDQ0FUMmdBd0lCQWdJQkJqQUtCZ2dxaGtqT1BRUURBakEyTVFzd0NRWURWUVFHRXdKVlV6RVRNQkVHQTFVRUNBd0tRMkZzYVdadmNtNXBZVEVTTUJBR0ExVUVCd3dKUTNWd1pYSjBhVzV2TUI0WERUSXpNREV3TkRFMk1qWXdNVm9YRFRNeU1USXpNVEUyTWpZd01Wb3dUVEVMTUFrR0ExVUVCaE1DVlZNeEV6QVJCZ05WQkFnTUNrTmhiR2xtYjNKdWFXRXhFakFRQmdOVkJBY01DVU4xY0dWeWRHbHViekVWTUJNR0ExVUVDZ3dNU1c1MFpYSnRaV1JwWVhSbE1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRUZRM2xYMnNxTjlHSXdBaWlNUURRQy9reW5TZ1g0N1J3dmlET3RNWFh2eUtkUWU2Q1BzUzNqbzJ1UkR1RXFBeFdlT2lDcmpsRFdzeXo1d3dkVTBndGFxTWxNQ013RHdZRFZSMFRCQWd3QmdFQi93SUJBREFRQmdvcWhraUc5Mk5rQmdJQkJBSVRBREFLQmdncWhrak9QUVFEQWdOSUFEQkZBaUVBdm56TWNWMjY4Y1JiMS9GcHlWMUVoVDNXRnZPenJCVVdQNi9Ub1RoRmF2TUNJRmJhNXQ2WUt5MFIySkR0eHF0T2pKeTY2bDZWN2QvUHJBRE5wa21JUFcraSIsIk1JSUJYRENDQVFJQ0NRQ2ZqVFVHTERuUjlqQUtCZ2dxaGtqT1BRUURBekEyTVFzd0NRWURWUVFHRXdKVlV6RVRNQkVHQTFVRUNBd0tRMkZzYVdadmNtNXBZVEVTTUJBR0ExVUVCd3dKUTNWd1pYSjBhVzV2TUI0WERUSXpNREV3TkRFMk1qQXpNbG9YRFRNek1ERXdNVEUyTWpBek1sb3dOakVMTUFrR0ExVUVCaE1DVlZNeEV6QVJCZ05WQkFnTUNrTmhiR2xtYjNKdWFXRXhFakFRQmdOVkJBY01DVU4xY0dWeWRHbHViekJaTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEEwSUFCSFB2d1pmb0tMS2FPclgvV2U0cU9iWFNuYTVUZFdIVlo2aElSQTF3MG9jM1FDVDBJbzJwbHlEQjMvTVZsazJ0YzRLR0U4VGlxVzdpYlE2WmM5VjY0azB3Q2dZSUtvWkl6ajBFQXdNRFNBQXdSUUloQU1USGhXdGJBUU4waFN4SVhjUDRDS3JEQ0gvZ3N4V3B4NmpUWkxUZVorRlBBaUIzNW53azVxMHpjSXBlZnZZSjBNVS95R0dIU1dlejBicTBwRFlVTy9ubUR3PT0iXSwidHlwIjoiSldUIiwiYWxnIjoiRVMyNTYifQ.eyJkYXRhIjp7ImFwcEFwcGxlSWQiOjEyMzQsImVudmlyb25tZW50IjoiU2FuZGJveCIsImJ1bmRsZUlkIjoiY29tLmV4YW1wbGUifSwibm90aWZpY2F0aW9uVVVJRCI6IjlhZDU2YmQyLTBiYzYtNDJlMC1hZjI0LWZkOTk2ZDg3YTFlNiIsInNpZ25lZERhdGUiOjE2ODEzMTQzMjQwMDAsIm5vdGlmaWNhdGlvblR5cGUiOiJURVNUIn0.VVXYwuNm2Y3XsOUva-BozqatRCsDuykA7xIe_CCRw6aIAAxJ1nb2sw871jfZ6dcgNhUuhoZ93hfbc1v_5zB7Og
+\ No newline at end of file
+diff --git a/server/test/apple-fixtures/transactionInfo b/server/test/apple-fixtures/transactionInfo
+new file mode 100644
+index 0000000000000000000000000000000000000000..3ddf0b022716df9617e3ce163c936245968c3bc2
+--- /dev/null
++++ b/server/test/apple-fixtures/transactionInfo
+@@ -0,0 +1 @@
++eyJ4NWMiOlsiTUlJQm9EQ0NBVWFnQXdJQkFnSUJDekFLQmdncWhrak9QUVFEQWpCTk1Rc3dDUVlEVlFRR0V3SlZVekVUTUJFR0ExVUVDQXdLUTJGc2FXWnZjbTVwWVRFU01CQUdBMVVFQnd3SlEzVndaWEowYVc1dk1SVXdFd1lEVlFRS0RBeEpiblJsY20xbFpHbGhkR1V3SGhjTk1qTXdNVEEwTVRZek56TXhXaGNOTXpJeE1qTXhNVFl6TnpNeFdqQkZNUXN3Q1FZRFZRUUdFd0pWVXpFVE1CRUdBMVVFQ0F3S1EyRnNhV1p2Y201cFlURVNNQkFHQTFVRUJ3d0pRM1Z3WlhKMGFXNXZNUTB3Q3dZRFZRUUtEQVJNWldGbU1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRTRyV0J4R21GYm5QSVBRSTB6c0JLekx4c2o4cEQydnFicjB5UElTVXgyV1F5eG1yTnFsOWZoSzhZRUV5WUZWNysrcDVpNFlVU1Ivbzl1UUlnQ1BJaHJLTWZNQjB3Q1FZRFZSMFRCQUl3QURBUUJnb3Foa2lHOTJOa0Jnc0JCQUlUQURBS0JnZ3Foa2pPUFFRREFnTklBREJGQWlFQWtpRVprb0ZNa2o0Z1huK1E5alhRWk1qWjJnbmpaM2FNOE5ZcmdmVFVpdlFDSURKWVowRmFMZTduU0lVMkxXTFRrNXRYVENjNEU4R0pTWWYvc1lSeEVGaWUiLCJNSUlCbHpDQ0FUMmdBd0lCQWdJQkJqQUtCZ2dxaGtqT1BRUURBakEyTVFzd0NRWURWUVFHRXdKVlV6RVRNQkVHQTFVRUNBd0tRMkZzYVdadmNtNXBZVEVTTUJBR0ExVUVCd3dKUTNWd1pYSjBhVzV2TUI0WERUSXpNREV3TkRFMk1qWXdNVm9YRFRNeU1USXpNVEUyTWpZd01Wb3dUVEVMTUFrR0ExVUVCaE1DVlZNeEV6QVJCZ05WQkFnTUNrTmhiR2xtYjNKdWFXRXhFakFRQmdOVkJBY01DVU4xY0dWeWRHbHViekVWTUJNR0ExVUVDZ3dNU1c1MFpYSnRaV1JwWVhSbE1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRUZRM2xYMnNxTjlHSXdBaWlNUURRQy9reW5TZ1g0N1J3dmlET3RNWFh2eUtkUWU2Q1BzUzNqbzJ1UkR1RXFBeFdlT2lDcmpsRFdzeXo1d3dkVTBndGFxTWxNQ013RHdZRFZSMFRCQWd3QmdFQi93SUJBREFRQmdvcWhraUc5Mk5rQmdJQkJBSVRBREFLQmdncWhrak9QUVFEQWdOSUFEQkZBaUVBdm56TWNWMjY4Y1JiMS9GcHlWMUVoVDNXRnZPenJCVVdQNi9Ub1RoRmF2TUNJRmJhNXQ2WUt5MFIySkR0eHF0T2pKeTY2bDZWN2QvUHJBRE5wa21JUFcraSIsIk1JSUJYRENDQVFJQ0NRQ2ZqVFVHTERuUjlqQUtCZ2dxaGtqT1BRUURBekEyTVFzd0NRWURWUVFHRXdKVlV6RVRNQkVHQTFVRUNBd0tRMkZzYVdadmNtNXBZVEVTTUJBR0ExVUVCd3dKUTNWd1pYSjBhVzV2TUI0WERUSXpNREV3TkRFMk1qQXpNbG9YRFRNek1ERXdNVEUyTWpBek1sb3dOakVMTUFrR0ExVUVCaE1DVlZNeEV6QVJCZ05WQkFnTUNrTmhiR2xtYjNKdWFXRXhFakFRQmdOVkJBY01DVU4xY0dWeWRHbHViekJaTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEEwSUFCSFB2d1pmb0tMS2FPclgvV2U0cU9iWFNuYTVUZFdIVlo2aElSQTF3MG9jM1FDVDBJbzJwbHlEQjMvTVZsazJ0YzRLR0U4VGlxVzdpYlE2WmM5VjY0azB3Q2dZSUtvWkl6ajBFQXdNRFNBQXdSUUloQU1USGhXdGJBUU4waFN4SVhjUDRDS3JEQ0gvZ3N4V3B4NmpUWkxUZVorRlBBaUIzNW53azVxMHpjSXBlZnZZSjBNVS95R0dIU1dlejBicTBwRFlVTy9ubUR3PT0iXSwidHlwIjoiSldUIiwiYWxnIjoiRVMyNTYifQ.eyJlbnZpcm9ubWVudCI6IlNhbmRib3giLCJidW5kbGVJZCI6ImNvbS5leGFtcGxlIiwic2lnbmVkRGF0ZSI6MTY3Mjk1NjE1NDAwMH0.PnHWpeIJZ8f2Q218NSGLo_aR0IBEJvC6PxmxKXh-qfYTrZccx2suGl223OSNAX78e4Ylf2yJCG2N-FfU-NIhZQ
+\ No newline at end of file
+diff --git a/server/test/apple.test.js b/server/test/apple.test.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..e6ac8d9b53301bd6759107253f94227a03cd43fc
+--- /dev/null
++++ b/server/test/apple.test.js
+@@ -0,0 +1,655 @@
++// /v1/verify/apple, moves, notifications and the shared entitlement, against a faked Apple (test/apple-fixture.js).
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import { readFileSync } from 'node:fs'
++import { appAccountToken, appleEntitlement, appleStatus } from '../src/apple.js'
++import { housekeeping } from '../src/worker.js'
++import { FakeD1, IDS, activeSub, idToken, verifySignature, world, PAST, FUTURE } from './fixture.js'
++import {
++  APPLE_IDS, BUNDLE, DAY, appleWorld, group, jwsOf, lastTransaction, makePki, moveApple, notification, notify, renewal, snapshotOf, subscribed, transaction, trustedPki, verifyApple,
++} from './apple-fixture.js'
++
++const sync = (w, uid, installId = 'ios-1') => w.call('/v1/account/sync', idToken(uid), { installId, zone: 'UTC' })
++const tierOf = async (w, uid, installId) => snapshotOf(await sync(w, uid, installId)).tier
++const buyGoogle = (w, uid, token = 'gtok', installId = 'android-1') => w.call('/v1/verify', idToken(uid), { purchaseToken: token, productId: IDS[0], installId, packageName: 'app.aurora' })
++const reserve = (w, uid, minutes, installId = 'ios-1') => w.call('/v1/quota/reserve', idToken(uid), { installId, idempotencyKey: crypto.randomUUID(), commitmentId: crypto.randomUUID(), mode: 'always_block', minutes, zone: 'UTC' })
++const rows = (w) => w.DB.rows('SELECT * FROM purchases')
++const config = { bundleId: BUNDLE, productIds: APPLE_IDS }
++const answerFor = (body, environment = 'Production') => ({ environment, body: { environment, bundleId: BUNDLE, ...body } })
++
++// ---- A purchase ------------------------------------------------------------------------------------------------
++
++test('a valid purchase: Plus for the account its signed token names, signed for this install', async () => {
++  const w = appleWorld()
++  const res = await verifyApple(w, 'alice', await subscribed(w, 'alice'))
++  assert.equal(res.status, 200)
++  const s = snapshotOf(res)
++  assert.equal(s.tier, 'plus')
++  assert.equal(s.state, 'active')
++  assert.equal(s.purchaseValid, true)
++  assert.equal(s.autoRenewing, true)
++  assert.equal(s.uid, 'alice')
++  assert.equal(s.installId, 'ios-1')
++  assert.equal(s.store, 'app_store')
++  assert.equal(s.productId, APPLE_IDS[0])
++  assert.equal(s.packageName, 'app.aurora', 'the signed service identity both apps check, unchanged')
++  assert.ok(verifySignature(res.body))
++  const [row] = rows(w)
++  assert.equal(row.store, 'app_store')
++  assert.equal(row.store_ref, '2000')
++  assert.equal(row.environment, 'Production')
++  assert.equal(w.apple.calls.length, 1)
++  assert.match(w.apple.calls[0], /^https:\/\/api\.storekit\.apple\.com\/inApps\/v1\/subscriptions\/2000$/)
++})
++
++test('an invalid signed transaction is refused, stores nothing, and never reaches Apple', async () => {
++  const w = appleWorld()
++  const genuine = await subscribed(w, 'alice')
++  const [head, body, signature] = genuine.split('.')
++  const unsigned = `${Buffer.from('{"alg":"none"}').toString('base64url')}.${body}.`
++  const rogue = jwsOf(transaction(), makePki())
++  const changed = `${head}.${Buffer.from(JSON.stringify(transaction({ originalTransactionId: '9' }))).toString('base64url')}.${signature}`
++  for (const jws of [unsigned, rogue, changed, 'not-a-jws', '2000']) {
++    const res = await verifyApple(w, 'alice', jws)
++    assert.equal(res.status, 400, jws.slice(0, 20))
++    assert.equal(res.body.error, 'invalid_transaction')
++  }
++  assert.equal(rows(w).length, 0)
++  assert.equal(w.apple.calls.length, 0)
++})
++
++test('the platform identifier: each route checks its own, and a request can\'t declare itself out of it', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice')
++  for (const bundleId of ['app.aurora', 'com.other.App']) assert.equal((await verifyApple(w, 'alice', jws, { bundleId })).body.error, 'wrong_package', bundleId)
++  assert.equal((await verifyApple(w, 'alice', jws, { bundleId: 'app.aurora', platform: 'android', packageName: BUNDLE })).body.error, 'wrong_package', 'claiming Android changes nothing')
++  assert.equal((await verifyApple(w, 'alice', jws, { bundleId: undefined, packageName: BUNDLE })).status, 400, 'the old field is not an alternative')
++  w.state.subs.set('gtok', activeSub())
++  const android = await w.call('/v1/verify', idToken('alice'), { purchaseToken: 'gtok', productId: IDS[0], installId: 'a', packageName: BUNDLE, platform: 'ios' })
++  assert.equal(android.body.error, 'wrong_package', 'Google\'s route never accepts the bundle id')
++  assert.equal(rows(w).length, 0)
++})
++
++test('incorrect bundle id: in the phone\'s transaction, and in Apple\'s answer', async () => {
++  const w = appleWorld()
++  const foreign = await subscribed(w, 'alice', { tx: { bundleId: 'com.other.App' } })
++  assert.equal((await verifyApple(w, 'alice', foreign)).body.error, 'wrong_package')
++  const jws = jwsOf(transaction({ appAccountToken: await appAccountToken('alice') }), trustedPki)
++  const res = await verifyApple(w, 'alice', jws) // Apple's stored answer still says com.other.App.
++  assert.equal(snapshotOf(res).purchaseValid, false)
++  assert.equal(snapshotOf(res).tier, 'free')
++  w.apple.bundleId = 'com.other.App'
++  assert.equal(snapshotOf(await verifyApple(w, 'alice', jws)).purchaseValid, false, 'the answer as a whole names another app')
++  assert.equal(rows(w).length, 0)
++})
++
++test('incorrect product id grants nothing, and Google\'s ids aren\'t App Store ids', async () => {
++  for (const productId of ['something_else', IDS[0]]) {
++    const w = appleWorld()
++    const res = await verifyApple(w, 'alice', await subscribed(w, 'alice', { tx: { productId } }))
++    assert.equal(snapshotOf(res).tier, 'free', productId)
++    assert.equal(snapshotOf(res).purchaseValid, false, productId)
++    assert.equal(rows(w).length, 0, productId)
++  }
++})
++
++test('a client-supplied productId counts for nothing', async () => {
++  const w = appleWorld()
++  const res = await verifyApple(w, 'alice', await subscribed(w, 'alice', { tx: { productId: 'something_else' } }), { productId: APPLE_IDS[0], tier: 'plus', expiresDate: Date.now() + DAY })
++  assert.equal(snapshotOf(res).tier, 'free')
++})
++
++test('states that grant Plus, and those that don\'t, from Apple\'s signed fields alone', async () => {
++  const now = Date.now()
++  const of = (status, tx = {}, info = {}) => appleEntitlement(answerFor({ data: group(lastTransaction(status, transaction(tx), renewal(info))) }), '2000', config, now)
++  const active = await of(1)
++  assert.deepEqual([active.tier, active.state, active.autoRenewing], ['plus', 'active', true])
++  const canceled = await of(1, {}, { autoRenewStatus: 0 })
++  assert.deepEqual([canceled.tier, canceled.state, canceled.autoRenewing], ['plus', 'canceled', false], 'cancelled, and paid through its end')
++  const grace = await of(4, { expiresDate: now - DAY }, { gracePeriodExpiresDate: now + DAY })
++  assert.deepEqual([grace.tier, grace.state, grace.paidThrough], ['plus', 'in_grace_period', now + DAY])
++  assert.equal((await of(4, { expiresDate: now - 2 * DAY }, { gracePeriodExpiresDate: now - DAY })).tier, 'free', 'grace over')
++  assert.equal((await of(4, { expiresDate: now - DAY })).tier, 'free', 'grace with no date')
++  const retry = await of(3, { expiresDate: now - DAY }, { isInBillingRetryPeriod: true })
++  assert.deepEqual([retry.tier, retry.state], ['free', 'on_hold'])
++  assert.deepEqual(await of(2, { expiresDate: now - DAY }).then((e) => [e.tier, e.state]), ['free', 'expired'])
++  const revoked = await of(5, { revocationDate: now, revocationReason: 0 })
++  assert.deepEqual([revoked.tier, revoked.state], ['free', 'revoked'])
++  const refunded = await of(1, { revocationDate: now })
++  assert.deepEqual([refunded.tier, refunded.state], ['free', 'revoked'], 'a revocation date overrules an active status')
++  assert.equal((await of(1, { expiresDate: now - 1000 })).tier, 'free', 'an active status past its date')
++  assert.equal((await of(1, { isUpgraded: true })).tier, 'free', 'this one was replaced')
++  assert.equal((await of(99)).tier, 'free', 'a status we don\'t know')
++  assert.equal((await of('1')).tier, 'free', 'a status of the wrong type')
++  assert.equal((await of(1, { type: 'Non-Consumable' })).known, false)
++  assert.equal((await of(1, { expiresDate: undefined })).known, false)
++  assert.equal((await of(1, { bundleId: 'x' })).known, false)
++})
++
++test('the requested subscription is chosen by id, not by position, across groups and histories', async () => {
++  const now = Date.now()
++  const pick = (body, id = '2000') => appleEntitlement(answerFor(body), id, config, now)
++  const other = transaction({ originalTransactionId: '7777', productId: APPLE_IDS[1], expiresDate: now + 300 * DAY })
++  const otherItem = lastTransaction(1, other, renewal({ originalTransactionId: '7777' }))
++  const mineExpired = lastTransaction(2, transaction({ expiresDate: now - DAY }))
++  const mine = await pick({ data: group(otherItem, mineExpired) })
++  assert.equal(mine.tier, 'free', 'someone else\'s active line, listed first, doesn\'t lend its state')
++  assert.equal(mine.state, 'expired')
++  assert.equal((await pick({ data: [{ lastTransactions: [otherItem] }, { lastTransactions: [lastTransaction(1)] }] })).tier, 'plus', 'second group')
++  assert.equal((await pick({ data: group(otherItem) })).known, false, 'not in the answer at all')
++  const twice = await pick({ data: group(lastTransaction(2, transaction({ expiresDate: now + 5 * DAY })), lastTransaction(1, transaction({ productId: APPLE_IDS[1], expiresDate: now + 9 * DAY }))) })
++  assert.deepEqual([twice.tier, twice.productId], ['plus', APPLE_IDS[1]], 'a duplicate entry: Plus and the later date win')
++  // A wrapper claims the id, but the signed transaction inside is another one.
++  const lying = { ...otherItem, originalTransactionId: '2000' }
++  assert.equal((await pick({ data: group(lying) })).known, false)
++  // Renewal info for a different subscription.
++  assert.equal((await pick({ data: group(lastTransaction(1, transaction(), renewal({ originalTransactionId: '7777' }))) })).known, false)
++  assert.equal((await pick({ data: group(lastTransaction(1, transaction(), null)) })).state, 'canceled', 'no renewal info: never promises a renewal')
++  // Malformed answers and unverifiable contents are an outage, never a verdict.
++  for (const body of [{}, { data: 'x' }, { data: null }]) await assert.rejects(pick(body))
++  assert.equal((await pick({ data: [null, 5, {}, { lastTransactions: 'x' }, { lastTransactions: [null] }] })).known, false)
++  const forged = lastTransaction(1, transaction(), renewal(), makePki())
++  await assert.rejects(pick({ data: group(forged) }), 'a forged line in Apple\'s answer')
++  await assert.rejects(pick({ data: group({ originalTransactionId: '2000', status: 1, signedTransactionInfo: 'x' }) }))
++})
++
++test('duplicate verification is idempotent, including at once', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice')
++  const first = await verifyApple(w, 'alice', jws)
++  const second = await verifyApple(w, 'alice', jws)
++  assert.equal(snapshotOf(second).tier, 'plus')
++  assert.equal(snapshotOf(second).paidThrough, snapshotOf(first).paidThrough)
++  await Promise.all(Array.from({ length: 5 }, () => verifyApple(w, 'alice', jws)))
++  assert.equal(rows(w).length, 1)
++})
++
++test('expiry, renewal and a product change all come from Apple on the next verification', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice')
++  await verifyApple(w, 'alice', jws)
++  const later = Date.now() + 60 * DAY
++  await subscribed(w, 'alice', { tx: { expiresDate: later, productId: APPLE_IDS[1], transactionId: '1002' }, info: { productId: APPLE_IDS[1] } })
++  const renewed = snapshotOf(await verifyApple(w, 'alice', jws))
++  assert.deepEqual([renewed.tier, renewed.paidThrough, renewed.productId], ['plus', later, APPLE_IDS[1]])
++  assert.equal(rows(w).length, 1, 'same original transaction, same purchase')
++  await subscribed(w, 'alice', { status: 2, tx: { expiresDate: Date.now() - 1000 } })
++  assert.equal(snapshotOf(await verifyApple(w, 'alice', jws)).tier, 'free')
++  w.DB.db.prepare('UPDATE purchases SET paid_through = ?').run(Date.now() - 1000)
++  assert.equal(await tierOf(w, 'alice'), 'free', 'the clock alone also ends it')
++})
++
++test('an Apple outage says try again, changes nothing, and keeps what the account has', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice')
++  await verifyApple(w, 'alice', jws)
++  for (const status of [500, 429, 401]) {
++    w.apple.down = true
++    w.apple.status = status
++    const res = await verifyApple(w, 'alice', jws)
++    assert.equal(res.status, 503, String(status))
++    assert.equal(res.body.error, 'try_again')
++    assert.equal(rows(w)[0].tier, 'plus')
++  }
++  w.apple.down = false
++  w.apple.body = { data: 'nonsense' }
++  assert.equal((await verifyApple(w, 'alice', jws)).status, 503, 'an answer of the wrong shape')
++  w.apple.body = null
++  const broken = async () => { throw new TypeError('network') }
++  w.state.apple = broken
++  assert.equal((await verifyApple(w, 'alice', jws)).status, 503, 'no answer at all')
++  assert.equal(await tierOf(w, 'alice'), 'plus')
++})
++
++test('with Apple not configured the routes fail closed and Android is unaffected', async () => {
++  const w = world()
++  w.env.APPLE_BUNDLE_ID = BUNDLE // Partly configured counts as not configured.
++  w.state.subs.set('gtok', activeSub())
++  assert.equal(snapshotOf(await buyGoogle(w, 'alice')).tier, 'plus')
++  assert.equal((await w.call('/v1/verify/apple', idToken('alice'), { signedTransaction: 'x', installId: 'i', bundleId: BUNDLE })).status, 503)
++  assert.equal((await w.call('/v1/purchases/transfer/apple', idToken('alice'), { signedTransaction: 'x', installId: 'i' })).status, 403)
++  assert.equal((await w.call('/v1/apple/notifications', null, { signedPayload: 'x' })).status, 503)
++  await housekeeping(w.env, w.fetcher)
++})
++
++test('the App Store routes need a verified identity, and the .p8 works as a PEM or bare base64', async () => {
++  const w = appleWorld()
++  for (const path of ['/v1/verify/apple', '/v1/purchases/transfer/apple']) assert.equal((await w.call(path, null, {})).status, 401, path)
++  assert.equal((await w.call('/v1/verify/apple', idToken('u', { email_verified: false }), {})).status, 403)
++  for (const over of [{ signedTransaction: 'x'.repeat(16385) }, { installId: '' }, { bundleId: '' }]) {
++    assert.equal((await verifyApple(w, 'alice', 'jws', over)).body.error, 'bad_request', JSON.stringify(over).slice(0, 30))
++  }
++  w.env.APPLE_PRIVATE_KEY = w.env.APPLE_PRIVATE_KEY.replace(/-----[A-Z ]+-----|\s/g, '')
++  assert.equal(snapshotOf(await verifyApple(w, 'alice', await subscribed(w, 'alice'))).tier, 'plus')
++})
++
++// ---- Ownership -------------------------------------------------------------------------------------------------
++
++test('incorrect account token: a transaction Apple signed for someone else binds nothing', async () => {
++  const w = appleWorld()
++  const res = await verifyApple(w, 'bob', await subscribed(w, 'alice'))
++  assert.equal(snapshotOf(res).tier, 'free')
++  assert.equal(res.body.conflict, true)
++  assert.equal(res.body.claimRequired, undefined)
++  assert.equal(rows(w).length, 0, 'not even unbound')
++})
++
++test('a client can\'t supply the token, in the body or by resigning its own transaction', async () => {
++  const w = appleWorld()
++  const aliceToken = await appAccountToken('alice')
++  const jws = await subscribed(w, 'alice')
++  assert.equal((await verifyApple(w, 'bob', jws, { appAccountToken: await appAccountToken('bob'), uid: 'alice' })).body.conflict, true)
++  // A forged phone copy naming Bob points at Alice's real subscription: Apple's answer is what's read.
++  const claim = jwsOf(transaction({ appAccountToken: await appAccountToken('bob') }), trustedPki)
++  const res = await verifyApple(w, 'bob', claim)
++  assert.equal(res.body.conflict, true)
++  assert.equal(snapshotOf(res).tier, 'free')
++  assert.equal(aliceToken, await appAccountToken('alice'))
++})
++
++test('a transaction claimed by another account stays with it, and the hint is masked', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice')
++  await verifyApple(w, 'alice', jws)
++  const res = await verifyApple(w, 'bob', jws)
++  assert.equal(res.body.conflict, true)
++  assert.equal(res.body.conflictHint, 'a•••@example.com')
++  assert.equal(snapshotOf(res).tier, 'free')
++  assert.equal(await tierOf(w, 'alice'), 'plus', 'nothing moved')
++  assert.equal(rows(w).length, 1)
++})
++
++test('account switching on one phone moves nothing, either way', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice')
++  await verifyApple(w, 'alice', jws)
++  assert.equal((await verifyApple(w, 'bob', jws)).body.conflict, true)
++  assert.equal(await tierOf(w, 'bob'), 'free')
++  assert.equal(snapshotOf(await verifyApple(w, 'alice', jws)).tier, 'plus', 'back on the first account: Restore still works')
++})
++
++test('Apple purchases and Google tokens can\'t reach each other\'s rows', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice')
++  await verifyApple(w, 'alice', jws)
++  // The string that hashes to the App Store row, offered as a Play token.
++  assert.equal(snapshotOf(await w.call('/v1/verify', idToken('bob'), { purchaseToken: 'apple:2000', productId: IDS[0], installId: 'a', packageName: 'app.aurora' })).purchaseValid, false)
++  assert.equal((await w.call('/v1/purchases/transfer', idToken('bob'), { purchaseToken: 'apple:2000', installId: 'a' })).status, 403)
++  const note = { message: { data: btoa(JSON.stringify({ packageName: 'app.aurora', eventTimeMillis: String(Date.now()), subscriptionNotification: { purchaseToken: 'apple:2000' } })) } }
++  assert.equal((await w.call('/v1/rtdn?token=secret', null, note)).status, 204)
++  assert.equal(rows(w)[0].tier, 'plus', 'RTDN never writes an App Store row')
++  assert.equal(await tierOf(w, 'alice'), 'plus')
++})
++
++test('bought on either store: Plus on both platforms, for the one account', async () => {
++  const w = appleWorld()
++  await verifyApple(w, 'alice', await subscribed(w, 'alice'))
++  assert.equal(await tierOf(w, 'alice', 'android-phone'), 'plus', 'App Store purchase, Android phone')
++  const android = snapshotOf(await sync(w, 'alice', 'android-phone'))
++  assert.deepEqual([android.installId, android.store, android.packageName], ['android-phone', 'app_store', 'app.aurora'])
++
++  w.state.subs.set('gtok', activeSub())
++  await buyGoogle(w, 'bob')
++  const ios = snapshotOf(await sync(w, 'bob', 'ios-phone'))
++  assert.deepEqual([ios.tier, ios.installId, ios.store], ['plus', 'ios-phone', 'google_play'], 'Google Play purchase, iPhone')
++})
++
++test('expired Apple + active Google: Plus, and it shows the Google subscription', async () => {
++  const w = appleWorld()
++  await verifyApple(w, 'alice', await subscribed(w, 'alice', { status: 2, tx: { expiresDate: Date.now() - DAY } }))
++  assert.equal(await tierOf(w, 'alice'), 'free')
++  w.state.subs.set('gtok', activeSub())
++  await buyGoogle(w, 'alice')
++  const s = snapshotOf(await sync(w, 'alice'))
++  assert.deepEqual([s.tier, s.state, s.store, s.productId], ['plus', 'active', 'google_play', IDS[0]])
++})
++
++test('active Apple + expired Google: Plus, and it shows the Apple subscription', async () => {
++  const w = appleWorld()
++  w.state.subs.set('gtok', { subscriptionState: 'SUBSCRIPTION_STATE_EXPIRED', lineItems: [{ productId: IDS[0], expiryTime: PAST() }] })
++  await buyGoogle(w, 'alice')
++  assert.equal(await tierOf(w, 'alice'), 'free')
++  await verifyApple(w, 'alice', await subscribed(w, 'alice'))
++  const s = snapshotOf(await sync(w, 'alice'))
++  assert.deepEqual([s.tier, s.store, s.productId], ['plus', 'app_store', APPLE_IDS[0]])
++})
++
++test('a refunded Apple row with a far date can\'t mask, or pose as, a live Google one', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice', { status: 5, tx: { revocationDate: Date.now(), expiresDate: Date.now() + 300 * DAY } })
++  await verifyApple(w, 'alice', jws)
++  const refunded = snapshotOf(await sync(w, 'alice'))
++  assert.deepEqual([refunded.tier, refunded.state], ['free', 'revoked'])
++  w.state.subs.set('gtok', activeSub())
++  await buyGoogle(w, 'alice')
++  const s = snapshotOf(await sync(w, 'alice'))
++  assert.deepEqual([s.tier, s.store], ['plus', 'google_play'], 'the row with the later date isn\'t the one that counts')
++})
++
++test('both stores active: Plus until the later one, then the other carries on', async () => {
++  const w = appleWorld()
++  w.state.subs.set('gtok', activeSub())
++  await buyGoogle(w, 'alice')
++  await verifyApple(w, 'alice', await subscribed(w, 'alice', { tx: { expiresDate: Date.now() + 90 * DAY } }))
++  assert.equal(snapshotOf(await sync(w, 'alice')).store, 'app_store')
++  w.DB.db.prepare("UPDATE purchases SET paid_through = ? WHERE store = 'app_store'").run(Date.now() - 1000)
++  assert.deepEqual(['plus', 'google_play'], await sync(w, 'alice').then(snapshotOf).then((s) => [s.tier, s.store]))
++})
++
++test('seats span both platforms: five installations, Android and iOS together', async () => {
++  const w = appleWorld()
++  await verifyApple(w, 'alice', await subscribed(w, 'alice'), { installId: 'ios-1' })
++  for (const d of ['android-1', 'ios-2', 'android-2', 'ios-3']) assert.equal(await tierOf(w, 'alice', d), 'plus', d)
++  const sixth = snapshotOf(await sync(w, 'alice', 'android-3'))
++  assert.deepEqual([sixth.tier, sixth.state], ['free', 'too_many_devices'])
++})
++
++test('the quota follows the account: Apple Plus is unlimited anywhere, and a refund returns to the same ledger', async () => {
++  const w = appleWorld()
++  assert.equal((await reserve(w, 'alice', 120, 'android-1')).body.allowed, true)
++  assert.equal((await reserve(w, 'alice', 1, 'ios-1')).body.allowed, false, 'Free\'s day is shared across platforms')
++  const jws = await subscribed(w, 'alice')
++  await verifyApple(w, 'alice', jws)
++  const plus = await reserve(w, 'alice', 600, 'android-1')
++  assert.deepEqual([plus.body.allowed, plus.body.tier], [true, 'plus'], 'App Store Plus, Android phone')
++  assert.equal((await sync(w, 'alice')).body.quota, null)
++  assert.equal(w.DB.rows('SELECT * FROM quota_reservations').length, 1, 'Plus writes no ledger')
++  await subscribed(w, 'alice', { status: 5, tx: { revocationDate: Date.now() } })
++  await notify(w, notification(transaction(), { notificationType: 'REFUND' }))
++  const free = await reserve(w, 'alice', 1, 'ios-1')
++  assert.deepEqual([free.body.allowed, free.body.tier], [false, 'free'], 'a refund can\'t reopen the used allowance')
++  assert.equal((await sync(w, 'alice')).body.quota.remainingMs, 0)
++})
++
++// ---- Notifications ---------------------------------------------------------------------------------------------
++
++const bought = async () => {
++  const w = appleWorld()
++  await verifyApple(w, 'alice', await subscribed(w, 'alice'))
++  w.apple.calls.length = 0
++  return w
++}
++
++test('a forged notification is turned away, and changes nothing', async () => {
++  const w = await bought()
++  await subscribed(w, 'alice', { status: 5, tx: { revocationDate: Date.now() } })
++  const rogue = makePki()
++  assert.equal((await notify(w, notification(transaction()), rogue)).status, 403, 'a chain to another root')
++  // Apple's signature on the outside, an unsigned transaction inside.
++  const unsigned = `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify(transaction())).toString('base64url')}.`
++  assert.equal((await notify(w, notification(transaction(), { data: { bundleId: BUNDLE, environment: 'Production', signedTransactionInfo: unsigned } }))).status, 403)
++  for (const body of [{}, { signedPayload: 'x.y.z' }, { signedPayload: 5 }]) assert.equal((await w.call('/v1/apple/notifications', null, body)).status, 403)
++  const plain = await w.call('/v1/apple/notifications', null, { notificationType: 'REFUND', data: { originalTransactionId: '2000' } })
++  assert.equal(plain.status, 403, 'an unsigned body claiming a refund')
++  assert.equal((await w.call('/v1/apple/notifications', null, { signedPayload: 'x'.repeat(70_000) })).status, 413)
++  assert.equal(w.apple.calls.length, 0, 'none of them cost a call to Apple')
++  assert.equal(rows(w)[0].tier, 'plus')
++})
++
++test('renewal, expiry and refund all arrive by asking Apple, not by believing the message', async () => {
++  const w = await bought()
++  const later = Date.now() + 60 * DAY
++  await subscribed(w, 'alice', { tx: { expiresDate: later } })
++  assert.equal((await notify(w, notification(transaction()))).status, 200)
++  assert.equal(rows(w)[0].paid_through, later)
++  assert.equal(snapshotOf(await sync(w, 'alice', 'android-1')).paidThrough, later, 'an Android phone sees an App Store renewal')
++
++  await new Promise((r) => setTimeout(r, 2))
++  await subscribed(w, 'alice', { status: 2, tx: { expiresDate: Date.now() - 1000 } })
++  await notify(w, notification(transaction(), { notificationType: 'EXPIRED', subtype: 'VOLUNTARY' }))
++  assert.equal(await tierOf(w, 'alice'), 'free')
++
++  await new Promise((r) => setTimeout(r, 2))
++  await subscribed(w, 'alice')
++  await notify(w, notification(transaction(), { notificationType: 'SUBSCRIBED' }))
++  assert.equal(await tierOf(w, 'alice'), 'plus')
++
++  await new Promise((r) => setTimeout(r, 2))
++  await subscribed(w, 'alice', { status: 5, tx: { revocationDate: Date.now() } })
++  await notify(w, notification(transaction(), { notificationType: 'REFUND' }))
++  assert.equal(rows(w)[0].state, 'revoked')
++  assert.equal(await tierOf(w, 'alice'), 'free')
++})
++
++test('Apple\'s word beats the message: what it claims never sets a state', async () => {
++  const w = await bought()
++  const message = transaction({ revocationDate: Date.now() })
++  await notify(w, notification(message, { notificationType: 'REFUND', data: { bundleId: BUNDLE, environment: 'Production', status: 5, signedTransactionInfo: jwsOf(message, trustedPki) } }))
++  assert.equal(rows(w)[0].tier, 'plus', 'Apple still says active')
++  await new Promise((r) => setTimeout(r, 2))
++  await subscribed(w, 'alice', { status: 2, tx: { expiresDate: Date.now() - 1000 } })
++  await notify(w, notification(transaction({ expiresDate: Date.now() + 90 * DAY }), { notificationType: 'DID_RENEW' }))
++  assert.equal(rows(w)[0].tier, 'free', 'a "renewed" message can\'t grant what Apple doesn\'t report')
++  await new Promise((r) => setTimeout(r, 2))
++  w.apple.Production.clear()
++  await notify(w, notification())
++  assert.deepEqual([rows(w)[0].tier, rows(w)[0].state, rows(w)[0].paid_through], ['free', 'unknown', 0], 'Apple no longer knows it')
++})
++
++test('duplicates and out-of-order delivery change nothing and ask Apple only once', async () => {
++  const w = await bought()
++  const at = Date.now()
++  const newest = notification(transaction(), { signedDate: at })
++  await subscribed(w, 'alice', { status: 5, tx: { revocationDate: at } })
++  assert.equal((await notify(w, newest)).status, 200)
++  assert.equal(w.apple.calls.length, 1)
++  assert.equal(rows(w)[0].event_at, at)
++
++  await subscribed(w, 'alice') // If anything re-read this, the row would flip back to Plus.
++  assert.equal((await notify(w, newest)).status, 200, 'redelivered')
++  assert.equal((await notify(w, notification(transaction(), { signedDate: at - 5000, notificationType: 'DID_RENEW' }))).status, 200, 'older, and late')
++  assert.equal(w.apple.calls.length, 1)
++  assert.equal(rows(w)[0].tier, 'free')
++  assert.equal(rows(w)[0].event_at, at, 'the marker never goes backwards')
++})
++
++test('Apple down during a notification: refused so Apple resends, and the resend works', async () => {
++  const w = await bought()
++  await subscribed(w, 'alice', { status: 5, tx: { revocationDate: Date.now() } })
++  const note = notification(transaction(), { notificationType: 'REFUND' })
++  w.apple.down = true
++  assert.equal((await notify(w, note)).status, 503)
++  assert.equal(rows(w)[0].tier, 'plus')
++  assert.equal(rows(w)[0].event_at, 0, 'not marked as seen')
++  w.apple.down = false
++  assert.equal((await notify(w, note)).status, 200)
++  assert.equal(rows(w)[0].tier, 'free')
++})
++
++test('a slow verification can\'t overwrite a newer notification\'s answer', async () => {
++  const w = await bought()
++  const jws = jwsOf(transaction({ appAccountToken: await appAccountToken('alice') }), trustedPki)
++  let release
++  w.apple.hold = new Promise((r) => { release = r })
++  const slow = verifyApple(w, 'alice', jws) // Reads "active", then stalls on the way back.
++  while (w.apple.calls.length === 0) await new Promise((r) => setTimeout(r, 1))
++  await new Promise((r) => setTimeout(r, 3))
++  await subscribed(w, 'alice', { status: 5, tx: { revocationDate: Date.now() } })
++  await notify(w, notification(transaction(), { notificationType: 'REFUND' }))
++  assert.equal(rows(w)[0].tier, 'free')
++  release()
++  const res = await slow
++  assert.equal(res.body.conflict, undefined)
++  assert.equal(snapshotOf(res).tier, 'free')
++  assert.equal(rows(w)[0].tier, 'free', 'the refund stands')
++})
++
++test('a notification never binds or moves a purchase', async () => {
++  const w = appleWorld()
++  await subscribed(w, 'alice')
++  assert.equal((await notify(w, notification())).status, 200, 'not bound yet: acknowledged')
++  assert.equal(rows(w).length, 0, 'the app\'s verify binds it')
++  assert.equal(w.apple.calls.length, 0)
++  const jws = jwsOf(transaction({ appAccountToken: await appAccountToken('alice') }), trustedPki)
++  await verifyApple(w, 'alice', jws)
++  const owner = rows(w)[0].account_id
++  await new Promise((r) => setTimeout(r, 2))
++  const stolen = transaction({ appAccountToken: await appAccountToken('bob') })
++  await subscribed(w, 'bob', { tx: { appAccountToken: await appAccountToken('bob') } })
++  await notify(w, notification(stolen))
++  assert.equal(rows(w)[0].account_id, owner, 'whatever token it names')
++})
++
++test('notifications that aren\'t ours are acknowledged and ignored', async () => {
++  const w = await bought()
++  const test_ = await notify(w, { notificationType: 'TEST', notificationUUID: 'u', signedDate: Date.now(), data: { bundleId: BUNDLE, environment: 'Production' } })
++  assert.equal(test_.status, 200)
++  assert.equal((await notify(w, { notificationType: 'RENEWAL_EXTENSION', subtype: 'SUMMARY', signedDate: Date.now(), summary: {} })).status, 200)
++  const other = transaction({ bundleId: 'com.other.App' })
++  await notify(w, notification(other, { data: { bundleId: 'com.other.App', environment: 'Production', signedTransactionInfo: jwsOf(other, trustedPki) } }))
++  await notify(w, notification(other))
++  // A sandbox notification for a production row, sandbox on and off.
++  const sandbox = transaction({ environment: 'Sandbox' })
++  const sandboxNote = () => notification(sandbox, { data: { bundleId: BUNDLE, environment: 'Sandbox', signedTransactionInfo: jwsOf(sandbox, trustedPki) } })
++  assert.equal((await notify(w, sandboxNote())).status, 200)
++  w.env.APPLE_ALLOW_SANDBOX = '1'
++  assert.equal((await notify(w, sandboxNote())).status, 200)
++  // The inside and outside disagreeing about the environment.
++  const crossed = notification(transaction(), { data: { bundleId: BUNDLE, environment: 'Sandbox', signedTransactionInfo: jwsOf(transaction(), trustedPki) } })
++  assert.equal((await notify(w, crossed)).status, 200)
++  assert.equal(w.apple.calls.length, 0)
++  assert.equal(rows(w)[0].event_at, 0)
++})
++
++// ---- The daily re-check ------------------------------------------------------------------------------------------
++
++test('a renewal nobody told us about is found the next day, with Apple\'s answer, and only for renewing rows', async () => {
++  const w = await bought()
++  const stale = Date.now() - DAY
++  w.DB.db.prepare('UPDATE purchases SET paid_through = ?, checked_at = ?').run(stale, stale)
++  assert.equal(await tierOf(w, 'alice', 'android-1'), 'free', 'the clock took it away')
++  const later = Date.now() + 30 * DAY
++  await subscribed(w, 'alice', { tx: { expiresDate: later } })
++  w.apple.down = true
++  await housekeeping(w.env, w.fetcher)
++  assert.equal(rows(w)[0].paid_through, stale, 'an outage leaves it for tomorrow, and the run still ends')
++  w.apple.down = false
++  w.apple.calls.length = 0
++  await housekeeping(w.env, w.fetcher)
++  assert.equal(rows(w)[0].paid_through, later)
++  assert.equal(await tierOf(w, 'alice', 'android-1'), 'plus')
++  assert.equal(w.apple.calls.length, 1)
++  await housekeeping(w.env, w.fetcher)
++  assert.equal(w.apple.calls.length, 1, 'nothing to ask now')
++})
++
++test('the re-check leaves Google rows, and cancelled or recently checked App Store rows, alone', async () => {
++  const w = await bought()
++  w.state.subs.set('gtok', activeSub())
++  await buyGoogle(w, 'bob')
++  const stale = Date.now() - DAY
++  w.DB.db.prepare("UPDATE purchases SET paid_through = ?, checked_at = ? WHERE store = 'google_play'").run(stale, stale)
++  w.DB.db.prepare("UPDATE purchases SET paid_through = ? WHERE store = 'app_store'").run(stale)
++  await housekeeping(w.env, w.fetcher)
++  assert.equal(w.apple.calls.length, 0)
++  w.DB.db.prepare("UPDATE purchases SET auto_renewing = 0, checked_at = ? WHERE store = 'app_store'").run(stale)
++  await housekeeping(w.env, w.fetcher)
++  assert.equal(w.apple.calls.length, 0)
++})
++
++// ---- Migration and Android compatibility -------------------------------------------------------------------------
++
++const APP_STORE = '0004_app_store.sql'
++const migration = (name) => readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
++
++test('the migration keeps every Android purchase, as a Google Play one, working through the old and new Worker', async () => {
++  const w = world({ without: [APP_STORE] })
++  w.state.subs.set('gtok', activeSub())
++  assert.equal(snapshotOf(await buyGoogle(w, 'alice')).tier, 'plus', 'this Worker on the old schema: migrating late breaks nothing')
++  assert.equal(snapshotOf(await sync(w, 'alice', 'android-1')).store, null)
++  await housekeeping(w.env, w.fetcher)
++  const before = w.DB.rows('SELECT * FROM purchases')[0]
++
++  w.DB.db.exec(migration(APP_STORE))
++  const after = w.DB.rows('SELECT * FROM purchases')[0]
++  for (const [column, value] of Object.entries(before)) assert.equal(after[column], value, column)
++  assert.deepEqual([after.store, after.store_ref, after.environment], ['google_play', null, null])
++  assert.equal(snapshotOf(await sync(w, 'alice', 'android-1')).store, 'google_play')
++  assert.equal(snapshotOf(await buyGoogle(w, 'alice')).tier, 'plus')
++  assert.throws(() => w.DB.db.prepare("UPDATE purchases SET store = 'nope'").run(), /CHECK/)
++})
++
++test('the rollback in the migration\'s header runs, and returns the old table', () => {
++  const db = new FakeD1([APP_STORE])
++  const shape = () => db.rows("SELECT sql FROM sqlite_master WHERE name = 'purchases'")[0].sql
++  const before = db.rows('PRAGMA table_info(purchases)').map((c) => c.name)
++  db.db.exec(migration(APP_STORE))
++  assert.match(shape(), /store_ref/)
++  const rollback = migration(APP_STORE).split('\n').filter((l) => /^-- {3}/.test(l)).map((l) => l.replace(/^-- {3}/, '')).join('\n')
++  assert.match(rollback, /DROP COLUMN store_ref/)
++  db.db.exec(rollback)
++  assert.deepEqual(db.rows('PRAGMA table_info(purchases)').map((c) => c.name), before)
++})
++
++test('Google Play is untouched by App Store settings: its product ids and package stay its own', async () => {
++  const w = appleWorld()
++  w.state.subs.set('gtok', activeSub({ lineItems: [{ productId: APPLE_IDS[0], expiryTime: FUTURE() }] }))
++  assert.equal(snapshotOf(await buyGoogle(w, 'alice')).tier, 'free', 'an App Store id means nothing to Google\'s route')
++  w.state.subs.set('gtok', activeSub())
++  assert.equal(snapshotOf(await buyGoogle(w, 'alice')).tier, 'plus')
++  assert.equal(snapshotOf(await sync(w, 'alice')).store, 'google_play')
++})
++
++test('sandbox grants only scoped iOS review access, never production Plus or quota', async () => {
++  const w = appleWorld()
++  w.env.APPLE_ALLOW_SANDBOX = '1'
++  const res = await verifyApple(w, 'alice', await subscribed(w, 'alice', { environment: 'Sandbox' }))
++  const s = snapshotOf(res)
++  assert.equal(res.status, 200)
++  assert.equal(s.tier, 'free')
++  assert.equal(s.purchaseValid, true)
++  assert.equal(s.iosSandbox.scope, 'ios_sandbox')
++  assert.ok(s.iosSandbox.expiresAt <= Date.now() + 15 * 60_000)
++  assert.ok(verifySignature(res.body))
++  assert.equal(rows(w)[0].environment, 'Sandbox')
++  assert.deepEqual(w.apple.calls.map((u) => new URL(u).host), ['api.storekit-sandbox.apple.com'])
++  assert.equal(await tierOf(w, 'alice', 'android-1'), 'free')
++  assert.equal((await reserve(w, 'alice', 180, 'android-1')).body.allowed, false)
++  w.env.APPLE_ALLOW_SANDBOX = '0'
++  assert.equal(snapshotOf(await sync(w, 'alice')).iosSandbox, null)
++  w.env.APPLE_ALLOW_SANDBOX = '1'
++  await verifyApple(w, 'alice', await subscribed(w, 'alice'))
++  assert.equal(rows(w).length, 2, 'environment namespaces isolate identical numeric transaction IDs')
++  assert.equal(await tierOf(w, 'alice', 'android-1'), 'plus')
++})
++
++test('sandbox disabled and signed environment mismatch never fall back', async () => {
++  const w = appleWorld()
++  const jws = await subscribed(w, 'alice', { environment: 'Sandbox' })
++  assert.equal((await verifyApple(w, 'alice', jws)).body.error, 'wrong_environment')
++  assert.equal(w.apple.calls.length, 0)
++  w.env.APPLE_ALLOW_SANDBOX = '1'
++  await subscribed(w, 'alice')
++  w.apple.Sandbox.clear()
++  assert.equal(snapshotOf(await verifyApple(w, 'alice', jws)).purchaseValid, false)
++  assert.equal(rows(w).length, 0)
++  assert.deepEqual(w.apple.calls.map((u) => new URL(u).host), ['api.storekit-sandbox.apple.com'])
++})
++
++test('stolen JWS and fresh sign-in cannot move ownership; legacy claims and family sharing are disabled', async () => {
++  const w = appleWorld()
++  const stolen = await subscribed(w, 'alice')
++  await verifyApple(w, 'alice', stolen)
++  const owner = rows(w)[0].account_id
++  const moved = await moveApple(w, 'mallory', stolen)
++  assert.equal(moved.status, 403)
++  assert.equal(moved.body.error, 'transfer_disabled')
++  assert.equal(rows(w)[0].account_id, owner)
++  assert.equal(await tierOf(w, 'mallory'), 'free')
++  assert.equal((await verifyApple(w, 'mallory', stolen)).body.conflict, true)
++  const legacy = await subscribed(w, 'alice', { id: 'legacy', tx: { appAccountToken: undefined } })
++  assert.equal((await verifyApple(w, 'mallory', legacy)).body.claimRequired, true)
++  assert.equal((await moveApple(w, 'mallory', legacy)).body.error, 'transfer_disabled')
++  const shared = await subscribed(w, 'alice', { tx: { inAppOwnershipType: 'FAMILY_SHARED' } })
++  assert.equal((await verifyApple(w, 'alice', shared)).body.error, 'family_sharing_disabled')
++  assert.equal(rows(w).length, 1)
++  assert.equal(rows(w)[0].account_id, owner)
++})
++
++test('family sharing cannot revive an existing production entitlement through a notification', async () => {
++  const w = appleWorld()
++  await verifyApple(w, 'alice', await subscribed(w, 'alice'))
++  await subscribed(w, 'alice', { tx: { inAppOwnershipType: 'FAMILY_SHARED' } })
++  await notify(w, notification(transaction()))
++  assert.equal(await tierOf(w, 'alice'), 'free')
++})
+diff --git a/server/test/fixture.js b/server/test/fixture.js
+index e33ed50b3ac3e3cd35b9385c141634bd70d4ef93..0b250fea00ee5a47ea9fb83c2ae22027fd409bbe 100644
+--- a/server/test/fixture.js
++++ b/server/test/fixture.js
+@@ -5,14 +5,14 @@ import { readFileSync, readdirSync } from 'node:fs'
+ import worker from '../src/worker.js'
+ 
+ const dir = new URL('../migrations/', import.meta.url)
+-const MIGRATIONS = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().map((f) => readFileSync(new URL(f, dir), 'utf8'))
++const migrationNames = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+ const tick = () => new Promise((r) => setImmediate(r))
+ 
+ export class FakeD1 {
+-  constructor() {
++  constructor(without = []) {
+     this.db = new DatabaseSync(':memory:')
+     this.db.exec('PRAGMA foreign_keys = ON')
+-    for (const m of MIGRATIONS) this.db.exec(m)
++    for (const name of migrationNames.filter((f) => !without.includes(f))) this.db.exec(readFileSync(new URL(name, dir), 'utf8'))
+   }
+   prepare(sql) {
+     const db = this.db
+@@ -88,8 +88,8 @@ export function idToken(uid, over = {}, { key = firebaseKey.privateKey, kid = KI
+ 
+ export const verifySignature = ({ payload, signature }) => createVerify('RSA-SHA256').update(payload).verify(signing.publicKey, signature, 'base64')
+ 
+-export function world() {
+-  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, verdict: null, integrityDown: false, decoded: [] }
++export function world({ without } = {}) {
++  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, apple: null, verdict: null, integrityDown: false, decoded: [] }
+   const fetcher = async (url, init) => {
+     const u = String(url)
+     if (u.includes('/jwk/securetoken')) {
+@@ -119,9 +119,10 @@ export function world() {
+       const sub = state.subs.get(token)
+       return sub ? new Response(JSON.stringify(sub)) : new Response('{}', { status: 404 })
+     }
++    if (u.includes('/inApps/v1/subscriptions/') && state.apple) return state.apple(u, init)
+     throw new Error(`unexpected fetch ${u}`)
+   }
+-  const DB = new FakeD1()
++  const DB = new FakeD1(without)
+   const account = JSON.stringify({ client_email: 'a@b.c', private_key: pem(service.privateKey) })
+   const env = {
+     DB, PACKAGE_NAME: 'app.aurora', PRODUCT_IDS: IDS.join(','), FIREBASE_PROJECT_ID: PROJECT, ENVIRONMENT: 'production',
+diff --git a/server/test/worker.test.js b/server/test/worker.test.js
+index 7574c1fc1a80919a6a8aa42c7e3c3436536312fd..8a59b60f94357cee65557c862573ac1e98b17515 100644
+--- a/server/test/worker.test.js
++++ b/server/test/worker.test.js
+@@ -176,21 +176,19 @@ test('a purchase made under another account\'s id isn\'t bound here', async () =
+   assert.equal(snapshot(await buy(w, 'alice')).tier, 'plus')
+ })
+ 
+-test('a purchase conflict resolves only by an explicit transfer with a recent sign-in, and rarely', async () => {
++test('purchase-token possession and fresh sign-in never authorize ownership transfer', async () => {
+   const w = world()
+   w.state.subs.set('tok', activeSub())
+-  await buy(w, 'alice')
+-  const old = Math.floor(Date.now() / 1000) - 3600
+-  const stale = await w.call('/v1/purchases/transfer', idToken('bob', { auth_time: old }), { purchaseToken: 'tok', installId: 'i1' })
+-  assert.equal(stale.status, 401)
+-  assert.equal(stale.body.error, 'reauth_required')
+-  const moved = await w.call('/v1/purchases/transfer', idToken('bob'), { purchaseToken: 'tok', installId: 'i1' })
+-  assert.equal(snapshot(moved).tier, 'plus')
+-  assert.equal(snapshot(await sync(w, 'alice')).tier, 'free')
+-  const back = await w.call('/v1/purchases/transfer', idToken('alice'), { purchaseToken: 'tok', installId: 'i1' })
+-  assert.equal(back.status, 429)
+-  assert.equal(back.body.error, 'transfer_limit')
+-  assert.equal((await w.call('/v1/purchases/transfer', idToken('bob'), { purchaseToken: 'unknown', installId: 'i1' })).status, 404)
++  await w.call('/v1/verify', idToken('alice'), { purchaseToken: 'tok', productId: IDS[0], installId: 'i1', packageName: 'app.aurora' })
++  const before = w.DB.rows('SELECT * FROM purchases')
++  for (const claims of [idToken('bob'), idToken('bob', { auth_time: Math.floor(Date.now() / 1000) - 3600 })]) {
++    const answer = await w.call('/v1/purchases/transfer', claims, { purchaseToken: 'tok', installId: 'i1' })
++    assert.equal(answer.status, 403)
++    assert.equal(answer.body.error, 'transfer_disabled')
++  }
++  assert.deepEqual(w.DB.rows('SELECT * FROM purchases'), before)
++  assert.equal(snapshot(await sync(w, 'alice')).tier, 'plus')
++  assert.equal(snapshot(await sync(w, 'bob')).tier, 'free')
+ })
+ 
+ test('Plus seats: the sixth device is told, and removing an old one frees a seat', async () => {
+diff --git a/server/wrangler.toml b/server/wrangler.toml
+index 5e7d9ed7665d97b503ebe3d578696f83d2112a55..5a4953f3bbea51ae19342b7fe823cba33f462d93 100644
+--- a/server/wrangler.toml
++++ b/server/wrangler.toml
+@@ -3,6 +3,10 @@ main = "src/worker.js"
+ compatibility_date = "2026-10-01"
+ 
+ [vars]
++# Sandbox grants iOS review access only.
++APPLE_BUNDLE_ID = "com.aagamjain.Aurora"
++APPLE_PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
++APPLE_ALLOW_SANDBOX = "1"
+ PACKAGE_NAME = "app.aurora"
+ PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
+ # The Firebase project whose ID tokens this server accepts.

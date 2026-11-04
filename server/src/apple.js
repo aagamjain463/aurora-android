@@ -206,18 +206,15 @@ async function apiToken(env) {
 export const sandboxAllowed = (env) => env.APPLE_ALLOW_SANDBOX === '1'
 export const environmentAllowed = (env, environment) => environment === 'Production' || (environment === 'Sandbox' && sandboxAllowed(env))
 
-/** Apple's answer, production first and then sandbox as Apple documents. Null if neither knows it; an outage throws. */
-export async function appleStatus(env, transactionId, fetcher) {
+/** Use the environment in verified Apple evidence; never cross environments on a 404. */
+export async function appleStatus(env, transactionId, fetcher, environment = 'Production') {
+  if (!environmentAllowed(env, environment)) throw new Error('apple environment')
   const token = await apiToken(env)
-  const hosts = [[PRODUCTION, 'Production']]
-  if (sandboxAllowed(env)) hosts.push([SANDBOX, 'Sandbox'])
-  for (const [host, environment] of hosts) {
-    const res = await fetcher(`${host}/inApps/v1/subscriptions/${encodeURIComponent(transactionId)}`, { headers: { authorization: `Bearer ${token}` } })
-    if (res.status === 404) continue
-    if (!res.ok) throw new Error(`apple ${res.status}`)
-    return { environment, body: await res.json() }
-  }
-  return null
+  const host = environment === 'Sandbox' ? SANDBOX : PRODUCTION
+  const res = await fetcher(`${host}/inApps/v1/subscriptions/${encodeURIComponent(transactionId)}`, { headers: { authorization: `Bearer ${token}` } })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`apple ${res.status}`)
+  return { environment, body: await res.json() }
 }
 
 const PLUS_STATUS = new Set([1, 4]) // 1 active, 4 billing grace period.
@@ -226,7 +223,7 @@ const STATE = { 1: 'active', 2: 'expired', 3: 'on_hold', 4: 'in_grace_period', 5
 function entitlementOf(item, tx, renewal, products, now) {
   const paidThrough = item.status === 4 ? Math.max(tx.expiresDate, renewal.gracePeriodExpiresDate ?? 0) : tx.expiresDate
   const revoked = Number.isFinite(tx.revocationDate)
-  const plus = PLUS_STATUS.has(item.status) && !revoked && tx.isUpgraded !== true && paidThrough > now
+  const plus = tx.inAppOwnershipType === 'PURCHASED' && PLUS_STATUS.has(item.status) && !revoked && tx.isUpgraded !== true && paidThrough > now
   const renewing = renewal.autoRenewStatus === 1
   let state = STATE[item.status] ?? 'unknown'
   if (revoked) state = 'revoked'

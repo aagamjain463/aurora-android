@@ -99,43 +99,6 @@ test('a client-supplied productId counts for nothing', async () => {
   assert.equal(snapshotOf(res).tier, 'free')
 })
 
-test('wrong environment: a sandbox transaction, with sandbox off or a mismatched answer', async () => {
-  const w = appleWorld()
-  const sandbox = await subscribed(w, 'alice', { environment: 'Sandbox' })
-  assert.equal((await verifyApple(w, 'alice', sandbox)).body.error, 'wrong_environment')
-  assert.equal(w.apple.calls.length, 0)
-  w.env.APPLE_ALLOW_SANDBOX = '1'
-  // The transaction says sandbox; production answers for the same id.
-  await subscribed(w, 'alice')
-  assert.equal(snapshotOf(await verifyApple(w, 'alice', sandbox)).purchaseValid, false)
-  // Production's answer holding a transaction signed for sandbox.
-  w.apple.Sandbox.clear()
-  const crossed = transaction({ environment: 'Sandbox', appAccountToken: await appAccountToken('alice') })
-  w.apple.Production.set('2000', group(lastTransaction(1, crossed)))
-  assert.equal(snapshotOf(await verifyApple(w, 'alice', jwsOf(transaction({ appAccountToken: await appAccountToken('alice') }), trustedPki))).tier, 'free')
-  assert.equal(rows(w).length, 0)
-  assert.equal((await verifyApple(w, 'alice', jwsOf(transaction({ environment: 'Xcode' }), trustedPki))).body.error, 'wrong_environment')
-})
-
-test('production-to-sandbox fallback: only on not found, only when allowed, and never past an outage', async () => {
-  const w = appleWorld()
-  w.env.APPLE_ALLOW_SANDBOX = '1'
-  const jws = await subscribed(w, 'alice', { environment: 'Sandbox' })
-  const res = await verifyApple(w, 'alice', jws)
-  assert.equal(snapshotOf(res).tier, 'plus')
-  assert.deepEqual(w.apple.calls.map((u) => new URL(u).host), ['api.storekit.apple.com', 'api.storekit-sandbox.apple.com'])
-  assert.equal(rows(w)[0].environment, 'Sandbox')
-  w.apple.calls.length = 0
-  w.apple.down = true
-  assert.equal((await verifyApple(w, 'alice', jws)).status, 503)
-  assert.equal(w.apple.calls.length, 1, 'a production 500 is not "try sandbox"')
-  w.apple.down = false
-  delete w.env.APPLE_ALLOW_SANDBOX
-  assert.equal(await appleStatus(w.env, '2000', w.fetcher), null, 'sandbox off: never asked')
-})
-
-// ---- Entitlement states ----------------------------------------------------------------------------------------
-
 test('states that grant Plus, and those that don\'t, from Apple\'s signed fields alone', async () => {
   const now = Date.now()
   const of = (status, tx = {}, info = {}) => appleEntitlement(answerFor({ data: group(lastTransaction(status, transaction(tx), renewal(info))) }), '2000', config, now)
@@ -244,7 +207,7 @@ test('with Apple not configured the routes fail closed and Android is unaffected
   w.state.subs.set('gtok', activeSub())
   assert.equal(snapshotOf(await buyGoogle(w, 'alice')).tier, 'plus')
   assert.equal((await w.call('/v1/verify/apple', idToken('alice'), { signedTransaction: 'x', installId: 'i', bundleId: BUNDLE })).status, 503)
-  assert.equal((await w.call('/v1/purchases/transfer/apple', idToken('alice'), { signedTransaction: 'x', installId: 'i' })).status, 503)
+  assert.equal((await w.call('/v1/purchases/transfer/apple', idToken('alice'), { signedTransaction: 'x', installId: 'i' })).status, 403)
   assert.equal((await w.call('/v1/apple/notifications', null, { signedPayload: 'x' })).status, 503)
   await housekeeping(w.env, w.fetcher)
 })
@@ -305,98 +268,18 @@ test('account switching on one phone moves nothing, either way', async () => {
   assert.equal(snapshotOf(await verifyApple(w, 'alice', jws)).tier, 'plus', 'back on the first account: Restore still works')
 })
 
-test('legacy and family-shared transactions: nothing automatic, an explicit claim only', async () => {
-  for (const tx of [{}, { inAppOwnershipType: 'FAMILY_SHARED', appAccountToken: null }]) {
-    const w = appleWorld()
-    const jws = await subscribed(w, null, { tx })
-    const res = await verifyApple(w, 'first', jws)
-    assert.equal(res.body.claimRequired, true)
-    assert.equal(res.body.conflict, true)
-    assert.equal(snapshotOf(res).tier, 'free', 'the first account to ask gets nothing for asking')
-    assert.equal(rows(w).length, 0)
-    const old = Math.floor(Date.now() / 1000) - 3600
-    assert.equal((await moveApple(w, 'first', jws, {}, { auth_time: old })).body.error, 'reauth_required')
-    assert.equal((await w.call('/v1/purchases/transfer/apple', idToken('first'), { signedTransaction: '2000', installId: 'ios-1' })).body.error, 'invalid_transaction', 'a bare id')
-    assert.equal(snapshotOf(await moveApple(w, 'first', jws)).tier, 'plus')
-    assert.equal(snapshotOf(await verifyApple(w, 'first', jws)).tier, 'plus', 'Restore now just works')
-    assert.equal((await verifyApple(w, 'second', jws)).body.conflict, true)
-    assert.equal((await moveApple(w, 'second', jws)).body.error, 'transfer_limit', 'and it can\'t be snatched straight back')
-    assert.equal(rows(w).length, 1)
-  }
-})
-
-test('a move needs a recent sign-in and Apple\'s signature, happens rarely, and leaves the old account free', async () => {
-  const w = appleWorld()
-  const jws = await subscribed(w, 'alice')
-  await verifyApple(w, 'alice', jws)
-  const old = Math.floor(Date.now() / 1000) - 3600
-  assert.equal((await moveApple(w, 'bob', jws, {}, { auth_time: old })).body.error, 'reauth_required')
-  assert.equal((await moveApple(w, 'bob', jwsOf(transaction(), makePki()))).body.error, 'invalid_transaction')
-  assert.equal(snapshotOf(await moveApple(w, 'bob', jws)).tier, 'plus')
-  assert.equal(await tierOf(w, 'alice'), 'free')
-  assert.equal(snapshotOf(await verifyApple(w, 'bob', jws)).tier, 'plus', 'Apple\'s token still says Alice; the move is what counts now')
-  assert.equal((await verifyApple(w, 'alice', jws)).body.conflict, true)
-  const back = await moveApple(w, 'alice', jws)
-  assert.equal(back.status, 429)
-  assert.equal(back.body.error, 'transfer_limit')
-  assert.ok(back.body.retryAt > Date.now() + 29 * DAY)
-  w.DB.db.prepare('UPDATE purchases SET transferred_at = ?').run(Date.now() - 31 * DAY)
-  assert.equal(snapshotOf(await moveApple(w, 'alice', jws)).tier, 'plus', 'after the cooldown')
-  assert.equal((await moveApple(w, 'bob', jwsOf(transaction({ originalTransactionId: '404' }), trustedPki))).status, 404)
-})
-
-test('moving a purchase already here spends no cooldown', async () => {
-  const w = appleWorld()
-  const jws = await subscribed(w, 'alice')
-  await verifyApple(w, 'alice', jws)
-  assert.equal(snapshotOf(await moveApple(w, 'alice', jws)).tier, 'plus')
-  assert.equal(rows(w)[0].transferred_at, null)
-})
-
-test('concurrent ownership attempts bind one purchase to exactly one account', async () => {
-  const w = appleWorld()
-  const jws = await subscribed(w, 'alice')
-  const verifies = await Promise.all(['alice', 'bob', 'carol'].map((u) => verifyApple(w, u, jws)))
-  assert.equal(verifies.filter((r) => snapshotOf(r).tier === 'plus').length, 1)
-  assert.equal(verifies.filter((r) => r.body.conflict).length, 2)
-
-  const legacy = appleWorld()
-  const tokenless = await subscribed(legacy, null)
-  const moves = await Promise.all(['dave', 'erin', 'frank', 'grace'].map((u) => moveApple(legacy, u, tokenless)))
-  assert.equal(moves.filter((r) => r.status === 200).length, 1, JSON.stringify(moves.map((r) => r.status)))
-  assert.equal(moves.filter((r) => r.body.error === 'transfer_limit').length, 3)
-  assert.equal(rows(legacy).length, 1)
-  const [row] = rows(legacy)
-  const owner = legacy.DB.rows('SELECT firebase_uid FROM accounts WHERE id = ?', row.account_id)[0].firebase_uid
-  assert.equal(await tierOf(legacy, owner), 'plus')
-})
-
 test('Apple purchases and Google tokens can\'t reach each other\'s rows', async () => {
   const w = appleWorld()
   const jws = await subscribed(w, 'alice')
   await verifyApple(w, 'alice', jws)
   // The string that hashes to the App Store row, offered as a Play token.
   assert.equal(snapshotOf(await w.call('/v1/verify', idToken('bob'), { purchaseToken: 'apple:2000', productId: IDS[0], installId: 'a', packageName: 'app.aurora' })).purchaseValid, false)
-  assert.equal((await w.call('/v1/purchases/transfer', idToken('bob'), { purchaseToken: 'apple:2000', installId: 'a' })).status, 404)
+  assert.equal((await w.call('/v1/purchases/transfer', idToken('bob'), { purchaseToken: 'apple:2000', installId: 'a' })).status, 403)
   const note = { message: { data: btoa(JSON.stringify({ packageName: 'app.aurora', eventTimeMillis: String(Date.now()), subscriptionNotification: { purchaseToken: 'apple:2000' } })) } }
   assert.equal((await w.call('/v1/rtdn?token=secret', null, note)).status, 204)
   assert.equal(rows(w)[0].tier, 'plus', 'RTDN never writes an App Store row')
   assert.equal(await tierOf(w, 'alice'), 'plus')
 })
-
-test('after account deletion the subscription stays unowned, and its signed token still decides', async () => {
-  const w = appleWorld()
-  const jws = await subscribed(w, 'alice')
-  await verifyApple(w, 'alice', jws)
-  await w.call('/v1/account/delete', idToken('alice'), {})
-  await housekeeping(w.env, w.fetcher, Date.now() + 8 * DAY)
-  assert.equal(rows(w)[0].account_id, null)
-  assert.equal((await verifyApple(w, 'carol', jws)).body.conflict, true, 'a new account doesn\'t inherit it by asking')
-  assert.equal(rows(w)[0].account_id, null)
-  assert.equal(snapshotOf(await moveApple(w, 'carol', jws)).tier, 'plus', 'the explicit move still works')
-})
-
-// ---- One entitlement, two stores --------------------------------------------------------------------------------
 
 test('bought on either store: Plus on both platforms, for the one account', async () => {
   const w = appleWorld()
@@ -666,7 +549,7 @@ test('the re-check leaves Google rows, and cancelled or recently checked App Sto
 
 // ---- Migration and Android compatibility -------------------------------------------------------------------------
 
-const APP_STORE = '0003_app_store.sql'
+const APP_STORE = '0004_app_store.sql'
 const migration = (name) => readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
 
 test('the migration keeps every Android purchase, as a Google Play one, working through the old and new Worker', async () => {
@@ -705,4 +588,68 @@ test('Google Play is untouched by App Store settings: its product ids and packag
   w.state.subs.set('gtok', activeSub())
   assert.equal(snapshotOf(await buyGoogle(w, 'alice')).tier, 'plus')
   assert.equal(snapshotOf(await sync(w, 'alice')).store, 'google_play')
+})
+
+test('sandbox grants only scoped iOS review access, never production Plus or quota', async () => {
+  const w = appleWorld()
+  w.env.APPLE_ALLOW_SANDBOX = '1'
+  const res = await verifyApple(w, 'alice', await subscribed(w, 'alice', { environment: 'Sandbox' }))
+  const s = snapshotOf(res)
+  assert.equal(res.status, 200)
+  assert.equal(s.tier, 'free')
+  assert.equal(s.purchaseValid, true)
+  assert.equal(s.iosSandbox.scope, 'ios_sandbox')
+  assert.ok(s.iosSandbox.expiresAt <= Date.now() + 15 * 60_000)
+  assert.ok(verifySignature(res.body))
+  assert.equal(rows(w)[0].environment, 'Sandbox')
+  assert.deepEqual(w.apple.calls.map((u) => new URL(u).host), ['api.storekit-sandbox.apple.com'])
+  assert.equal(await tierOf(w, 'alice', 'android-1'), 'free')
+  assert.equal((await reserve(w, 'alice', 180, 'android-1')).body.allowed, false)
+  w.env.APPLE_ALLOW_SANDBOX = '0'
+  assert.equal(snapshotOf(await sync(w, 'alice')).iosSandbox, null)
+  w.env.APPLE_ALLOW_SANDBOX = '1'
+  await verifyApple(w, 'alice', await subscribed(w, 'alice'))
+  assert.equal(rows(w).length, 2, 'environment namespaces isolate identical numeric transaction IDs')
+  assert.equal(await tierOf(w, 'alice', 'android-1'), 'plus')
+})
+
+test('sandbox disabled and signed environment mismatch never fall back', async () => {
+  const w = appleWorld()
+  const jws = await subscribed(w, 'alice', { environment: 'Sandbox' })
+  assert.equal((await verifyApple(w, 'alice', jws)).body.error, 'wrong_environment')
+  assert.equal(w.apple.calls.length, 0)
+  w.env.APPLE_ALLOW_SANDBOX = '1'
+  await subscribed(w, 'alice')
+  w.apple.Sandbox.clear()
+  assert.equal(snapshotOf(await verifyApple(w, 'alice', jws)).purchaseValid, false)
+  assert.equal(rows(w).length, 0)
+  assert.deepEqual(w.apple.calls.map((u) => new URL(u).host), ['api.storekit-sandbox.apple.com'])
+})
+
+test('stolen JWS and fresh sign-in cannot move ownership; legacy claims and family sharing are disabled', async () => {
+  const w = appleWorld()
+  const stolen = await subscribed(w, 'alice')
+  await verifyApple(w, 'alice', stolen)
+  const owner = rows(w)[0].account_id
+  const moved = await moveApple(w, 'mallory', stolen)
+  assert.equal(moved.status, 403)
+  assert.equal(moved.body.error, 'transfer_disabled')
+  assert.equal(rows(w)[0].account_id, owner)
+  assert.equal(await tierOf(w, 'mallory'), 'free')
+  assert.equal((await verifyApple(w, 'mallory', stolen)).body.conflict, true)
+  const legacy = await subscribed(w, 'alice', { id: 'legacy', tx: { appAccountToken: undefined } })
+  assert.equal((await verifyApple(w, 'mallory', legacy)).body.claimRequired, true)
+  assert.equal((await moveApple(w, 'mallory', legacy)).body.error, 'transfer_disabled')
+  const shared = await subscribed(w, 'alice', { tx: { inAppOwnershipType: 'FAMILY_SHARED' } })
+  assert.equal((await verifyApple(w, 'alice', shared)).body.error, 'family_sharing_disabled')
+  assert.equal(rows(w).length, 1)
+  assert.equal(rows(w)[0].account_id, owner)
+})
+
+test('family sharing cannot revive an existing production entitlement through a notification', async () => {
+  const w = appleWorld()
+  await verifyApple(w, 'alice', await subscribed(w, 'alice'))
+  await subscribed(w, 'alice', { tx: { inAppOwnershipType: 'FAMILY_SHARED' } })
+  await notify(w, notification(transaction()))
+  assert.equal(await tierOf(w, 'alice'), 'free')
 })

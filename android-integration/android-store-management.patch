@@ -1,0 +1,153 @@
+diff --git a/app/src/main/java/app/aurora/plan/Entitlement.kt b/app/src/main/java/app/aurora/plan/Entitlement.kt
+index f956fb7309e11c50d10b6ff531e2c2824252eddc..3b4a0f29ab83a080102789d06e613e2e96420f99 100644
+--- a/app/src/main/java/app/aurora/plan/Entitlement.kt
++++ b/app/src/main/java/app/aurora/plan/Entitlement.kt
+@@ -38,6 +38,7 @@ data class EntitlementSnapshot(
+     val uid: String = "",
+     /** Google confirmed the purchase is real, even if this device can't use it. Play refunds what is never acknowledged. */
+     val purchaseValid: Boolean = false,
++    val store: String? = null,
+ )
+ 
+ /** How long a verified snapshot is trusted without reaching the server again. */
+diff --git a/app/src/main/java/app/aurora/ui/plus/PlusScreen.kt b/app/src/main/java/app/aurora/ui/plus/PlusScreen.kt
+index 4573f1cd5f68137761fdb5c636f89fda6dc28f4a..9900a4c789b9bb6ff9a34f94aa6c17628fbf03b6 100644
+--- a/app/src/main/java/app/aurora/ui/plus/PlusScreen.kt
++++ b/app/src/main/java/app/aurora/ui/plus/PlusScreen.kt
+@@ -85,11 +85,6 @@ fun PlusScreen(onBack: () -> Unit) {
+     val subscription by app.billing.subscription.collectAsStateWithLifecycle()
+     val scope = rememberCoroutineScope()
+     val colors = Aurora.colors
+-    var transferMessage by remember { mutableStateOf<String?>(null) }
+-    val reauthText = stringResource(R.string.account_reauth_body)
+-    val limitText = stringResource(R.string.plus_conflict_limit)
+-    val failedText = stringResource(R.string.plus_conflict_failed)
+-    val offlineText = stringResource(R.string.account_offline)
+     val compare = listOf(
+     Triple(stringResource(R.string.plus_compare_items), "${FreeLimits.getValue(Allowance.ProtectedItems)}", stringResource(R.string.plus_unlimited)),
+     Triple(stringResource(R.string.plus_compare_intent), "${FreeLimits.getValue(Allowance.IntentApps)}", stringResource(R.string.plus_unlimited)),
+@@ -123,7 +118,10 @@ fun PlusScreen(onBack: () -> Unit) {
+             SectionLabel(stringResource(if (plan == Plan.Plus) R.string.plus_free_and_plus else R.string.plus_choose_a_plan))
+             PlusCard(compare.filter { it.second != it.third }, current = plan == Plan.Plus) {
+                 when {
+-                    plan == Plan.Plus || subscription?.state == "on_hold" -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
++                    plan == Plan.Plus || subscription?.state == "on_hold" -> {
++                        if (subscription?.store == "app_store") Text(stringResource(R.string.plus_managed_in_app_store), color = colors.textSecondary, style = AuroraType.Secondary)
++                        else AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
++                    }
+                     billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = colors.textSecondary, style = AuroraType.Secondary)
+                     billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = colors.textSecondary, style = AuroraType.Secondary)
+                     else -> billing.offers.sortedByDescending { it.yearly }.forEach { offer ->
+@@ -161,30 +159,7 @@ fun PlusScreen(onBack: () -> Unit) {
+                     Notice(
+                         stringResource(R.string.plus_conflict_title),
+                         conflict.hint?.let { stringResource(R.string.plus_conflict_body_hint, it) } ?: stringResource(R.string.plus_conflict_body),
+-                    ) {
+-                        transferMessage?.let { Text(it, color = colors.danger, style = AuroraType.Secondary) }
+-                        AuroraButton(
+-                            stringResource(R.string.plus_conflict_move),
+-                            {
+-                                scope.launch {
+-                                    when (val r = app.account.transferPurchase(conflict.token)) {
+-                                        is ApiResult.Ok -> {
+-                                            app.billing.store(r.value)
+-                                            app.billing.clearConflict()
+-                                            transferMessage = null
+-                                        }
+-                                        is ApiResult.Refused -> if (r.code == "reauth_required") {
+-                                            context.activity()?.let { app.account.reauthenticate(it) }
+-                                            app.account.clearEmailStep()
+-                                            transferMessage = reauthText
+-                                        } else transferMessage = if (r.code == "transfer_limit") limitText else failedText
+-                                        ApiResult.Unreachable -> transferMessage = offlineText
+-                                    }
+-                                }
+-                            },
+-                            Modifier.fillMaxWidth(), kind = ButtonKind.Secondary,
+-                        )
+-                    }
++                    )
+                 }
+                 if (billing.verifying) Notice(stringResource(R.string.plus_verifying_title), stringResource(R.string.plus_verifying_body))
+                 if (billing.pending) Notice(stringResource(R.string.plus_payment_pending), stringResource(R.string.plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp))
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 8e25db01cd1220fab071f6a38f1a5c95ca7cab11..9cf296db969dc263a41add3ac0f131b261db5fdc 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -373,7 +373,7 @@
+     <string name="plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp">Google Play is waiting for your payment. Plus starts once it completes; nothing is charged twice.</string>
+     <string name="plus_google_play">Google Play</string>
+     <string name="plus_restore_purchases">Restore purchases</string>
+-    <string name="plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p">Subscriptions renew until you cancel. Cancel any time in Google Play › Payments &amp; subscriptions; Plus stays until the end of the period you paid for.</string>
++    <string name="plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p">Subscriptions renew until you cancel in the store where you subscribed. Plus stays until the end of the period you paid for.</string>
+     <string name="focus_holds_empty">Protect some apps, and Focus will hold them back while it runs.</string>
+     <string name="focus_group_empty">%1$s has no protected apps yet, so nothing is held back.</string>
+     <string name="focus_holds_off">Shield isn\'t on, so Focus can\'t hold apps back yet. Turn it on from Home.</string>
+@@ -784,9 +784,9 @@
+     <string name="plus_renews_on">Your plan renews on %1$s.</string>
+     <string name="plus_ends_on">Your plan is cancelled. Plus continues until %1$s.</string>
+     <string name="plus_grace_title">Payment problem</string>
+-    <string name="plus_grace_body">Google Play couldn\'t take your payment and is trying again. Plus continues for now. Update your payment method in Google Play.</string>
++    <string name="plus_grace_body">Your subscription store couldn\'t take your payment and is trying again. Plus continues for now. Update your payment method in the store where you subscribed.</string>
+     <string name="plus_hold_title">Subscription on hold</string>
+-    <string name="plus_hold_body">Google Play couldn\'t take your payment, so Plus has paused. Fix your payment method in Google Play to get it back.</string>
++    <string name="plus_hold_body">Your subscription store couldn\'t take your payment, so Plus has paused. Update your payment method in the store where you subscribed.</string>
+     <string name="plus_devices_title">Too many phones</string>
+     <string name="plus_devices_body">This subscription is already on the most phones it can be. Plus isn\'t active on this one.</string>
+     <string name="plus_verifying_title">Confirming your purchase</string>
+@@ -893,7 +893,7 @@
+     <string name="account_manage_plus">Manage Aurora Plus</string>
+     <string name="account_restore">Restore purchases</string>
+     <string name="account_restore_done">Checked with Google Play and your account.</string>
+-    <string name="account_play_note">Google Play bills whichever Google account the Play Store is using, which can differ from the one you sign in to Aurora with. Plus belongs to your Aurora account.</string>
++    <string name="account_play_note">Your subscription is managed by the store where you bought it. Plus belongs to your verified Aurora account.</string>
+     <string name="account_devices">Devices</string>
+     <string name="account_device_unknown">Android phone</string>
+     <string name="account_device_this">This phone</string>
+@@ -909,7 +909,7 @@
+     <string name="account_sign_out_body">You\'ll need to sign in to use Aurora again. Sessions already running keep running until they end. Your data stays on this phone for when you\'re back.</string>
+     <string name="account_delete">Delete account</string>
+     <string name="account_delete_title">Delete your Aurora account?</string>
+-    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 30 days from now. Sign in before then to change your mind.\n\nThis phone\'s Goals, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Google Play keeps billing until you cancel there.</string>
++    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 30 days from now. Sign in before then to change your mind.\n\nThis phone\'s Goals, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Your subscription store keeps billing until you cancel there.</string>
+     <string name="account_delete_manage">Manage subscription in Google Play</string>
+     <string name="account_delete_confirm">Delete my account</string>
+     <string name="account_reauth_title">Confirm it\'s you</string>
+@@ -918,12 +918,12 @@
+     <string name="account_reauth_email">We sent a sign-in link to your email. Open it on this phone, then try again.</string>
+     <string name="account_offline">Aurora needs the internet for this. Connect and try again.</string>
+     <string name="plus_conflict_title">This purchase is on another account</string>
+-    <string name="plus_conflict_body">This phone\'s Google Play subscription belongs to a different Aurora account. Sign in to that account, or move the subscription here. It can move once every 30 days, and the other account loses Plus.</string>
+-    <string name="plus_conflict_body_hint">This phone\'s Google Play subscription belongs to the Aurora account %1$s. Sign in to that account, or move the subscription here. It can move once every 30 days, and the other account loses Plus.</string>
++    <string name="plus_conflict_body">This purchase belongs to another Aurora account. Sign in to the original account or contact support. Automatic transfers are disabled.</string>
++    <string name="plus_conflict_body_hint">This purchase belongs to the Aurora account %1$s. Sign in to that account or contact support. Automatic transfers are disabled.</string>
+     <string name="plus_conflict_move">Move to this account</string>
+     <string name="plus_conflict_limit">This subscription moved recently. It can move again after 30 days.</string>
+     <string name="plus_conflict_failed">That didn\'t work. Please try again.</string>
+-    <string name="plus_play_note">Google Play bills the Google account the Play Store is using, which can differ from the one you sign in to Aurora with. Plus belongs to your Aurora account.</string>
++    <string name="plus_play_note">Your subscription is managed by the store where you bought it. Plus belongs to your verified Aurora account.</string>
+     <string name="settings_theme">Theme</string>
+     <string name="settings_theme_dark">Dark</string>
+     <string name="settings_theme_light">Light</string>
+@@ -1020,4 +1020,5 @@
+     <string name="help_restricted_title">“Restricted setting”?</string>
+     <string name="help_restricted_body">In Aurora\'s app info, tap ⋮, then Allow restricted settings.</string>
+     <string name="help_run_diagnostics">Run diagnostics</string>
++    <string name="plus_managed_in_app_store">Your subscription is managed through the App Store on your Apple device.</string>
+ </resources>
+diff --git a/app/src/test/java/app/aurora/plan/EntitlementTest.kt b/app/src/test/java/app/aurora/plan/EntitlementTest.kt
+index edbdca0e38ef663693b31022a44d231677aaf94a..550950e54df86a834a55a26164b37a57d12fcd11 100644
+--- a/app/src/test/java/app/aurora/plan/EntitlementTest.kt
++++ b/app/src/test/java/app/aurora/plan/EntitlementTest.kt
+@@ -29,6 +29,11 @@ class EntitlementTest {
+     private fun facts(purchased: Boolean = false, pending: Boolean = false, product: String = "aurora_plus_monthly") =
+         PurchaseFacts(listOf(product), purchased, pending, acknowledged = false, autoRenewing = true, token = "t")
+ 
++    @Test fun sandboxReviewNeverGrantsProductionAndroidPlus() {
++        val review = signed("""{"tier":"free","uid":"u1","installId":"i1","packageName":"app.aurora","issuedAt":$now,"iosSandbox":{"scope":"ios_sandbox","productId":"aurora_plus_monthly","expiresAt":${now + 900000}}}""")
++        assertEquals(Plan.Free, plan(verifiedSnapshot(review, publicKey)))
++    }
++
+     @Test
+     fun aPendingPurchaseDoesNotUnlockPlus() {
+         val v = evaluate(listOf(facts(pending = true)), plus)
