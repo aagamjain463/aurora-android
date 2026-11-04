@@ -66,17 +66,46 @@ fun fromChannels(texts: List<String>, channels: List<String>): Boolean = channel
     texts.any { whole.containsMatchIn(normal(it)) }
 }
 
+/** The channel row under a video: "jawed 67.3 lakh subscribers", "Rick Astley, Official Artist Channel 45.5 lakh subscribers". */
+private val SubscriberRow = Regex("^(.+?) [\\d.,]+\\s*(?:[KMB]|lakh|crore|thousand|million|billion)? subscribers?$", RegexOption.IGNORE_CASE)
+
 /**
- * The channels [texts] name for certain: a handle ("@veritasium"), or YouTube's "Subscribe to Veritasium." button
- * (English). A title, a view count or an ad names none: a page still loading isn't judged by them.
+ * The channels [texts] name for certain: a handle ("@veritasium"), YouTube's "Subscribe to Veritasium." (or
+ * "Unsubscribe from") button, or the channel row with its subscriber count (English). A title, a view count or an
+ * ad names none: a page still loading isn't judged by them.
  */
 fun channelsNamed(texts: List<String>): List<String> = texts.mapNotNull { text ->
     val t = text.trim()
     when {
         Regex("^@[\\p{L}\\p{N}._\\-]+$").matches(t) -> t
         t.startsWith("Subscribe to ") -> t.removePrefix("Subscribe to ").trimEnd('.').trim().takeIf(String::isNotEmpty)
+        t.startsWith("Unsubscribe from ") -> t.removePrefix("Unsubscribe from ").trimEnd('.').trim().takeIf(String::isNotEmpty)
+        else -> SubscriberRow.find(t)?.groupValues?.get(1)?.trim()?.takeIf(String::isNotEmpty)
+    }
+}
+
+/** How a video card's label ends in YouTube's lists (YouTube 21.41, English). */
+const val PlayVideo = " – play video"
+const val PlayShort = " – play Short"
+
+/**
+ * The channel a video card in YouTube's lists names in its own label, or null when it names none (a channel's own
+ * page and its shelves leave it out). Checked against YouTube 21.41, English:
+ * - a video: "<title> – <length> – [Go to channel X] – X[, verified] - <views> - <age> – play video";
+ * - a Short: "<title>, <views> views[, X, <age>] – play Short".
+ */
+fun cardChannel(label: String): String? {
+    val t = label.trim()
+    val name = when {
+        t.endsWith(PlayVideo) -> t.removeSuffix(PlayVideo).split(" – ").takeIf { it.size >= 3 }?.last()?.substringBefore(" - ")
+        t.endsWith(PlayShort) -> {
+            val parts = t.removeSuffix(PlayShort).split(", ")
+            val views = parts.indexOfLast { it.endsWith(" views") || it.endsWith(" view") }
+            if (views >= 0 && views == parts.size - 3) parts[views + 1] else null
+        }
         else -> null
     }
+    return name?.removeSuffix(", verified")?.removeSuffix(", Official Artist Channel")?.trim()?.takeIf(String::isNotEmpty)
 }
 
 /** The old global switches ([Rules.content]) and the parts each one becomes. */
@@ -239,6 +268,8 @@ data class YouTubeScreen(
     val related: List<List<Int>> = emptyList(),
     /** What YouTube shows around the playing video or Short: its title, channel, handle. */
     val texts: List<String> = emptyList(),
+    /** The open video's row of actions (like, dislike, share) is in sight: its channel row has loaded beside it. */
+    val actionsShown: Boolean = false,
 )
 
 sealed interface YouTubeVerdict {
@@ -266,7 +297,8 @@ fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: P
         s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts)
         // Judged only once the page names its channel for certain: while it loads (only a title, a view count,
         // an ad) an allowed video is never held back.
-        channels != null && playing && channelsNamed(s.texts).isNotEmpty() && !fromChannels(s.texts, channels.second) ->
+        // Only what names a channel counts: a title that mentions a chosen one ("Reacting to Veritasium") doesn't.
+        channels != null && playing && channelsNamed(s.texts).let { it.isNotEmpty() && !fromChannels(it, channels.second) } ->
             YouTubeVerdict.NotFromChannel(channels.first, R.string.part_no_video)
         // Under the video: its details and comments stay, every suggestion after them is blank, the playlist bar
         // stays usable, and the list can't be scrolled. An open panel (description, comments) is left alone.

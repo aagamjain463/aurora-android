@@ -146,4 +146,31 @@ class WebTest {
         assertFalse(fromChannels(listOf("United Nations"), listOf("ted")))
         assertTrue(fromChannels(listOf("TED · 25M subscribers"), listOf("TED")))
     }
+
+    /** Card labels as YouTube 21.41 (English) writes them, from a real phone. */
+    @Test fun cardsNameTheirChannel() {
+        assertEquals("Veritasium", cardChannel("Fiber Optics are so much cooler than I thought – 34 minutes, 32 seconds –  – Veritasium, verified - 1.4 crore views - 3 weeks ago – play video"))
+        assertEquals("HollyGood", cardChannel("Celebrities Surprise Fans When They Least Expect It! – 17 minutes, 42 seconds – Go to channel HollyGood – HollyGood - 18 lakh views - 3 months ago – play video"))
+        assertEquals("Neon Man", cardChannel("LAFDA LAFDA LAFDA Kaashvi Vs Bigg Boss, MC Stan Vs Srushti, Salman Khan, Ramayana | – 13 minutes, 5 seconds – Go to channel Neon Man – Neon Man, verified - 5 lakh views - 18 hours ago – play video"))
+        assertEquals("IShowSpeed", cardChannel("HALLOWEEN SPIDER-MAN SPEED-VERSE IRL STREAM – 2 hours, 20 seconds –  – IShowSpeed, verified - 38 lakh views - Streamed 3 days ago – play video"))
+        assertEquals("StarTalk", cardChannel("Is It Possible That Gravity Doesn’t Exist!?, 54 lakh views, StarTalk, 2 years ago – play Short"))
+        assertEquals("Sauce +", cardChannel("Veritasium proves that sometimes you’ve gotta take a literal leap of faith, 10 lakh views, Sauce +, 2 years ago – play Short"))
+        // A channel's own shelf names no channel: left to the check when it opens.
+        assertNull(cardChannel("SPIDERMAN BACKFLIP RACE!, 33 lakh views – play Short"))
+        assertNull(cardChannel("Play video"))
+    }
+
+    @Test fun videoPageNamesItsChannel() {
+        assertEquals(listOf("jawed"), channelsNamed(listOf("jawed 67.3 lakh subscribers")))
+        assertEquals(listOf("Rick Astley, Official Artist Channel"), channelsNamed(listOf("Rick Astley, Official Artist Channel 45.5 lakh subscribers")))
+        assertEquals(listOf("IShowSpeed"), channelsNamed(listOf("Unsubscribe from IShowSpeed.")))
+        val key = channelsKey(listOf("IShowSpeed"))
+        val v = { s: YouTubeScreen -> youTubeVerdict(s, shorts = false, feed = false, channels = key to listOf("IShowSpeed"), screenWidth = 1080, screenBottom = 2400) }
+        val watch = listOf(0, 76, 1080, 684)
+        // Subscribed to another channel: no Subscribe button, but its row still names it.
+        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("Rick Astley, Official Artist Channel 45.5 lakh subscribers"))))
+        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch, texts = listOf("IShowSpeed, verified 3.9 crore subscribers", "Subscribe to IShowSpeed."))))
+        // A title that mentions the chosen channel doesn't make another channel's video its.
+        assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("I met @IShowSpeed in Tokyo", "Subscribe to Other."))))
+    }
 }
