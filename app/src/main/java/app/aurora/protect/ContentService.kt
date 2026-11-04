@@ -109,6 +109,10 @@ class ContentService : AccessibilityService() {
      * asked for. Looks are coalesced: only the latest waiting one runs.
      */
     private val worker = Handler(android.os.HandlerThread("aurora-look").apply { start() }.looper)
+    /** Judges taps on its own thread, so a tap never waits behind a look. */
+    private val taps = Handler(android.os.HandlerThread("aurora-tap").apply { start() }.looper)
+    /** The chosen channels while only they may play, null otherwise. Set on [worker], read on [taps]. */
+    @Volatile private var chosenChannels: List<String>? = null
     private var lookTries = 0
     /** The app last seen in front, on [worker]. */
     private var front: String? = null
@@ -223,7 +227,8 @@ class ContentService : AccessibilityService() {
             return
         }
         // Content changes arrive in floods; one look per app every 120 ms keeps covers on what they hide.
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && now - (lastCheck[pkg] ?: 0L) < CheckEveryMs) return
+        if ((event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) &&
+            now - (lastCheck[pkg] ?: 0L) < CheckEveryMs) return
         lastCheck[pkg] = now
         if (pkg == Instagram || pkg == YouTube) {
             lookTries = 0
@@ -335,7 +340,11 @@ class ContentService : AccessibilityService() {
     }
 
     /** A held-back button: where it is, what holds it back, and what a tap on it says. */
-    private class Button(val bounds: Rect, val key: String, val decision: Decision.Shield, @StringRes val says: Int = 0)
+    private class Button(
+        val bounds: Rect, val key: String, val decision: Decision.Shield, @StringRes val says: Int = 0,
+        /** On a video card from another channel: swipes on it still scroll, and a tap is checked again when it lands. */
+        val channelCard: Boolean = false,
+    )
 
     /** Keeps one clear cover on each of [buttons], and takes the rest away. */
     private fun keepButtons(owner: String, buttons: List<Button>, keepOthers: Boolean = false) {
@@ -343,7 +352,9 @@ class ContentService : AccessibilityService() {
         if (keepOthers && buttons.size < buttonCovers.count { it.showing }) return
         val shown = buttons.filterNot { it.bounds.isEmpty }
         while (buttonCovers.size < shown.size) buttonCovers += Cover(this, onCoverTap, clear = true)
-        buttonCovers.forEachIndexed { i, c -> shown.getOrNull(i)?.let { c.show(it.bounds, owner, it.key, it.decision, it.says) } ?: c.hide() }
+        buttonCovers.forEachIndexed { i, c ->
+            shown.getOrNull(i)?.let { c.show(it.bounds, owner, it.key, it.decision, it.says, passSwipes = it.channelCard, judge = if (it.channelCard) ::judgeTap else null) } ?: c.hide()
+        }
         if (shown.isNotEmpty()) watchSoon()
     }
 
@@ -522,6 +533,7 @@ class ContentService : AccessibilityService() {
         val channels = channelShields.firstOrNull()?.let { (key, _) ->
             key to channelShields.map { channelsOf(it.first) }.reduce { a, b -> a.filter { c -> b.any { it.equals(c, ignoreCase = true) } } }
         }
+        chosenChannels = channels?.second
         val m = resources.displayMetrics
         // Cards from other channels first, and up at once: a card that has just scrolled into sight is caught
         // before the rest of the screen is read.
@@ -530,10 +542,10 @@ class ContentService : AccessibilityService() {
             // Never over the small player, which floats above the list: it stays tappable.
             otherChannelCards(root, channels.second).map { card ->
                 if (floating != null && Rect.intersects(card, floating)) Rect(card.left, card.top, minOf(card.right, floating.left), card.bottom) else card
-            }.filter { it.width() > 0 }.map { Button(it, channels.first, channelShields.first().second, R.string.part_no_video) }
+            }.filter { it.width() > 0 }.map { Button(it, channels.first, channelShields.first().second, R.string.part_no_video, channelCard = true) }
         } else emptyList()
         if (cardCatchers.isNotEmpty()) ui { keepButtons(YouTube, cardCatchers, keepOthers = true) }
-        val screen = if (shorts != null || feed != null || channels != null) readYouTube(root) else null
+        val screen = if (shorts != null || feed != null || channels != null) readYouTube(root, channels != null) else null
         val verdict = screen?.let { youTubeVerdict(it, shorts != null, feed != null, channels, m.widthPixels, m.heightPixels) } ?: YouTubeVerdict.Allow
         val c = verdict as? YouTubeVerdict.Cover
         fun rect(b: List<Int>) = Rect(b[0], b[1], b[2], b[3])
@@ -611,20 +623,49 @@ class ContentService : AccessibilityService() {
     private fun otherChannelCards(root: AccessibilityNodeInfo, channels: List<String>): List<Rect> =
         root.findAccessibilityNodeInfosByText(GoToChannel).filter { it.isVisibleToUser }.mapNotNull { button ->
             val name = textOf(button)?.substringAfter(GoToChannel, "")?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
-            if (fromChannels(listOf(name), channels)) return@mapNotNull null
-            // The card is the nearest tappable ancestor bigger than the button (it opens the video); never a row
-            // that holds two cards side by side, or the list itself.
-            val small = boundsOf(button)
-            var card = button.parent
-            for (i in 0 until 8) {
-                val c = card ?: break
-                val b = boundsOf(c)
-                if (c.className?.toString()?.endsWith("RecyclerView") == true) break
-                if (c.isClickable && b.height() > small.height() * 2) return@mapNotNull b.takeUnless(Rect::isEmpty)
-                card = c.parent
-            }
-            null
+            if (fromChannels(listOf(name), channels)) null else cardOf(button)
         }.distinct()
+
+    /**
+     * The video card a "Go to channel" [button] sits on: its nearest tappable ancestor bigger than the button (it
+     * opens the video); never a row that holds two cards side by side, or the list itself.
+     */
+    private fun cardOf(button: AccessibilityNodeInfo): Rect? {
+        val small = boundsOf(button)
+        var card = button.parent
+        for (i in 0 until 8) {
+            val c = card ?: break
+            val b = boundsOf(c)
+            if (c.className?.toString()?.endsWith("RecyclerView") == true) break
+            if (c.isClickable && b.height() > small.height() * 2) return b.takeUnless(Rect::isEmpty)
+            card = c.parent
+        }
+        return null
+    }
+
+    /**
+     * A tap on a catcher, checked again on [taps] against what YouTube shows the moment it lands: the list may have
+     * moved since the catcher was placed. It goes through only when the card under it names a chosen channel.
+     */
+    private fun judgeTap(at: PointF, done: (Boolean) -> Unit) {
+        taps.post {
+            val chosen = chosenChannels
+            val root = rootInActiveWindow
+            val pass = if (chosen == null || root == null || root.packageName?.toString() != YouTube) false else run {
+                val near = resources.displayMetrics.heightPixels / 2
+                for (button in root.findAccessibilityNodeInfosByText(GoToChannel)) {
+                    val b = boundsOf(button)
+                    if (!button.isVisibleToUser || kotlin.math.abs(b.centerY() - at.y) > near) continue
+                    val card = cardOf(button) ?: continue
+                    if (!card.contains(at.x.toInt(), at.y.toInt())) continue
+                    val name = textOf(button)?.substringAfter(GoToChannel, "")?.trim().orEmpty()
+                    return@run name.isNotEmpty() && fromChannels(listOf(name), chosen)
+                }
+                false
+            }
+            ui { done(pass) }
+        }
+    }
 
     /** Pauses whatever is playing (YouTube, in front): the same as a headset's pause button. */
     private fun pauseMedia() {
@@ -645,7 +686,7 @@ class ContentService : AccessibilityService() {
     }
 
 
-    private fun readYouTube(root: AccessibilityNodeInfo): YouTubeScreen {
+    private fun readYouTube(root: AccessibilityNodeInfo, channels: Boolean): YouTubeScreen {
         val m = resources.displayMetrics
         fun shown(id: String) = root.findAccessibilityNodeInfosByViewId("$YouTube:id/$id").filter { it.isVisibleToUser }
         fun bounds(node: AccessibilityNodeInfo) = Rect().also(node::getBoundsInScreen)
@@ -658,16 +699,12 @@ class ContentService : AccessibilityService() {
             else b.height() < m.heightPixels / 6 && b.width() < m.widthPixels / 2
         }
         val expanded = player?.takeIf { pivot == null }
-        val texts = when {
-            shortsPlayer != null -> nodes(shortsPlayer).mapNotNull(::textOf)
-            // Under the open video, its title and channel; beside the miniplayer, the same.
-            player != null -> nodes(root).filter { it.isVisibleToUser }.mapNotNull { n ->
-                val b = bounds(n)
-                val near = if (expanded != null) b.top >= player.bottom && b.top < player.bottom + m.heightPixels / 3 && b.left < player.right
-                else b.centerY() in player.top..player.bottom && b.left >= player.right
-                if (near) textOf(n) else null
-            }
-            else -> emptyList()
+        // What names the playing video's channel: its @handle and its "Subscribe to <name>." button, found with two
+        // searches YouTube answers in one go each. Only asked when only chosen channels may play: every call
+        // into YouTube runs on its UI thread, and walking through all its views made it stutter.
+        val area = shortsPlayer?.let(::bounds) ?: expanded?.let { Rect(it.left, it.bottom, it.right, it.bottom + m.heightPixels / 3) }
+        val texts = if (!channels || area == null) emptyList() else ChannelLabels.flatMap { label ->
+            root.findAccessibilityNodeInfosByText(label).filter { it.isVisibleToUser && Rect.intersects(bounds(it), area) }.mapNotNull(::textOf)
         }
         // Home is the tab bar's first tab, Shorts its second.
         val chosenTab = pivot?.let(::pivotTabs)?.indexOfFirst(::selectedWithin)?.takeIf { it >= 0 }
@@ -749,6 +786,7 @@ class ContentService : AccessibilityService() {
         handler.removeCallbacks(liftVeil)
         worker.removeCallbacksAndMessages(null)
         worker.looper.quitSafely()
+        taps.looper.quitSafely()
         hideCovers()
         gate = null
         veil?.hide()
@@ -771,6 +809,8 @@ class ContentService : AccessibilityService() {
         private const val OpeningMs = 1_500L
         /** How YouTube labels the button on a video's card that leads to its channel (English). */
         private const val GoToChannel = "Go to channel"
+        /** What names a playing video's channel: its @handle, and its "Subscribe to <name>." button (English). */
+        private val ChannelLabels = listOf("@", "Subscribe to ")
         private const val MaxNodes = 600
         /** How long a held-back part's line stays, how often a blocked page is checked, and how many Backs at most. */
         private const val NoticeMs = 2_500L
@@ -817,8 +857,19 @@ private class Cover(
     private var decision: Decision.Shield? = null
     @StringRes private var says = 0
     private var added = false
-    /** Swipes go through to the app (the list under a blank that covers all of it); taps don't. */
+    /** Swipes go through to the app (after the finger lifts), taps don't. */
     private var passSwipes = false
+    /** A finger is down on it; [pending] is the change asked for meanwhile. */
+    private var touching = false
+    private var pending: (() -> Unit)? = null
+
+    private fun lifted() {
+        touching = false
+        pending?.also { pending = null }?.invoke()
+    }
+
+    /** When set, a tap is checked again as it lands: passed through to the app, or held back. */
+    private var judge: ((PointF, (Boolean) -> Unit) -> Unit)? = null
     private val slop = ViewConfiguration.get(service).scaledTouchSlop
     private val points = ArrayList<PointF>()
     private var downAt = 0L
@@ -836,13 +887,28 @@ private class Cover(
         @android.annotation.SuppressLint("ClickableViewAccessibility")
         setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { points.clear(); downAt = e.eventTime; points += PointF(e.rawX, e.rawY) }
+                MotionEvent.ACTION_DOWN -> { points.clear(); downAt = e.eventTime; points += PointF(e.rawX, e.rawY); touching = true }
+                MotionEvent.ACTION_CANCEL -> lifted()
                 MotionEvent.ACTION_MOVE -> points += PointF(e.rawX, e.rawY)
                 MotionEvent.ACTION_UP -> {
                     points += PointF(e.rawX, e.rawY)
                     val moved = abs(points.last().x - points.first().x) > slop || abs(points.last().y - points.first().y) > slop
-                    if (moved && passSwipes) replay(service, windows, this, params, points, e.eventTime - downAt, moved = true)
-                    else if (!moved) decision?.let { onTap(key, it, owner ?: return@let, says) }
+                    val duration = e.eventTime - downAt
+                    val judged = judge
+                    when {
+                        moved && passSwipes -> replay(service, windows, this, params, points.toList(), duration, moved = true)
+                        moved -> Unit
+                        judged != null -> {
+                            val at = points.first()
+                            judged(at) { pass ->
+                                if (!added) return@judged
+                                if (pass) replay(service, windows, this, params, listOf(at), duration, moved = false)
+                                else decision?.let { onTap(key, it, owner ?: return@let, says) }
+                            }
+                        }
+                        else -> decision?.let { onTap(key, it, owner ?: return@let, says) }
+                    }
+                    lifted()
                 }
             }
             true
@@ -867,8 +933,18 @@ private class Cover(
 
     val showing: Boolean get() = added
 
-    fun show(bounds: Rect, owner: String, key: String, decision: Decision.Shield, @StringRes says: Int = 0, passSwipes: Boolean = false) {
+    fun show(
+        bounds: Rect, owner: String, key: String, decision: Decision.Shield, @StringRes says: Int = 0, passSwipes: Boolean = false,
+        judge: ((PointF, (Boolean) -> Unit) -> Unit)? = null,
+    ) {
+        // A finger is on it: moving or taking it away now would cancel that touch (a swipe that never scrolls).
+        // It stays put until the finger lifts, then catches up.
+        if (touching) {
+            pending = { show(bounds, owner, key, decision, says, passSwipes, judge) }
+            return
+        }
         this.passSwipes = passSwipes
+        this.judge = judge
         this.owner = owner
         this.says = says
         this.key = key
@@ -902,7 +978,7 @@ private class Cover(
 
     /** Moves by [dx], [dy] with the list it sits on, kept inside [within]; gone once nothing of it is left there. */
     fun moveBy(dx: Int, dy: Int, within: Rect?) {
-        if (!added || dx == 0 && dy == 0) return
+        if (!added || touching || dx == 0 && dy == 0) return
         val moved = Rect(params.x + dx, params.y + dy, params.x + dx + params.width, params.y + dy + params.height)
         if (within != null && !moved.intersect(within)) return hide()
         params.x = moved.left
@@ -919,6 +995,10 @@ private class Cover(
 
     fun hide(fade: Boolean = false) {
         if (!added) return
+        if (touching) {
+            pending = { hide(fade) }
+            return
+        }
         added = false
         owner = null
         val remove = { try { windows.removeViewImmediate(view) } catch (_: RuntimeException) { } }
