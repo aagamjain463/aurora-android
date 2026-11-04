@@ -2,6 +2,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { housekeeping } from '../src/worker.js'
+import { readFileSync } from 'node:fs'
 import { derToRaw } from '../src/device.js'
 import { IDS, activeSub, deviceKey, idToken, signedCall, world } from './fixture.js'
 
@@ -407,4 +408,70 @@ test('nobody can use up another phone\'s request budget by naming its id', async
   for (let i = 0; i < 31; i++) await reserve(w, `mallory${i}`, 5, { installId: 'victims-phone' })
   const body = { installId: 'victims-phone', idempotencyKey: 'v', commitmentId: 'v', mode: 'always_block', minutes: 5, zone: UTC }
   assert.equal((await signedCall(w, victim, '/v1/quota/reserve', idToken('victim'), body)).body.allowed, true)
+})
+
+// ---- Found in review (2026-11-04) ------------------------------------------------------------------------------
+
+const release = (w, uid, reservationId) => w.call('/v1/quota/release', idToken(uid), { reservationId })
+const reservationOf = (res) => JSON.parse(res.body.authorization.payload).reservationId
+
+test('a schedule paused and turned back on is charged again: a released key never replays for free', async () => {
+  const w = world()
+  // The app's key for a recurring occurrence is fixed ("rec:<schedule>:<start>"), so the same key comes back.
+  const occurrence = { idempotencyKey: 'rec:s1:1', startAt: after(60) }
+  const first = await reserve(w, 'a', 100, occurrence)
+  assert.equal((await release(w, 'a', reservationOf(first))).body.released, true)
+  assert.equal(await remaining(w, 'a'), 120 * MIN, 'given back')
+  const again = await reserve(w, 'a', 100, occurrence)
+  assert.equal(again.body.allowed, true)
+  assert.notEqual(again.body.replayed, true)
+  assert.notEqual(reservationOf(again), reservationOf(first))
+  assert.equal(await remaining(w, 'a'), 20 * MIN, 'charged again')
+  // Paused and resumed once more: still one live reservation, never more time than the allowance.
+  await release(w, 'a', reservationOf(again))
+  assert.equal((await reserve(w, 'a', 100, occurrence)).body.allowed, true)
+  assert.equal((await reserve(w, 'a', 21, { startAt: after(200) })).body.allowed, false)
+})
+
+test('keys released before the fix are freed by migration 0003', async () => {
+  const w = world()
+  const first = await reserve(w, 'a', 100, { idempotencyKey: 'rec:s1:2', startAt: after(60) })
+  // As the previous worker released it: status only, key kept.
+  w.DB.db.prepare("UPDATE quota_reservations SET status = 'released' WHERE id = ?").run(reservationOf(first))
+  w.DB.db.exec(readFileSync(new URL('../migrations/0003_released_keys.sql', import.meta.url), 'utf8'))
+  const again = await reserve(w, 'a', 100, { idempotencyKey: 'rec:s1:2', startAt: after(60) })
+  assert.notEqual(again.body.replayed, true)
+  assert.equal(await remaining(w, 'a'), 20 * MIN)
+})
+
+test('one installation can\'t borrow another\'s reservation by reusing its key', async () => {
+  const w = world()
+  await reserve(w, 'a', 100, { installId: 'p1', idempotencyKey: 'k' })
+  const borrowed = await reserve(w, 'a', 100, { installId: 'p2', idempotencyKey: 'k' })
+  assert.equal(borrowed.status, 409)
+  assert.equal(borrowed.body.error, 'idempotency_conflict')
+  assert.equal(w.DB.rows("SELECT * FROM quota_reservations WHERE installation_id = 'p2'").length, 0)
+})
+
+test('a failed verdict isn\'t washed away by a new install id on the same account, and a genuine one clears it', async () => {
+  const w = world()
+  w.env.INTEGRITY = 'enforce'
+  await attested(w, deviceKey(), 'a', (n) => verdict(n, { appIntegrity: { appRecognitionVerdict: 'UNRECOGNIZED_VERSION' } }))
+  // Start over as a fresh installation: unsigned, or with a new key.
+  assert.equal((await reserve(w, 'a', 10, { installId: 'fresh-unsigned' })).body.error, 'integrity_failed')
+  const fresh = deviceKey()
+  const body = { installId: 'fresh', idempotencyKey: 'f', commitmentId: 'f', mode: 'always_block', minutes: 10, zone: UTC }
+  const synced = await signedCall(w, fresh, '/v1/account/sync', idToken('a'), { installId: 'fresh', zone: UTC })
+  assert.equal((await signedCall(w, fresh, '/v1/quota/reserve', idToken('a'), body)).body.error, 'integrity_failed')
+  // Other accounts, and the same account outside enforce, are untouched.
+  assert.equal((await reserve(w, 'b', 10, { installId: 'elsewhere' })).body.allowed, true)
+  w.env.INTEGRITY = 'observe'
+  assert.equal((await reserve(w, 'a', 10, { installId: 'fresh-unsigned' })).body.allowed, true)
+  w.env.INTEGRITY = 'enforce'
+  // This installation's own genuine verdict clears it, as does a week passing.
+  w.state.verdict = () => verdict(synced.body.device.attestNonce)
+  assert.equal((await signedCall(w, fresh, '/v1/device/attest', idToken('a'), { installId: 'fresh', token: 't' })).body.integrity, 'ok')
+  assert.equal((await signedCall(w, fresh, '/v1/quota/reserve', idToken('a'), body)).body.allowed, true)
+  w.DB.db.prepare("UPDATE devices SET integrity_at = integrity_at - 8 * 86400000 WHERE id = 'phone'").run()
+  assert.equal((await reserve(w, 'a', 10, { installId: 'fresh-unsigned', startAt: after(30) })).body.allowed, true)
 })

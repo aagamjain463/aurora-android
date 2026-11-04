@@ -9,7 +9,8 @@ PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
 FIREBASE_PROJECT_ID = "aurora-24aa9"
 ENVIRONMENT = "production"
 # Anti-abuse rollout (docs/ANTI_ABUSE.md, section 9). DEVICE_QUOTA: off, shadow (record only) or enforce.
-# INTEGRITY: off, observe or enforce. APP_CERT_SHA256: Play's app signing certificate digest(s), comma-separated.
+# INTEGRITY: off, observe or enforce. APP_CERT_SHA256: Play's app signing certificate digest(s), comma-separated, in the
+# base64url form verdicts report (not Play Console's colon hex; docs/ANTI_ABUSE_STAGING_TESTS.md, T5).
 DEVICE_QUOTA = "shadow"
 INTEGRITY = "off"
 APP_CERT_SHA256 = ""

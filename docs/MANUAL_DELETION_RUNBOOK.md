@@ -29,7 +29,7 @@ cd server
 # Find the account (D1 database "aurora", schema in migrations/):
 npx wrangler d1 execute aurora --remote --command="SELECT id, firebase_uid, status FROM accounts WHERE email = 'user@example.com';"
 
-# Standard: start the 7-day grace period, exactly as Settings does.
+# Standard: start the 30-day grace period, exactly as Settings does.
 npx wrangler d1 execute aurora --remote --command="
   UPDATE accounts SET status = 'deletion_requested', deletion_requested_at = COALESCE(deletion_requested_at, unixepoch('now') * 1000)
   WHERE id = '<account id>';"

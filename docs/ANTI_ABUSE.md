@@ -83,8 +83,12 @@ D1 runs a batch as one SQL transaction on a single primary that serialises write
 atomic across Worker instances and isolates (no in-memory lock is assumed anywhere). If anything wrote to either
 ledger after the read, the insert is a no-op and the request retries (6 attempts, then `503 try_again`). The
 idempotency key (`UNIQUE (account_id, idempotency_key)`, the app sends its commitment id) makes retries and
-duplicate requests return the first reservation. Tests: six accounts racing on one phone, six phones racing on one
-account, duplicate keys racing.
+duplicate requests return the first reservation, but only to the installation that made it (another installation
+reusing the key gets `409 idempotency_conflict`). Releasing a reservation that hasn't begun frees its key: the app's
+key for a recurring occurrence is fixed (`rec:<schedule>:<start>`), so a schedule paused and turned back on asks
+with the same key and is charged again instead of replaying the released authorization for free. Migration
+`0003_released_keys.sql` frees the keys of reservations released before this. Tests: six accounts racing on one
+phone, six phones racing on one account, duplicate keys racing, release then re-reserve, key reuse across phones.
 
 ### Signed, time-limited authorizations; offline
 
@@ -132,7 +136,10 @@ modified build (section 4); nothing can stop one from enforcing whatever it want
   bootloader), `failed` (an unrecognised build, or a device failing even basic integrity), `unknown` (never
   checked: no Play services, no cloud project in the build, Google unreachable).
 - Response: with `INTEGRITY=enforce`, only `failed` holds back new **Free** reservations (`403 integrity_failed`).
-  `unknown` and `basic` never refuse anything, Plus is never refused, and running commitments are never touched.
+  `basic` never refuses anything, Plus is never refused, and running commitments are never touched. `unknown` is
+  refused in one case only: another installation of the same account was judged `failed` in the last 7 days. So a
+  failed build can't start over with a new install id (or stop signing) to shed its verdict. This installation's
+  own `ok` or `basic` verdict clears it at once; otherwise it lapses after 7 days.
   Recovery: install Aurora from Play; a failed device is offered a new check at every sync and a genuine verdict
   clears it at once.
 - Development builds set no `aurora.playCloudProjectNumber`, so they never ask and are never judged.
@@ -151,7 +158,7 @@ signal for `abuse_events`, never as an identifier and never stored beyond the de
 |---|---|---|---|
 | Logout, login, switch between accounts | Kept | Kept (same id) | Carried commitments hold slots |
 | Many accounts on one phone | Each its own | **Shared**; a 4th+ account on one id in 30 days is logged (`many_accounts`), never refused | Same |
-| Account deleted, new account, same phone | New account is fresh | **Kept**: during the 7-day grace the old reservations stay; at purge the last 3 days move to `device_usage`, with no account | Carried as above |
+| Account deleted, new account, same phone | New account is fresh | **Kept**: during the 30-day grace the old reservations stay; at purge the last 3 days move to `device_usage`, with no account | Carried as above |
 | Clear data, reinstall, factory reset | Kept if the same account signs in | **New** (new id and key). Not detectable without Device Recall | Local state is gone |
 | Backup and restore, new phone | Kept | New (id and key are never backed up) | Restored rules count as usual |
 | Lost key, id taken by someone else | Kept | New installation (section 1) | — |
@@ -178,6 +185,8 @@ a modified client can protect as much as it likes on its own phone.
     furthest the quota ever looks back.
   - `abuse_events` (kind, installation id, account id): deleted after 30 days, and with the account.
   - `quota_reservations`: 35 days, as before; cascades with the account.
+  - These run on their own clocks. The 30-day account deletion grace period only decides when the account (and with
+    it its reservations, installations and `abuse_events`) is purged; it never extends any of the limits above.
 - **Justification**: the device ledger exists only to stop the deletion-and-recreation loophole on one phone, holds
   no personal data beyond a random id and time intervals, and expires before it could describe anyone's habits.
 - **False positives and appeal**: nothing here bans an account. A device refused for its key recovers by itself as
@@ -198,7 +207,28 @@ a modified client can protect as much as it likes on its own phone.
 | Spend or poison someone else's installation ledger | Closed once that id is bound to a key; before then, needs the victim's random id |
 | Change the phone's clock or time zone | Closed on the server; the app's own clock policy is in `CommittedQuota.kt` |
 | Reinstall or clear data, then a new account | **Open.** Each costs a reinstall and a new verified email. Only Device Recall could notice it. |
-| Modified client: count targets wrongly, invent ids, skip proofs | **Open** for local enforcement; server limits still hold per id and per account. Integrity `enforce` refuses Free reservations from builds Play identifies as modified, but a client can decline to attest (`unknown` is never refused, so that de-Googled phones keep working). |
+| Modified client: count targets wrongly, invent ids, skip proofs | **Open** for local enforcement; server limits still hold per id and per account. See "How a modified app skips Play Integrity" below. |
+| Pause and resume a schedule to get its reservation back for free | Closed (a release frees the key; the next ask is charged) |
+| Reuse another installation's idempotency key to borrow its authorization | Closed (`409 idempotency_conflict`) |
+
+### How a modified app skips Play Integrity
+
+Play Integrity here is a risk signal, not a gate, because Free must keep working on phones without Play services
+and on development builds. A modified client can therefore:
+
+1. **Never attest.** It ignores `device.attestNonce`; its installation stays `unknown`, which is not refused.
+2. **Never sign.** Unsigned (unproved) installations are never offered a nonce, so they are never judged.
+3. **Sign with its own software key.** The server checks possession of the bound key, not that the key lives in
+   the Keystore (no key attestation), so a client can mint ids and keys freely. Each new id is a fresh device
+   ledger; the account ledger still holds.
+4. **Shed a failed verdict by starting over as a new id.** *Closed for the same account*: in `enforce`, an
+   unjudged installation of an account that failed in the last 7 days is held back until it earns its own verdict.
+
+Server-side options not taken, and why: requiring a verdict (or a proof) for every Free reservation would block
+de-Googled phones, broken Keystores and old app versions, and still not stop items 1 to 3 with a new account.
+Android key attestation (verifying the Keystore certificate chain, which names the signing app) would close item 3
+for proved installations, but needs X.509 parsing in a dependency-free Worker and a policy for phones without it.
+Revisit if `abuse_events` shows farms of fresh installations.
 | Stolen Firebase token without the device key | Limited to unproved installations, or to a new id (its own fresh ledger, the victim's account ledger) |
 | Emulator farms | Integrity marks them `failed` or `basic`; `enforce` holds `failed` back from Free |
 
@@ -207,7 +237,7 @@ a modified client can protect as much as it likes on its own phone.
 Flags are Worker vars (`server/wrangler.toml`). The schema change is additive; the previous Worker ignores it.
 
 1. **Schema and observability.** `wrangler d1 migrations apply aurora --remote` (0002 backfills a device row for
-   every known installation, unproved). Deploy with `DEVICE_QUOTA = "shadow"`, `INTEGRITY = "off"`. Watch
+   every known installation, unproved; 0003 frees the keys of already-released reservations). Deploy with `DEVICE_QUOTA = "shadow"`, `INTEGRITY = "off"`. Watch
    `SELECT kind, COUNT(*) FROM abuse_events GROUP BY kind` for a week: `device_quota_shadow` is what enforcement
    would refuse.
 2. **Dual quota.** `DEVICE_QUOTA = "enforce"`. Existing reservations already name their installation, so the
@@ -215,7 +245,7 @@ Flags are Worker vars (`server/wrangler.toml`). The schema change is additive; t
 3. **Android device credentials and switching protection.** Ship the app build. Its first sync binds each key.
    Watch `device_proof_failed`: legitimate ones are Keystore failures, which recover as new installations.
 4. **Play Integrity.** Link the Cloud project in Play Console, set `aurora.playCloudProjectNumber` for release
-   builds, grant the service account Play Integrity access, set `APP_CERT_SHA256`, then `INTEGRITY = "observe"`.
+   builds, grant the service account Play Integrity access, set `APP_CERT_SHA256` (base64url, see `docs/ANTI_ABUSE_STAGING_TESTS.md` T5), then `INTEGRITY = "observe"`.
    After a few weeks of verdicts, `enforce`.
 5. **Device Recall**, only once access is approved (section 5).
 6. **Hardening.** Review rate limits against real traffic; alert on `abuse_events` spikes; keep the retention
@@ -228,4 +258,4 @@ enforcement stay valid either way.
 
 Not production-ready until stages 1 to 3 have run on staging with real Keystore keys and real D1, and the full
 server and Android suites pass there; the automated tests here use a SQLite stand-in for D1 and Robolectric
-without a Keystore.
+without a Keystore. The steps are in `docs/ANTI_ABUSE_STAGING_TESTS.md`.

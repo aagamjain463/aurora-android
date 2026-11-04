@@ -70,14 +70,9 @@
     <string name="end_session_cooldown_note">Leaving this screen restarts the wait.</string>
     <string name="end_session_intention_prompt">Why do you want to end this session?</string>
     <string name="end_session_confirm">End session</string>
-    <string name="shield_cooldown_title">Wait before opening %1$s.</string>
-    <string name="shield_cooldown_body">Stay with the wait. When it ends, you choose how long to use the app.</string>
     <string name="shield_restart_note">Each new attempt restarts your wait.</string>
     <string name="shield_cooldown_ready_at">Ready at %1$s</string>
     <string name="shield_cooldown_done_title">Your wait is over.</string>
-    <string name="shield_cooldown_done_body">You can open the app now, for as long as you choose.</string>
-    <string name="shield_friction_title">One task first.</string>
-    <string name="shield_friction_done_title">Done.</string>
 
     <!-- Timed access after Friction, Cooldown or Intent -->
     <string name="usage_prompt">How long do you want to use %1$s?</string>
@@ -101,7 +96,6 @@
     <string name="friction_math_answer">Your answer</string>
     <string name="friction_math_check">Check answer</string>
     <string name="friction_math_wrong">Not quite. Here\'s a new one.</string>
-    <string name="friction_intention_prompt">Why are you opening %1$s?</string>
     <string name="friction_intention_placeholder">I want to…</string>
     <string name="friction_intention_next">Continue</string>
     <string name="friction_intention_readback">You wrote</string>
@@ -915,7 +909,7 @@
     <string name="account_sign_out_body">You\'ll need to sign in to use Aurora again. Sessions already running keep running until they end. Your data stays on this phone for when you\'re back.</string>
     <string name="account_delete">Delete account</string>
     <string name="account_delete_title">Delete your Aurora account?</string>
-    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 7 days from now. Sign in before then to change your mind.\n\nThis phone\'s Goals, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Google Play keeps billing until you cancel there.</string>
+    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 30 days from now. Sign in before then to change your mind.\n\nThis phone\'s Goals, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Google Play keeps billing until you cancel there.</string>
     <string name="account_delete_manage">Manage subscription in Google Play</string>
     <string name="account_delete_confirm">Delete my account</string>
     <string name="account_reauth_title">Confirm it\'s you</string>
@@ -998,7 +992,7 @@
     <string name="diag_events">Sees apps opening</string>
     <string name="diag_watched">Spots your protected apps</string>
     <string name="diag_shown">Shield steps in</string>
-    <string name="diag_shown_refused">%1$d · %2$d refused</string>
+    <string name="diag_shown_refused" tools:ignore="PluralsCandidate">%1$d · %2$d refused</string>
     <string name="diag_ok">Every step is working.</string>
     <string name="diag_waiting">Open a protected app to finish the check.</string>
     <string name="diag_broken">Shield stops at “%1$s”.</string>

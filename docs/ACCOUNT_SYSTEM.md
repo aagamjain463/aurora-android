@@ -148,7 +148,7 @@ Aurora is built on privacy. The following table provides the exhaustive breakdow
 | User ID (Firebase UID) | Yes | Account authentication & profile lookup | Retained until account deleted |
 | Email Address | Yes (via Auth) | Account verification & email link sign-in | Retained until account deleted |
 | Installation ID (UUID) | Yes | Binding authorizations & device seats (max 5) | Retained until device removed |
-| Commitment Window (Start, End, Zone) | Yes (Free tier) | Verifying the 120-minute daily strict quota | Retained 7 days in ledger |
+| Commitment Window (Start, End, Zone) | Yes (Free tier) | Verifying the 120-minute daily strict quota | 35 days in the ledger, or until the account is purged; the last 3 days stay with the installation, with no account (`docs/ANTI_ABUSE.md`) |
 | Purchase Token | Yes (Plus tier) | Verifying Google Play subscription status | Retained while active |
 | App Package Names (e.g. `com.instagram.android`) | **NEVER** | None. Enforcement is 100% on-device. | Kept locally only |
 | Protected Websites & URLs | **NEVER** | None. Evaluated locally in accessibility service. | Kept locally only |

@@ -9,7 +9,7 @@
 // INTEGRITY (off, observe, enforce; default off), APP_CERT_SHA256 (Play's app signing certificate digests).
 
 import { AuthError, bearer, verifyIdToken } from './auth.js'
-import { attestNonce, deviceOf, judgeIntegrity } from './device.js'
+import { ATTEST_EVERY_MS, attestNonce, deviceOf, judgeIntegrity } from './device.js'
 import { fits, quotaZone, statusOf, validZone } from './quota.js'
 
 const PLAY = 'https://androidpublisher.googleapis.com/androidpublisher/v3'
@@ -17,7 +17,8 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const IDENTITY = 'https://identitytoolkit.googleapis.com/v1/projects'
 const PLUS_SEATS = 5
 const FRESH_AUTH_S = 10 * 60
-const DELETION_GRACE_MS = 7 * 86_400_000
+// The same 30 days the privacy policy, the deletion page and the app promise.
+export const DELETION_GRACE_MS = 30 * 86_400_000
 const TRANSFER_COOLDOWN_MS = 30 * 86_400_000
 const LOOK_AHEAD_MS = 12 * 3_600_000
 const LEDGER_LOOKBACK_MS = 3 * 86_400_000
@@ -235,6 +236,11 @@ async function deviceLedgerOf(env, installId, now) {
 
 const deviceQuota = (env) => env.DEVICE_QUOTA ?? 'enforce'
 
+/** Whether any installation this account has used was judged a modified build or a failing device this week. */
+const failedRecently = async (env, account, now) => Boolean(await env.DB.prepare(
+  "SELECT 1 FROM installations i JOIN devices d ON d.id = i.id WHERE i.account_id = ? AND d.integrity = 'failed' AND d.integrity_at > ? LIMIT 1",
+).bind(account.id, now - ATTEST_EVERY_MS).first())
+
 /** Today's allowance as the person can use it: the account's or the installation's, whichever has less left. */
 async function quotaFor(env, account, installId, now, zone) {
   const ledger = await ledgerOf(env, account, now)
@@ -421,8 +427,10 @@ async function reserve(request, env, fetcher) {
   if (await hasPlus(env, account, installId, now)) return json(200, { allowed: true, tier: 'plus', authorization: await authorization(null, start, end, 'plus', {}) })
 
   // Risk-based: only a verdict that this is a modified Aurora or a failing device holds Free back, and only when
-  // enforcing. No verdict at all (no Play services, a development build) is never a reason to refuse.
-  if (here.integrity === 'failed' && env.INTEGRITY === 'enforce') {
+  // enforcing. No verdict at all (no Play services, a development build) is never a reason to refuse, except right
+  // after a failure on this account: a new install id (or none signed at all) mustn't wash a failed verdict away.
+  // This installation's own verdict, 'ok' or 'basic', clears it at once.
+  if (env.INTEGRITY === 'enforce' && (here.integrity === 'failed' || (here.integrity === 'unknown' && (await failedRecently(env, account, now))))) {
     await audit(env, 'integrity_refused', installId, account.id)
     return json(403, { error: 'integrity_failed' })
   }
@@ -444,6 +452,8 @@ async function reserve(request, env, fetcher) {
       const onDevice = { ...statusOf([...machine, ...extra], at, deviceDay), limitedBy: 'device' }
       return onDevice.remainingMs < own.remainingMs ? onDevice : own
     }
+    // A key names one commitment on one installation. Another installation can't borrow its authorization.
+    if (existing && existing.installation_id !== installId) return json(409, { error: 'idempotency_conflict' })
     if (existing) {
       return json(200, { allowed: true, tier: 'free', replayed: true, authorization: await authorization(existing.id, existing.start_at, existing.end_at, 'free', status(now)) })
     }
@@ -472,7 +482,11 @@ async function reserve(request, env, fetcher) {
   return json(503, { error: 'try_again' })
 }
 
-/** Gives back a reservation that never began: a schedule removed in time. Anything started is spent. */
+/**
+ * Gives back a reservation that never began: a schedule removed in time. Anything started is spent. Its key is
+ * freed, so asking again for the same occurrence (a schedule paused and turned back on) is charged again rather
+ * than replaying an authorization whose time was given back.
+ */
 async function release(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher)
   const { reservationId } = await body(request)
@@ -483,7 +497,7 @@ async function release(request, env, fetcher) {
   if (!row) return json(404, { error: 'not_found' })
   if (row.start_at <= now) return json(409, { error: 'already_started' })
   await env.DB.batch([
-    env.DB.prepare("UPDATE quota_reservations SET status = 'released' WHERE id = ? AND account_id = ? AND start_at > ?").bind(reservationId, account.id, now),
+    env.DB.prepare("UPDATE quota_reservations SET status = 'released', idempotency_key = idempotency_key || ':released:' || id WHERE id = ? AND account_id = ? AND start_at > ? AND status <> 'released'").bind(reservationId, account.id, now),
     env.DB.prepare('UPDATE accounts SET quota_revision = quota_revision + 1 WHERE id = ?').bind(account.id),
     env.DB.prepare('UPDATE devices SET quota_revision = quota_revision + 1 WHERE id = ?').bind(row.installation_id),
   ])
