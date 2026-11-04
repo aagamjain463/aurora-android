@@ -84,6 +84,14 @@ fun channelsNamed(texts: List<String>): List<String> = texts.mapNotNull { text -
     }
 }
 
+/**
+ * The open video's channel from what YouTube shows around it ([channelsNamed]): its channel row's own words (the
+ * Subscribe button, the subscriber count) when they show, an @handle only when nothing else does. A lone @handle can
+ * be a commenter's.
+ */
+fun videoChannels(texts: List<String>): List<String> =
+    channelsNamed(texts.filterNot { it.trim().startsWith("@") }).ifEmpty { channelsNamed(texts) }
+
 /** How a video card's label ends in YouTube's lists (YouTube 21.41, English). */
 const val PlayVideo = " – play video"
 const val PlayShort = " – play Short"
@@ -91,8 +99,17 @@ const val PlayShort = " – play Short"
 /** A playlist in YouTube's lists: "<title> - <channel> - 24 videos". It plays its first video when tapped. */
 private val PlaylistCount = Regex(" - [\\d,.]+\\s*(?:K|lakh|crore)? videos?$")
 
-/** Whether [label] is a card in YouTube's lists that opens a video when tapped (a video, a Short, a playlist). */
-fun isVideoCard(label: String): Boolean = label.endsWith(PlayVideo) || label.endsWith(PlayShort) || PlaylistCount.containsMatchIn(label)
+/** How a card's label ends, in a list (" – play video") or in the player when a video ends (" - Play video"). */
+private val PlayEnding = Regex("\\s[–-]\\s+play (?:video|Short)$", RegexOption.IGNORE_CASE)
+
+/** The player's suggestion when a video ends: "Suggested video - <title> - <length> - <channel> - Play video". */
+private const val Suggested = "Suggested video - "
+
+/**
+ * Whether [label] is a card that opens a video when tapped (a video, a Short, a playlist, the player's suggestion
+ * when a video ends). The player's own "Play video" button isn't one.
+ */
+fun isVideoCard(label: String): Boolean = PlayEnding.containsMatchIn(label) || PlaylistCount.containsMatchIn(label)
 
 /**
  * The channel a page section names for the cards under it that don't name one themselves: a shelf ("Latest from
@@ -121,6 +138,7 @@ fun cardChannel(label: String): String? {
         // After "Go to channel" the name comes twice, up to the view count: "X – X - 18 lakh views". A name can hold
         // a dash itself ("Ali Abdaal – Lifestyle Business Academy"), so all of it is kept: matching is by whole name.
         " – Go to channel " in t -> t.substringAfter(" – Go to channel ").substringBefore(" - ")
+        t.startsWith(Suggested) -> t.replace(PlayEnding, "").split(" - ").takeIf { it.size >= 4 }?.last()
         t.endsWith(PlayVideo) -> t.removeSuffix(PlayVideo).split(" – ").takeIf { it.size >= 3 }?.last()?.substringBefore(" - ")
         PlaylistCount.containsMatchIn(t) -> t.replace(PlaylistCount, "").split(" - ").takeIf { it.size >= 2 }?.last()
         t.endsWith(PlayShort) -> {

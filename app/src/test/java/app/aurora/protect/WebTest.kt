@@ -161,6 +161,11 @@ class WebTest {
         // A channel's own shelf names no channel: left to the check when it opens.
         assertNull(cardChannel("SPIDERMAN BACKFLIP RACE!, 33 lakh views – play Short"))
         assertNull(cardChannel("Play video"))
+        assertFalse(isVideoCard("Play video"))
+        // The player's suggestion when a video ends (YouTube 21.41).
+        val suggested = "Suggested video - IShowSpeed Best Clips With Celebrities Compilation - 11 minutes, 53 seconds - NeverMissClip - Play video"
+        assertTrue(isVideoCard(suggested))
+        assertEquals("NeverMissClip", cardChannel(suggested))
     }
 
     @Test fun videoPageNamesItsChannel() {
@@ -175,6 +180,12 @@ class WebTest {
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = watch, texts = listOf("IShowSpeed, verified 3.9 crore subscribers", "Subscribe to IShowSpeed."))))
         // A title that mentions the chosen channel doesn't make another channel's video its.
         assertEquals(YouTubeVerdict.NotFromChannel(key, R.string.part_no_video), v(YouTubeScreen(watch = watch, texts = listOf("I met @IShowSpeed in Tokyo", "Subscribe to Other."))))
+    }
+
+    /** From a real phone (YouTube 21.41): a commenter's @handle under a video never names its channel. */
+    @Test fun theChannelRowOutranksACommentersHandle() {
+        assertEquals(listOf("IShowSpeed"), videoChannels(listOf("@IShowSpeed  ", "IShowSpeed 6.22 crore subscribers", "@HeisenbergFam", "Speed's character development is actually admirable")))
+        assertEquals(listOf("@IShowSpeed"), videoChannels(listOf("@IShowSpeed")))
     }
 
     /** From a real phone (YouTube 21.41): shelves and channel pages name the channel above their cards. */
