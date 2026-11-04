@@ -1,7 +1,10 @@
 package app.aurora.protect
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -10,34 +13,18 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.TextView
 import androidx.annotation.StringRes
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import app.aurora.AuroraApplication
 import app.aurora.R
-import app.aurora.ui.theme.AuroraTheme
-import app.aurora.ui.theme.AuroraType
-import app.aurora.ui.theme.Space
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.math.abs
 
 /**
  * The optional Web & content Shield (res/xml/content_service.xml). Separate from [ShieldService], so the
@@ -63,24 +50,32 @@ class ContentService : AccessibilityService() {
     private var shownOver: String? = null
     /** Whether leaving the Shield now showing goes back inside the app (a held-back screen) or just closes it (a cover). */
     private var leaveBack = true
-    private var cover: Cover? = null
-    /** Over a held-back tab button (Instagram's Reels, YouTube's Shorts), so the tab is simply not there. */
-    private var tabCover: Cover? = null
+    /** Blanks over held-back parts of a screen (Home's feed, the suggestions under a video, a profile's grid). */
+    private val covers = mutableListOf<Cover>()
+    /** Lets taps through and swallows swipes up and down, so a list can't bring anything new into view. */
+    private var gate: Gate? = null
+    /**
+     * Clear covers over held-back buttons (Instagram's Reels and Search tabs and its share buttons, YouTube's
+     * Shorts tab). The button stays in sight; a tap on it opens nothing and only says why.
+     */
+    private val buttonCovers = mutableListOf<Cover>()
+    /** A story was just tapped: until it opens (or this time passes), no cover sits over it. */
+    private var storyOpeningUntil = 0L
+    /** On a post opened from a chat: where the next post (more from that profile) last was, null before it shows. */
+    private var nextPostTop: Int? = null
     /** A plain veil over the whole app while a held-back screen is left, so it's never seen going. */
     private var veil: Cover? = null
     private var veilAt = 0L
     private val liftVeil = Runnable { veil?.hide(fade = true) }
     /** When Aurora last stopped YouTube from playing its suggested next video. */
     private var lastAutoplayStop = 0L
-    /** Instagram's share and forward buttons, under "only messages and stories": one cover each. */
-    private val shareCovers = mutableListOf<Cover>()
     /** Whether the person reached the post on screen from a chat ([InstagramScreen.fromChat]). */
     private var fromChat = false
-    private val onCoverTap = { key: String, decision: Decision.Shield, owner: String ->
+    private val onCoverTap = { key: String, decision: Decision.Shield, owner: String, says: Int ->
         lastKey = null
         // A tap only leads anywhere when the Shield itself can: Intent's deliberate decision.
         if (decision.reason.canContinue) present(key, decision, owner, SystemClock.uptimeMillis(), back = false)
-        else say(coverSays(key))
+        else say(if (says != 0) says else coverSays(key))
     }
     /** When YouTube started showing a video from a channel that isn't chosen, 0 when it isn't. */
     private var otherChannelSince = 0L
@@ -96,18 +91,56 @@ class ContentService : AccessibilityService() {
     /** An app's events stop when the person leaves it, so the cover watches for that itself. */
     private val watchCover = object : Runnable {
         override fun run() {
-            if (listOfNotNull(cover, tabCover).none { it.showing }) return
-            val root = rootInActiveWindow
-            val app = application as AuroraApplication
-            when (root?.packageName?.toString()) {
-                Instagram -> checkInstagram(app, root, SystemClock.uptimeMillis())
-                YouTube -> checkYouTube(app, root, SystemClock.uptimeMillis())
-                packageName -> Unit // The person is touching the cover itself.
-                else -> hideCovers()
-            }
+            if (!anyCover()) return
+            requestLook()
             handler.removeCallbacks(this)
-            if (listOfNotNull(cover, tabCover).any { it.showing }) handler.postDelayed(this, CheckEveryMs)
+            handler.postDelayed(this, CheckEveryMs)
         }
+    }
+
+    /**
+     * Reading Instagram or YouTube takes many calls into the app (a third of a second on a mid-range phone), so it
+     * happens here, off the main thread: the main thread only moves windows, and a blank is drawn the moment it's
+     * asked for. Looks are coalesced: only the latest waiting one runs.
+     */
+    private val worker = Handler(android.os.HandlerThread("aurora-look").apply { start() }.looper)
+    private var lookTries = 0
+    /** The app last seen in front, on [worker]. */
+    private var front: String? = null
+    /** Instagram just came to the front: until it shows which screen it's on, it stays blank (at most [OpeningMs]). */
+    private var igOpeningUntil = 0L
+    private val look = Runnable { lookNow() }
+
+    /** A look at whichever app is in front, on [worker]. */
+    private fun requestLook() {
+        worker.removeCallbacks(look)
+        worker.post(look)
+    }
+
+    private fun lookNow() {
+        val root = rootInActiveWindow
+        val app = application as AuroraApplication
+        val now = SystemClock.uptimeMillis()
+        val pkg = root?.packageName?.toString()
+        if (pkg == Instagram && front != Instagram) igOpeningUntil = now + OpeningMs
+        if (pkg != null && pkg != packageName) front = pkg
+        when (pkg) {
+            Instagram -> checkInstagram(app, root, now)
+            YouTube -> checkYouTube(app, root, now)
+            packageName -> Unit // The person is touching a cover itself.
+            else -> {
+                ui { hideCovers() }
+                // An app opening sends its first events while the window in front is still the last one: look
+                // again in a moment, so a held-back part is hidden from the first frame instead of half a second in.
+                if (++lookTries < LookAgainTries) worker.postDelayed(look, LookAgainMs)
+                return
+            }
+        }
+        lookTries = 0
+    }
+
+    private fun ui(block: () -> Unit) {
+        handler.post(block)
     }
 
     /**
@@ -150,9 +183,8 @@ class ContentService : AccessibilityService() {
                 }
             }
         }
-        cover = Cover(this, onCoverTap)
-        tabCover = Cover(this, onCoverTap)
-        veil = Cover(this, { _, _, _ -> }, translucent = true)
+        gate = Gate(this)
+        veil = Cover(this, { _, _, _, _ -> }, translucent = true)
         connectedState.value = true
     }
 
@@ -168,16 +200,29 @@ class ContentService : AccessibilityService() {
             presenter?.dismiss()
             shownOver = null
         }
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName && pkg != (cover?.owner ?: tabCover?.owner)) hideCovers()
+        // Any event from another app means that app is in front: covers left from the last one go at once,
+        // so Instagram's tab catchers never sit over YouTube's tab bar.
+        if (pkg != packageName && coversOwner().let { it != null && it != pkg }) hideCovers()
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            // A story opens under the cover on Home or a profile: the cover goes at once, so the story shows
+            // the moment it opens instead of after the next look.
+            if (pkg == Instagram && event.source?.let(::inStoryTray) == true) {
+                storyOpeningUntil = now + StoryOpenMs
+                covers.forEach { it.hide() }
+            }
+            return
+        }
         // Content changes arrive in floods; one look per app every 120 ms keeps covers on what they hide.
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && now - (lastCheck[pkg] ?: 0L) < CheckEveryMs) return
         lastCheck[pkg] = now
+        if (pkg == Instagram || pkg == YouTube) {
+            lookTries = 0
+            requestLook()
+            return
+        }
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != pkg) return
-        val app = application as AuroraApplication
-        BrowserAddressBars[pkg]?.let { checkSite(app, pkg, root, it, now) }
-        if (pkg == Instagram) checkInstagram(app, root, now)
-        if (pkg == YouTube) checkYouTube(app, root, now)
+        BrowserAddressBars[pkg]?.let { checkSite(application as AuroraApplication, pkg, root, it, now) }
     }
 
     private fun checkSite(app: AuroraApplication, browser: String, root: AccessibilityNodeInfo, barId: String, now: Long) {
@@ -279,15 +324,30 @@ class ContentService : AccessibilityService() {
         }
     }
 
-    /** Keeps [tabCover] on a held-back tab button, or takes it away. */
-    private fun keepTabCover(owner: String, bounds: Rect?, key: String, decision: Decision.Shield?) {
-        if (bounds == null || bounds.isEmpty || decision == null) {
-            tabCover?.hide()
-            return
+    /** A held-back button: where it is, what holds it back, and what a tap on it says. */
+    private class Button(val bounds: Rect, val key: String, val decision: Decision.Shield, @StringRes val says: Int = 0)
+
+    /** Keeps one clear cover on each of [buttons], and takes the rest away. */
+    private fun keepButtons(owner: String, buttons: List<Button>) {
+        val shown = buttons.filterNot { it.bounds.isEmpty }
+        while (buttonCovers.size < shown.size) buttonCovers += Cover(this, onCoverTap, clear = true)
+        buttonCovers.forEachIndexed { i, c -> shown.getOrNull(i)?.let { c.show(it.bounds, owner, it.key, it.decision, it.says) } ?: c.hide() }
+        if (shown.isNotEmpty()) watchSoon()
+    }
+
+    private fun anyCover() = coversOwner() != null
+
+    /** The app the covers, catchers and gate now showing are over, null when none shows. */
+    private fun coversOwner(): String? = (covers + buttonCovers).firstOrNull { it.showing }?.owner ?: gate?.owner
+
+    /** Whether [node] is inside Instagram's row of stories or a profile's highlights. */
+    private fun inStoryTray(node: AccessibilityNodeInfo): Boolean {
+        var n: AccessibilityNodeInfo? = node
+        repeat(12) {
+            if (n?.viewIdResourceName in StoryTrayIds) return true
+            n = n?.parent ?: return false
         }
-        tabCover?.show(bounds, owner, key, decision)
-        handler.removeCallbacks(watchCover)
-        handler.postDelayed(watchCover, CheckEveryMs)
+        return false
     }
 
     /** Shows [text] in the small dark line at the foot of the screen, then takes it away. */
@@ -299,18 +359,30 @@ class ContentService : AccessibilityService() {
     }
 
     private fun hideCovers() {
-        cover?.hide()
-        tabCover?.hide()
-        shareCovers.forEach(Cover::hide)
+        covers.forEach { it.hide() }
+        buttonCovers.forEach { it.hide() }
+        gate?.hide()
     }
 
-    /** Keeps [cover] on [bounds] for [key], or takes it away. */
-    private fun keepCover(owner: String, bounds: Rect?, key: String?, decision: Decision.Shield?) {
-        if (bounds == null || key == null || decision == null) {
-            cover?.hide()
+    /** Keeps one blank on each of [areas] for [key], and takes the rest away. */
+    private fun keepCovers(owner: String, areas: List<Rect>, key: String?, decision: Decision.Shield?) {
+        val shown = if (key == null || decision == null) emptyList() else areas.filterNot(Rect::isEmpty)
+        while (covers.size < shown.size) covers += Cover(this, onCoverTap)
+        covers.forEachIndexed { i, c -> shown.getOrNull(i)?.let { c.show(it, owner, key!!, decision!!) } ?: c.hide() }
+        if (shown.isNotEmpty()) watchSoon()
+    }
+
+    /** Keeps [gate] on [bounds], or takes it away. A swipe it swallows says [says]. */
+    private fun keepGate(owner: String, bounds: Rect?, @StringRes says: Int) {
+        if (bounds == null || bounds.isEmpty) {
+            gate?.hide()
             return
         }
-        cover?.show(bounds, owner, key, decision)
+        gate?.show(bounds, owner) { say(says) }
+        watchSoon()
+    }
+
+    private fun watchSoon() {
         handler.removeCallbacks(watchCover)
         handler.postDelayed(watchCover, CheckEveryMs)
     }
@@ -319,54 +391,99 @@ class ContentService : AccessibilityService() {
         val state = app.policySnapshot(emptySet(), emptyMap())
         val shields = listOf(PartReels, PartInstagramMessages, PartInstagramFeed, PartInstagramSearch).associateWith { shieldFor(state, it) }
         val messages = shields[PartInstagramMessages]
+        val screen = readInstagram(root, legacyFeed = shields[PartInstagramFeed] != null)
+        if (screen.storyViewer) storyOpeningUntil = 0L
         val verdict = if (shields.values.any { it != null }) {
             instagramVerdict(
-                readInstagram(root),
+                screen,
                 reels = shields[PartReels] != null, messages = messages != null,
                 feed = shields[PartInstagramFeed] != null, search = shields[PartInstagramSearch] != null,
                 screenBottom = resources.displayMetrics.heightPixels,
             )
         } else InstagramVerdict.Allow
-        val c = verdict as? InstagramVerdict.Cover
-        keepCover(Instagram, c?.let { Rect(0, it.top, resources.displayMetrics.widthPixels, it.bottom) }, c?.key, c?.let { shields[it.key] })
-        // A friend's reel or post can be watched, not passed on: every share and forward button is covered.
-        val shares = if (messages != null) IgShareIds.flatMap { id -> shown(root, IgId + id) }.map(::boundsOf).filterNot(Rect::isEmpty) else emptyList()
-        while (shareCovers.size < shares.size) shareCovers += Cover(this, onCoverTap)
-        shareCovers.forEachIndexed { i, cover -> shares.getOrNull(i)?.let { cover.show(it, Instagram, PartInstagramMessages, messages!!) } ?: cover.hide() }
-        // The Reels tab isn't there: its button is covered, and a tap says why.
-        val reelsKey = if (messages != null) PartInstagramMessages else PartReels
-        val reelsTab = shields[reelsKey]?.let { shown(root, IgId + "clips_tab").firstOrNull()?.let(::boundsOf) }
-        keepTabCover(Instagram, reelsTab, reelsKey, shields[reelsKey])
-        if (verdict is InstagramVerdict.Leave) present(verdict.key, shields[verdict.key]!!, Instagram, now, says = verdict.says) else settled(now)
+        // A story being opened isn't covered while it opens.
+        val width = resources.displayMetrics.widthPixels
+        // While Instagram opens, Home's posts draw before its tab bar does: blank until the screen is known.
+        val known = screen.tab != null || screen.chat || screen.reelViewer || screen.storyViewer || screen.profileGridTop != null
+        if (known) igOpeningUntil = 0L
+        val opening = messages != null && now < igOpeningUntil && verdict == InstagramVerdict.Allow
+        val c = (verdict as? InstagramVerdict.Cover ?: if (opening) InstagramVerdict.Cover(0, screen.tabBarTop ?: resources.displayMetrics.heightPixels, PartInstagramMessages) else null)
+            ?.takeIf { now >= storyOpeningUntil }
+        // Never over the status bar: the clock and battery stay.
+        val statusBar = resources.getIdentifier("status_bar_height", "dimen", "android").takeIf { it != 0 }?.let(resources::getDimensionPixelSize) ?: 0
+        val covered = listOfNotNull(c?.let { Rect(0, maxOf(it.top, statusBar), width, it.bottom) })
+        val g = verdict as? InstagramVerdict.Gate
+        fun buttons(id: String, key: String, says: Int = 0) =
+            shields[key]?.let { d -> shown(root, IgId + id).map { Button(boundsOf(it), key, d, says) } }.orEmpty()
+        fun tab(id: String, key: String, says: Int) =
+            listOfNotNull(shields[key]?.let { d -> screen.tabBounds[id]?.let { Button(Rect(it[0], it[1], it[2], it[3]), key, d, says) } })
+        val tabKey = if (messages != null) PartInstagramMessages else PartReels
+        val searchKey = if (messages != null) PartInstagramMessages else PartInstagramSearch
+        val buttons = buildList {
+            // Home (all but messages), the Reels and Search tabs stay in sight, but a tap opens nothing: it only says why.
+            if (messages != null) addAll(tab("feed_tab", PartInstagramMessages, R.string.part_no_home))
+            addAll(tab("clips_tab", tabKey, R.string.part_no_reels))
+            addAll(tab("search_tab", searchKey, R.string.part_no_search))
+            // A friend's reel or post can be watched, not passed on: every share and forward button holds back.
+            if (messages != null && (screen.reelViewer || screen.posts)) IgShareIds.forEach { addAll(buttons(it, PartInstagramMessages)) }
+            // A profile's highlights and picture open stories.
+            if (messages != null && screen.profileGridTop != null) IgStoryIds.forEach { addAll(buttons(it, PartInstagramMessages, R.string.part_no_stories)) }
+        }
+        ui {
+            keepCovers(Instagram, covered, c?.key, c?.let { shields[it.key] })
+            keepGate(Instagram, g?.let { Rect(0, it.top, width, it.bottom) }, g?.says ?: 0)
+            keepButtons(Instagram, buttons)
+            if (verdict is InstagramVerdict.Leave) present(verdict.key, shields[verdict.key]!!, Instagram, now, says = verdict.says) else settled(now)
+        }
     }
 
-    private fun readInstagram(root: AccessibilityNodeInfo): InstagramScreen {
+    /** One look at Instagram. Each lookup is a call into Instagram, so only what this screen can need is asked. */
+    private fun readInstagram(root: AccessibilityNodeInfo, legacyFeed: Boolean): InstagramScreen {
         fun shown(id: String) = shown(root, IgId + id)
         fun bounds(id: String) = shown(id).firstOrNull()?.let(::boundsOf)
-        // Instagram marks the chosen tab on its icon, inside the tab.
-        fun selected(n: AccessibilityNodeInfo) = n.isSelected || (0 until n.childCount).any { n.getChild(it)?.isSelected == true }
-        val tab = InstagramTabs.firstOrNull { id -> shown(id).any(::selected) }
+        // The tab bar's own children are the tabs: one lookup gives which is chosen and where each is. Instagram
+        // marks the chosen tab itself, or (older versions) its icon inside.
+        val tabBar = shown("tab_bar").firstOrNull()
+        val tabs = tabBar?.let { bar -> (0 until bar.childCount).mapNotNull(bar::getChild) }.orEmpty()
+        fun idOf(n: AccessibilityNodeInfo) = n.viewIdResourceName?.removePrefix(IgId)
+        val tab = (tabs.firstOrNull { it.isSelected } ?: tabs.firstOrNull { n -> (0 until n.childCount).any { n.getChild(it)?.isSelected == true } })?.let(::idOf)
         val posts = FeedPostIds.any { shown(it).isNotEmpty() }
         val profileGrid = bounds("profile_tabs_container") ?: bounds("profile_viewpager")
+        val reelPager = bounds("clips_viewer_view_pager")
+        // A post opened from a chat has more of its profile's posts under it. The next post starts at the second
+        // post header; once that has gone off the top, every post on screen is a later one.
+        val headers = if (posts) shown("row_feed_profile_header").map { boundsOf(it).top }.sorted() else emptyList()
+        if (!posts) nextPostTop = null
+        val laterPosts = when {
+            headers.size >= 2 -> headers[1].also { nextPostTop = it }
+            nextPostTop?.let { it < resources.displayMetrics.heightPixels / 2 } == true -> 0
+            else -> null
+        }
         // Where the person came from: a post counts as sent only when they opened it from a chat. A profile
         // or comments on the way don't change that; any other screen does.
+        val chat = shown("thread_fragment_container").isNotEmpty()
         when {
-            shown("thread_fragment_container").isNotEmpty() -> fromChat = true
+            chat -> fromChat = true
             profileGrid != null || posts && tab != "feed_tab" -> Unit
             else -> fromChat = false
         }
         return InstagramScreen(
             tab = tab,
-            reelViewer = shown("clips_viewer_view_pager").isNotEmpty(),
-            sentInChat = shown("sender_username_or_fullname").isNotEmpty(),
+            chat = chat,
+            reelViewer = reelPager != null,
+            reelArea = reelPager?.let { it.top to it.bottom },
+            busy = reelPager != null && (root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.isEditable == true || IgSheetIds.any { shown(it).isNotEmpty() }),
+            sentInChat = reelPager != null && shown("sender_username_or_fullname").isNotEmpty(),
             storyViewer = shown("reel_viewer_root").isNotEmpty(),
             posts = posts,
             fromChat = fromChat,
             reelsPage = shown("clips_pivot_page_fragment").isNotEmpty(),
             profileGridTop = profileGrid?.top,
-            storiesBottom = bounds("reels_tray_container")?.bottom,
+            laterPostsTop = laterPosts,
+            storiesBottom = if (legacyFeed) bounds("reels_tray_container")?.bottom else null,
             headerBottom = bounds("action_bar_container")?.bottom,
-            tabBarTop = bounds("tab_bar")?.top,
+            tabBarTop = tabBar?.let(::boundsOf)?.top,
+            tabBounds = tabs.associate { (idOf(it) ?: "") to boundsOf(it).let { b -> listOf(b.left, b.top, b.right, b.bottom) } },
         )
     }
 
@@ -392,7 +509,7 @@ class ContentService : AccessibilityService() {
             youTubeVerdict(readYouTube(root), shorts != null, feed != null, channels, m.widthPixels, m.heightPixels)
         } else YouTubeVerdict.Allow
         val c = verdict as? YouTubeVerdict.Cover
-        keepCover(YouTube, c?.bounds?.let { (l, t, r, b) -> Rect(l, t, r, b) }, c?.key, feed)
+        fun rect(b: List<Int>) = Rect(b[0], b[1], b[2], b[3])
         // The video that ends counts down to a suggested one: stop it, so a recommendation never plays itself.
         if (feed != null && now - lastAutoplayStop > RepeatMs && shownIn(root, YouTube, "info_panel").isNotEmpty()) {
             shownIn(root, YouTube, "cancel_button").firstOrNull()?.let {
@@ -400,28 +517,29 @@ class ContentService : AccessibilityService() {
                 it.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
         }
-        // The Shorts tab isn't there: its button is covered. Found by its name, so a YouTube in another language
+        // The Shorts tab stays in sight, but a tap opens nothing: it only says why. Found by its name, so a YouTube in another language
         // keeps the button and leaves the tab once it opens.
         val tabShield = shorts ?: feed
         val shortsTab = tabShield?.let {
-            shownIn(root, YouTube, "pivot_bar").firstOrNull()?.let { p ->
-                (0 until p.childCount).mapNotNull(p::getChild).firstOrNull { tab -> nodes(tab).any { textOf(it).equals("Shorts", ignoreCase = true) } }
-            }?.let(::boundsOf)
+            shownIn(root, YouTube, "pivot_bar").firstOrNull()?.let(::pivotTabs)?.firstOrNull { textOf(it).equals("Shorts", ignoreCase = true) }?.let(::boundsOf)
         }
-        keepTabCover(YouTube, shortsTab, if (shorts != null) PartShorts else PartYouTubeFeed, tabShield)
-        if (verdict !is YouTubeVerdict.Leave && verdict !is YouTubeVerdict.NotFromChannel) settled(now)
+        val buttons = listOfNotNull(shortsTab?.let { Button(it, if (shorts != null) PartShorts else PartYouTubeFeed, tabShield, R.string.part_no_shorts) })
         if (verdict !is YouTubeVerdict.NotFromChannel) otherChannelSince = 0L
-        when (verdict) {
-            is YouTubeVerdict.Leave -> present(verdict.key, (if (verdict.key == PartShorts) shorts else feed)!!, YouTube, now, says = verdict.says)
-            // The page may still show the last video's channel for a moment: only a settled look counts.
-            is YouTubeVerdict.NotFromChannel -> when {
-                otherChannelSince == 0L -> otherChannelSince = now
-                now - otherChannelSince >= SettleMs -> {
-                    otherChannelSince = 0L
-                    present(verdict.key, channelShields.first().second, YouTube, now, says = verdict.says)
-                }
+        // The page may still show the last video's channel for a moment: only a settled look counts.
+        val notFromChannel = verdict is YouTubeVerdict.NotFromChannel && when {
+            otherChannelSince == 0L -> { otherChannelSince = now; false }
+            now - otherChannelSince >= SettleMs -> { otherChannelSince = 0L; true }
+            else -> false
+        }
+        ui {
+            keepCovers(YouTube, c?.areas.orEmpty().map(::rect), c?.key, feed)
+            keepGate(YouTube, c?.gate?.let(::rect), R.string.yt_cover_feed)
+            keepButtons(YouTube, buttons)
+            if (verdict !is YouTubeVerdict.Leave && verdict !is YouTubeVerdict.NotFromChannel) settled(now)
+            when {
+                verdict is YouTubeVerdict.Leave -> present(verdict.key, (if (verdict.key == PartShorts) shorts else feed)!!, YouTube, now, says = verdict.says)
+                notFromChannel && verdict is YouTubeVerdict.NotFromChannel -> present(verdict.key, channelShields.first().second, YouTube, now, says = verdict.says)
             }
-            else -> Unit
         }
     }
 
@@ -450,14 +568,25 @@ class ContentService : AccessibilityService() {
             else -> emptyList()
         }
         // Home is the tab bar's first tab, Shorts its second.
-        val chosenTab = pivot?.let { p -> (0 until p.childCount).firstOrNull { p.getChild(it)?.let(::selectedWithin) == true } }
-        val home = pivot?.takeIf { chosenTab == 0 }
+        val chosenTab = pivot?.let(::pivotTabs)?.indexOfFirst(::selectedWithin)?.takeIf { it >= 0 }
+        // Home has its own row of tabs (Home, Subscriptions): only its first is the feed.
+        val topTabs = shown("tabs_bar").firstOrNull()
+        val topTab = topTabs?.let { t -> (0 until t.childCount).firstOrNull { t.getChild(it)?.let(::selectedWithin) == true } } ?: 0
+        val home = pivot?.takeIf { chosenTab == 0 && topTab == 0 }
         val searching = YtSearchIds.any { shown(it).isNotEmpty() }
         val feed = if (home != null && !searching && shortsPlayer == null) shown("results").firstOrNull()?.let(::bounds) else null
-        // Everything YouTube suggests around the open video, as YouTube itself lays it out (checked against YouTube 20.44).
+        // Under the video (beside it on a wide screen): its details, comments, then every suggestion. Checked against
+        // YouTube 21.41: the details and comments are short rows; a suggestion is a tall card, or the last row,
+        // cut off at the foot of the list.
+        val watchList = if (shortsPlayer != null || pivot != null) null else shown("watch_list").firstOrNull()
+        val listBounds = watchList?.let(::bounds)?.takeUnless(Rect::isEmpty)
+        val suggestionsTop = listBounds?.let { list ->
+            (0 until watchList!!.childCount).mapNotNull(watchList::getChild).filter { it.isVisibleToUser }.map(::bounds)
+                .firstOrNull { it.height() > list.width() / 3 || (it.bottom >= list.bottom && it.top > list.top) }?.top
+        }
+        fun ltrb(r: Rect) = listOf(r.left, r.top, r.right, r.bottom)
+        // Everything else YouTube suggests around the open video.
         val related = if (shortsPlayer != null || pivot != null) emptyList() else buildList {
-            // Under the video (beside it on a wide screen): its details, comments and every suggestion after them.
-            shown("watch_list").map(::bounds).forEach(::add)
             // The "Suggested video" that ends a video.
             if (shown("info_panel").isNotEmpty() && shown("cancel_button").isNotEmpty()) shown("watch_player").map(::bounds).forEach(::add)
             // Full screen: the row of videos that slides up from the bottom.
@@ -469,12 +598,24 @@ class ContentService : AccessibilityService() {
         return YouTubeScreen(
             shorts = shortsPlayer != null,
             shortsTab = shortsPlayer != null && chosenTab == 1,
-            homeFeed = feed?.let { it.top to minOf(it.bottom, bounds(pivot!!).top) },
+            // Down to the tab bar, or the miniplayer when a video is minimised over Home.
+            homeFeed = feed?.let { it.top to minOf(it.bottom, bounds(pivot!!).top, player?.top ?: Int.MAX_VALUE) },
+            watchList = listBounds?.let(::ltrb),
+            suggestionsTop = suggestionsTop,
+            playlistBar = listBounds?.let { shown("playlist_entry_point_container").firstOrNull()?.let(::bounds)?.let(::ltrb) },
+            panelOpen = shown("engagement_panel").isNotEmpty(),
             watch = expanded?.let { listOf(it.left, it.top, it.right, it.bottom) },
             related = related,
             texts = texts,
         )
     }
+
+    /**
+     * YouTube's tab buttons (Home, Shorts, Create, You), left to right. They sit inside a container in the tab bar,
+     * so they're found as its tappable nodes, never as its children: a child can be the whole bar.
+     */
+    private fun pivotTabs(pivot: AccessibilityNodeInfo): List<AccessibilityNodeInfo> =
+        nodes(pivot).filter { it !== pivot && it.isClickable }.sortedBy { boundsOf(it).left }
 
     private fun selectedWithin(node: AccessibilityNodeInfo): Boolean = node.isSelected || nodes(node).any { it.isSelected }
 
@@ -499,7 +640,10 @@ class ContentService : AccessibilityService() {
         handler.removeCallbacks(clearTicker)
         handler.removeCallbacks(hideNotice)
         handler.removeCallbacks(liftVeil)
+        worker.removeCallbacksAndMessages(null)
+        worker.looper.quitSafely()
         hideCovers()
+        gate = null
         veil?.hide()
         notice?.hide()
         notice = null
@@ -515,6 +659,9 @@ class ContentService : AccessibilityService() {
         private const val MinVeilMs = 250L
         private const val VeilMs = 1_200L
         private const val RepeatMs = 1_500L
+        private const val LookAgainMs = 40L
+        private const val LookAgainTries = 25
+        private const val OpeningMs = 1_500L
         private const val SettleMs = 1_000L
         private const val MaxNodes = 600
         /** How long a held-back part's line stays, how often a blocked page is checked, and how many Backs at most. */
@@ -522,7 +669,6 @@ class ContentService : AccessibilityService() {
         private const val ClearEveryMs = 600L
         private const val ClearBackMax = 6
         private const val ClearDeadlineMs = 4_000L
-        private val InstagramTabs = listOf("feed_tab", "search_tab", "clips_tab", "direct_tab", "profile_tab")
         private val FeedPostIds = listOf("row_feed_profile_header", "row_feed_photo_profile_name", "media_group")
         /** Share on a reel, share on a post, forward in a chat. Checked against Instagram 453. */
         private val IgShareIds = listOf("direct_share_button", "row_feed_button_share", "forwarding_shortcut_button")
@@ -530,35 +676,57 @@ class ContentService : AccessibilityService() {
         private val YtShortsIds = listOf("reel_player_page_container", "reel_recycler", "reel_watch_player")
         private val YtPlayerIds = listOf("watch_player", "player_view", "player_fragment_container")
         private val YtSearchIds = listOf("search_query", "search_edit_text", "search_box")
+        /** Instagram's stories row on Home and a profile's highlights. Checked against Instagram 453. */
+        private val StoryTrayIds = setOf(IgId + "reels_tray_container", IgId + "highlights_tray")
+        /** A profile's highlights and picture, which open stories. Checked against Instagram 453. */
+        private val IgStoryIds = listOf("highlights_tray", "row_profile_header_imageview_frame_layout")
+        /** Sheets Instagram opens over a reel (comments, shares). */
+        private val IgSheetIds = listOf("bottom_sheet_container", "bottom_sheet_container_view", "bottom_sheet_drag_handle", "bottom_sheet_drag_handle_frame")
+        /** How long a tapped story has to open before covers may come back over it. */
+        private const val StoryOpenMs = 1_000L
         private val connectedState = MutableStateFlow(false)
         val connected: StateFlow<Boolean> = connectedState
     }
 }
 
 /**
- * An opaque rectangle over part of an app (Instagram's posts, YouTube's recommendations), so it can't be seen
- * or touched. It never takes focus: the keyboard, back and everything outside it stay the app's.
+ * A blank over part of an app (Home's feed, the suggestions under a video, a profile's grid), painted the app's
+ * own page colour with one grey line, so the part looks gone rather than covered. It can't be seen through or
+ * touched, and never takes focus. Plain views, not Compose, so it's up in the same frame it's asked for.
  */
 private class Cover(
     private val service: AccessibilityService,
-    private val onTap: (key: String, decision: Decision.Shield, owner: String) -> Unit,
+    private val onTap: (key: String, decision: Decision.Shield, owner: String, says: Int) -> Unit,
     /** Can fade away ([hide] with fade): the veil. A cover that follows a list stays opaque. */
     translucent: Boolean = false,
+    /** Invisible: the button under it stays in sight, and only the tap is caught. */
+    private val clear: Boolean = false,
 ) {
     private val windows = service.getSystemService(WindowManager::class.java)
-    private var host: OverlayShieldPresenter.Host? = null
-    private val key = mutableStateOf("")
-    private val decision = mutableStateOf<Decision.Shield?>(null)
+    private var key = ""
+    private var decision: Decision.Shield? = null
+    @StringRes private var says = 0
+    private var added = false
     /** The app it covers part of. */
     var owner: String? = null
         private set
+    private val line = TextView(service).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        gravity = Gravity.CENTER
+        val pad = (24 * resources.displayMetrics.density).toInt()
+        setPadding(pad, 0, pad, 0)
+    }
+    private val view = android.widget.FrameLayout(service).apply {
+        if (!clear) addView(line, android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
+        setOnClickListener { decision?.let { onTap(key, it, owner ?: return@let, says) } }
+    }
     private val params = WindowManager.LayoutParams(
         0,
         0,
         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-        if (translucent) PixelFormat.TRANSLUCENT else PixelFormat.OPAQUE,
+        if (translucent || clear) PixelFormat.TRANSLUCENT else PixelFormat.OPAQUE,
     ).apply {
         gravity = Gravity.TOP or Gravity.START
         // Accessibility bounds are screen pixels: no inset or cutout may shift the cover.
@@ -569,52 +737,61 @@ private class Cover(
         title = "Aurora cover"
     }
 
-    val showing: Boolean get() = host != null
+    val showing: Boolean get() = added
 
-    fun show(bounds: Rect, owner: String, key: String, decision: Decision.Shield) {
+    fun show(bounds: Rect, owner: String, key: String, decision: Decision.Shield, @StringRes says: Int = 0) {
         this.owner = owner
-        this.key.value = key
-        this.decision.value = decision
-        val h = host
-        if (h != null && params.x == bounds.left && params.y == bounds.top && params.width == bounds.width() && params.height == bounds.height()) return
+        this.says = says
+        this.key = key
+        this.decision = decision
+        if (!clear) {
+            val dark = darkTheme(service)
+            view.setBackgroundColor(if (!dark) 0xFFFFFFFF.toInt() else if (owner == YouTube) 0xFF0F0F0F.toInt() else 0xFF000000.toInt())
+            line.setTextColor(if (dark) 0xFF9A9AA0.toInt() else 0xFF6E6E73.toInt())
+            line.setText(coverSays(key))
+            // A button-sized cover (Instagram's share) says nothing; there's no room.
+            line.visibility = if (bounds.height() < 120 * service.resources.displayMetrics.density) android.view.View.GONE else android.view.View.VISIBLE
+        }
+        if (added && params.x == bounds.left && params.y == bounds.top && params.width == bounds.width() && params.height == bounds.height()) return
         params.x = bounds.left
         params.y = bounds.top
         params.width = bounds.width()
         params.height = bounds.height()
-        if (h != null) {
-            try { windows.updateViewLayout(h.view, params) } catch (_: RuntimeException) { hide() }
-            return
-        }
-        val fresh = OverlayShieldPresenter.Host(service) {}
-        fresh.view.addView(ComposeView(service).apply { setContent {
-            val d = this@Cover.decision.value
-            val k = this@Cover.key.value
-            CoverContent(k) { d?.let { onTap(k, it, owner) } }
-        } })
         try {
-            windows.addView(fresh.view, params)
-            fresh.start()
-            host = fresh
+            if (added) windows.updateViewLayout(view, params)
+            else {
+                view.animate().cancel()
+                view.alpha = 1f
+                windows.addView(view, params)
+                added = true
+            }
         } catch (_: RuntimeException) {
             // The service was unbound or the window refused: nothing shows.
+            if (added) hide()
         }
     }
 
     fun hide(fade: Boolean = false) {
-        val h = host ?: return
-        host = null
+        if (!added) return
+        added = false
         owner = null
-        val remove = {
-            h.stop()
-            try { windows.removeViewImmediate(h.view) } catch (_: RuntimeException) { }
-        }
-        if (fade) h.view.animate().alpha(0f).setDuration(FadeMs).withEndAction { remove() }.start() else remove()
+        val remove = { try { windows.removeViewImmediate(view) } catch (_: RuntimeException) { } }
+        if (fade) view.animate().alpha(0f).setDuration(FadeMs).withEndAction { if (!added) remove() }.start() else remove()
     }
 
     private companion object {
         const val FadeMs = 220L
     }
 }
+
+/** The phone's theme, asked of the system: a service's own configuration can be stale. */
+private fun darkTheme(context: android.content.Context): Boolean =
+    when (context.getSystemService(android.app.UiModeManager::class.java)?.nightMode) {
+        android.app.UiModeManager.MODE_NIGHT_YES -> true
+        android.app.UiModeManager.MODE_NIGHT_NO -> false
+        else -> context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
 
 /**
  * What a covered part says. The same line is used for a tap's toast, so the cover and the toast never
@@ -630,27 +807,99 @@ private fun coverSays(key: String): Int = when (key) {
 }
 
 /**
- * A covered part looks like the app around it: plain white in light mode, black at night, with one grey
- * line. It never takes focus: the keyboard, back and everything outside it stay the app's.
+ * A clear window that lets taps, long presses and sideways swipes through to the app under it, and swallows
+ * swipes up and down: the list under it doesn't move at all, so nothing new comes into view. Each gesture is
+ * caught whole, then played back to the app with the window briefly untouchable.
  */
-@androidx.compose.runtime.Composable
-private fun CoverContent(key: String, onTap: () -> Unit) = AuroraTheme(reduceMotion = true) {
-    val dark = isSystemInDarkTheme()
-    // Tapping leads to Intent's deliberate decision, or says why the part is held back.
-    BoxWithConstraints(
-        Modifier.fillMaxSize().background(if (dark) Color.Black else Color.White).clickable(onClick = onTap),
-        contentAlignment = Alignment.Center,
-    ) {
-        // A button-sized cover (Instagram's share) says nothing; there's no room.
-        if (maxHeight < 120.dp) return@BoxWithConstraints
-        Column(Modifier.padding(horizontal = Space.Gutter), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                stringResource(coverSays(key)),
-                color = if (dark) Color(0xFF9A9AA0) else Color(0xFF6E6E73),
-                style = AuroraType.Body,
-                textAlign = TextAlign.Center,
-            )
+private class Gate(private val service: AccessibilityService) {
+    private val windows = service.getSystemService(WindowManager::class.java)
+    private val slop = ViewConfiguration.get(service).scaledTouchSlop
+    private val points = ArrayList<PointF>()
+    private var downAt = 0L
+    private var onBlocked: () -> Unit = {}
+    /** The app it's over, null when it isn't showing. */
+    var owner: String? = null
+        private set
+    private val params = WindowManager.LayoutParams(
+        0,
+        0,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) fitInsetsTypes = 0
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+        title = "Aurora gate"
+    }
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private val view = android.view.View(service).apply { setOnTouchListener { _, e -> touch(e); true } }
+
+    fun show(bounds: Rect, owner: String, onBlocked: () -> Unit) {
+        this.onBlocked = onBlocked
+        val was = this.owner
+        this.owner = owner
+        if (was != null && params.x == bounds.left && params.y == bounds.top && params.width == bounds.width() && params.height == bounds.height()) return
+        params.x = bounds.left
+        params.y = bounds.top
+        params.width = bounds.width()
+        params.height = bounds.height()
+        try {
+            if (was != null) windows.updateViewLayout(view, params) else windows.addView(view, params)
+        } catch (_: RuntimeException) {
+            this.owner = null
+        }
+    }
+
+    fun hide() {
+        if (owner == null) return
+        owner = null
+        try { windows.removeViewImmediate(view) } catch (_: RuntimeException) { }
+    }
+
+    private fun touch(e: MotionEvent) {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                points.clear()
+                downAt = e.eventTime
+                points += PointF(e.rawX, e.rawY)
+            }
+            MotionEvent.ACTION_MOVE -> points += PointF(e.rawX, e.rawY)
+            MotionEvent.ACTION_UP -> {
+                points += PointF(e.rawX, e.rawY)
+                val dx = points.last().x - points.first().x
+                val dy = points.last().y - points.first().y
+                if (abs(dy) > slop && abs(dy) >= abs(dx)) onBlocked() else pass(e.eventTime - downAt, moved = abs(dx) > slop)
+            }
+        }
+    }
+
+    /** Plays the caught tap, long press or sideways swipe back to the app. */
+    private fun pass(duration: Long, moved: Boolean) {
+        val path = Path().apply {
+            moveTo(points.first().x.coerceAtLeast(0f), points.first().y.coerceAtLeast(0f))
+            if (moved) points.drop(1).forEach { lineTo(it.x.coerceAtLeast(0f), it.y.coerceAtLeast(0f)) }
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, duration.coerceIn(1L, GestureDescription.getMaxGestureDuration())))
+            .build()
+        // ponytail: a second finger landing during the replay (a few ms) reaches the app directly.
+        touchable(false)
+        val back = object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) = touchable(true)
+            override fun onCancelled(gestureDescription: GestureDescription?) = touchable(true)
+        }
+        if (!service.dispatchGesture(gesture, back, null)) touchable(true)
+    }
+
+    private fun touchable(on: Boolean) {
+        if (owner == null) return
+        params.flags = if (on) params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        else params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        try { windows.updateViewLayout(view, params) } catch (_: RuntimeException) { }
     }
 }
 

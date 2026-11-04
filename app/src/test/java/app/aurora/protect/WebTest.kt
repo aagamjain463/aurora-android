@@ -29,18 +29,21 @@ class WebTest {
     }
 
     @Test
-    fun instagramKeepsChatsStoriesAndOnlyWhatFriendsSend() {
+    fun instagramKeepsOnlyChatsAndWhatFriendsSend() {
         fun v(s: InstagramScreen) = instagramVerdict(s, reels = false, messages = true, feed = false, search = false, screenBottom = 2400)
         fun leave(says: Int) = InstagramVerdict.Leave(PartInstagramMessages, says)
         val home = InstagramScreen(tab = "feed_tab", posts = true, headerBottom = 200, storiesBottom = 480, tabBarTop = 2200)
-        // Home: everything under the stories row is covered; once the row scrolls away, from the header.
-        assertEquals(InstagramVerdict.Cover(480, 2200, PartInstagramMessages), v(home))
-        assertEquals(InstagramVerdict.Cover(200, 2200, PartInstagramMessages), v(home.copy(storiesBottom = null, posts = false)))
+        // Home, stories too: all of it under the header.
+        assertEquals(InstagramVerdict.Cover(200, 2200, PartInstagramMessages), v(home))
+        assertEquals(InstagramVerdict.Cover(0, 2200, PartInstagramMessages), v(home.copy(headerBottom = null, posts = false)))
         // Search is held back like the Reels tab: a toast, not a covered screen.
         assertEquals(leave(R.string.part_no_search), v(InstagramScreen(tab = "search_tab", tabBarTop = 2200)))
         assertEquals(leave(R.string.part_no_reels), v(InstagramScreen(tab = "clips_tab", reelViewer = true)))
-        // The reel a friend sent plays; the "Suggested" reels after it, or any other reel, don't.
-        assertEquals(InstagramVerdict.Allow, v(InstagramScreen(reelViewer = true, sentInChat = true)))
+        // The reel a friend sent plays, but can't be swiped on to the "Suggested" ones; any other reel doesn't play.
+        val sent = InstagramScreen(reelViewer = true, sentInChat = true, reelArea = 76 to 2113)
+        assertEquals(InstagramVerdict.Gate(76, 2113, PartInstagramMessages, R.string.part_no_other_reels), v(sent))
+        // With comments or the keyboard open over it, nothing is gated.
+        assertEquals(InstagramVerdict.Allow, v(sent.copy(busy = true)))
         assertEquals(leave(R.string.part_no_other_reels), v(InstagramScreen(reelViewer = true)))
         assertEquals(leave(R.string.part_no_reels), v(InstagramScreen(reelsPage = true)))
         // A profile shows its header, never its grid: someone else's, or your own.
@@ -48,9 +51,13 @@ class WebTest {
         assertEquals(InstagramVerdict.Cover(907, 2200, PartInstagramMessages), v(InstagramScreen(tab = "profile_tab", profileGridTop = 907, tabBarTop = 2200)))
         // A post opens only from a chat.
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen(posts = true, fromChat = true)))
-        assertEquals(leave(R.string.part_no_posts), v(InstagramScreen(posts = true)))
-        // Stories, chats and the inbox stay.
-        assertEquals(InstagramVerdict.Allow, v(home.copy(storyViewer = true)))
+        assertEquals(InstagramVerdict.Cover(0, 2400, PartInstagramMessages), v(InstagramScreen(posts = true)))
+        // Only the sent post: the profile's other posts under it are covered, below the header at the least.
+        assertEquals(InstagramVerdict.Cover(1500, 2200, PartInstagramMessages), v(InstagramScreen(posts = true, fromChat = true, laterPostsTop = 1500, headerBottom = 230, tabBarTop = 2200)))
+        assertEquals(InstagramVerdict.Cover(230, 2400, PartInstagramMessages), v(InstagramScreen(posts = true, fromChat = true, laterPostsTop = 0, headerBottom = 230)))
+        // Stories are held back; chats and the inbox stay.
+        assertEquals(leave(R.string.part_no_stories), v(home.copy(storyViewer = true)))
+        assertEquals(InstagramVerdict.Allow, v(InstagramScreen(chat = true)))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen(tab = "direct_tab")))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen()))
     }
@@ -79,21 +86,35 @@ class WebTest {
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true), shorts = true, feed = false))
         // Shorts, feed and recommendations: every Short leaves.
         assertEquals(YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts), v(YouTubeScreen(shorts = true)))
-        // The list under the video, as YouTube lays it out, and the "Suggested video" over the ended player: one cover.
+        // Under the video: details and comments stay (taps only, no scrolling), every suggestion is blank, and the
+        // playlist bar stays usable. The "Suggested video" over the ended player is blank too.
+        val watchPage = YouTubeScreen(watch = listOf(0, 76, 1080, 684), watchList = listOf(0, 684, 1080, 2278), suggestionsTop = 1302)
         assertEquals(
-            YouTubeVerdict.Cover(listOf(0, 76, 1080, 2278), PartYouTubeFeed),
-            v(YouTubeScreen(watch = listOf(0, 76, 1080, 684), related = listOf(listOf(0, 684, 1080, 2278), listOf(0, 76, 1080, 684)))),
+            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 2278)), PartYouTubeFeed, gate = listOf(0, 684, 1080, 1302)),
+            v(watchPage),
         )
+        assertEquals(
+            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 1950), listOf(0, 2148, 1080, 2278)), PartYouTubeFeed, gate = listOf(0, 684, 1080, 1302)),
+            v(watchPage.copy(playlistBar = listOf(0, 1950, 1080, 2148))),
+        )
+        assertEquals(
+            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 2278), listOf(0, 76, 1080, 684)), PartYouTubeFeed, gate = listOf(0, 684, 1080, 1302)),
+            v(watchPage.copy(related = listOf(listOf(0, 76, 1080, 684)))),
+        )
+        // Before any suggestion loads, the whole list is gated, so it can't be scrolled to bring one in.
+        assertEquals(YouTubeVerdict.Cover(emptyList(), PartYouTubeFeed, gate = listOf(0, 684, 1080, 2278)), v(watchPage.copy(suggestionsTop = null)))
+        // A panel open over the page (the playlist, comments, the description) is left alone.
+        assertEquals(YouTubeVerdict.Allow, v(watchPage.copy(panelOpen = true)))
         // Full screen: the row that slides up is covered, the video isn't.
         assertEquals(
-            YouTubeVerdict.Cover(listOf(130, 700, 2278, 1080), PartYouTubeFeed),
+            YouTubeVerdict.Cover(listOf(listOf(130, 700, 2278, 1080)), PartYouTubeFeed),
             youTubeVerdict(YouTubeScreen(watch = listOf(0, 0, 2408, 1080), related = listOf(listOf(130, 700, 2278, 1080))), false, true, null, 2408, 1080),
         )
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true), feed = false))
         // Home's feed, under the video, beside it; full screen has nothing to cover.
-        assertEquals(YouTubeVerdict.Cover(listOf(0, 300, 1080, 2250), PartYouTubeFeed), v(YouTubeScreen(homeFeed = 300 to 2250)))
-        assertEquals(YouTubeVerdict.Cover(listOf(0, 700, 1080, 2400), PartYouTubeFeed), v(YouTubeScreen(watch = listOf(0, 90, 1080, 700))))
-        assertEquals(YouTubeVerdict.Cover(listOf(640, 0, 1080, 2400), PartYouTubeFeed), v(YouTubeScreen(watch = listOf(0, 0, 640, 400))))
+        assertEquals(YouTubeVerdict.Cover(listOf(listOf(0, 300, 1080, 2250)), PartYouTubeFeed), v(YouTubeScreen(homeFeed = 300 to 2250)))
+        assertEquals(YouTubeVerdict.Cover(listOf(listOf(0, 700, 1080, 2400)), PartYouTubeFeed), v(YouTubeScreen(watch = listOf(0, 90, 1080, 700))))
+        assertEquals(YouTubeVerdict.Cover(listOf(listOf(640, 0, 1080, 2400)), PartYouTubeFeed), v(YouTubeScreen(watch = listOf(0, 0, 640, 400))))
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = listOf(0, 0, 1080, 2400))))
         // Subscriptions and Search: nothing to do.
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen()))

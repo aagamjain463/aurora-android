@@ -388,21 +388,23 @@
     <string name="part_no_other_reels">Other reels are not allowed.</string>
     <string name="part_no_search">Search is not allowed.</string>
     <string name="part_no_posts">Posts are not allowed.</string>
+    <string name="part_no_stories">Stories are not allowed.</string>
+    <string name="part_no_home">Home is not allowed.</string>
     <string name="part_no_shorts">Shorts are not allowed.</string>
     <string name="part_only_channels">Only chosen channels are allowed.</string>
     <string name="part_shorts">YouTube Shorts tab</string>
     <string name="part_shorts_body">The Shorts tab is blocked. The rest of YouTube stays open.</string>
     <string name="part_reels">Instagram Reels tab</string>
     <string name="part_reels_body">The Reels tab is blocked. The rest of Instagram stays open.</string>
-    <string name="part_ig_messages">All Instagram Reels and posts, except stories and messages</string>
-    <string name="part_ig_messages_body">Reels and posts are blocked everywhere. A reel or post a friend sends still opens, but can\'t be sent on.</string>
+    <string name="part_ig_messages">All of Instagram, except messages</string>
+    <string name="part_ig_messages_body">Home, Reels, posts, stories and Search are blocked. A reel or post a friend sends still opens, but can\'t be scrolled past or sent on.</string>
     <string name="part_yt_feed">YouTube Shorts, feed and recommendations</string>
     <string name="part_yt_feed_body">All Shorts, the Home feed and everything suggested around a video are blocked. Subscriptions and Search stay.</string>
     <string name="part_yt_channels">All YouTube channels, except the ones you choose</string>
     <string name="part_yt_channels_body">Videos and Shorts from every other channel are blocked.</string>
     <!-- Parts of apps under their app's name: the app is already said, so the part's own name is enough. -->
     <string name="part_reels_short">Reels tab</string>
-    <string name="part_ig_messages_short">All Reels and posts, except stories and messages</string>
+    <string name="part_ig_messages_short">All of Instagram, except messages</string>
     <string name="part_shorts_short">Shorts tab</string>
     <string name="part_yt_feed_short">Shorts, feed and recommendations</string>
     <string name="part_yt_channels_short">All channels, except the ones you choose</string>

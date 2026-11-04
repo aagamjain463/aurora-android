@@ -119,8 +119,14 @@ const val IgId = "$Instagram:id/"
 data class InstagramScreen(
     /** The selected tab's ID name ("feed_tab", "search_tab", "clips_tab"...), null when no tab bar shows. */
     val tab: String? = null,
+    /** A chat is open. */
+    val chat: Boolean = false,
     /** A reel is playing full screen. */
     val reelViewer: Boolean = false,
+    /** The reel viewer's swipeable area, top to bottom. */
+    val reelArea: Pair<Int, Int>? = null,
+    /** Something is open over the screen (a sheet of comments or shares, the keyboard): nothing is gated. */
+    val busy: Boolean = false,
     /** The reel came in a chat: its viewer names who sent it. Instagram's "Suggested" reels after it don't. */
     val sentInChat: Boolean = false,
     /** Someone's story is open. */
@@ -133,9 +139,13 @@ data class InstagramScreen(
     val reelsPage: Boolean = false,
     /** A profile's grid of posts and reels starts here; its header (name, bio, follow, message) is above. */
     val profileGridTop: Int? = null,
+    /** On a post opened from a chat: more of that profile's posts start here, under the one that was sent. */
+    val laterPostsTop: Int? = null,
     val storiesBottom: Int? = null,
     val headerBottom: Int? = null,
     val tabBarTop: Int? = null,
+    /** Where each tab's button is, by its ID name: left, top, right, bottom. */
+    val tabBounds: Map<String, List<Int>> = emptyMap(),
 )
 
 sealed interface InstagramVerdict {
@@ -144,14 +154,16 @@ sealed interface InstagramVerdict {
     data class Leave(val key: String, @StringRes val says: Int) : InstagramVerdict
     /** Cover this band of the screen, so what [key] holds back can't be seen or touched. */
     data class Cover(val top: Int, val bottom: Int, val key: String) : InstagramVerdict
+    /** Taps go through this band, swipes up and down don't: the list under it stays where it is. */
+    data class Gate(val top: Int, val bottom: Int, val key: String, @StringRes val says: Int) : InstagramVerdict
 }
 
 /**
  * What Aurora does on this Instagram screen, given the parts a Shield holds back right now.
- * [reels]: the Reels tab (its button is covered too, see ContentService). [messages]: every reel and post, except
- * stories and messages. The one reel or post a friend sent
- * opens from the chat; every other reel and post is held back (Home, Search, the Reels tab, the
- * "Suggested" reels after a sent one, audio pages, every profile's grid). Profiles themselves stay.
+ * [reels]: the Reels tab (its button doesn't answer, see ContentService). [messages]: all of Instagram except
+ * messages. The one reel or post a friend sent opens from the chat, and a sent reel can't be swiped on to the
+ * "Suggested" ones after it; every other reel, post and story is held back (Home, Search, the Reels tab, audio
+ * pages, every profile's grid). Profiles themselves stay.
  * [feed] and [search] are the older separate parts: Home posts, and Search.
  */
 fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed: Boolean, search: Boolean, screenBottom: Int): InstagramVerdict {
@@ -161,17 +173,25 @@ fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed
     fun cover(top: Int, key: String) = if (top < bottom) InstagramVerdict.Cover(top, bottom, key) else InstagramVerdict.Allow
     fun leave(says: Int) = InstagramVerdict.Leave(PartInstagramMessages, says)
     return when {
-        s.storyViewer -> InstagramVerdict.Allow
         messages -> when {
+            s.storyViewer -> leave(R.string.part_no_stories)
             s.tab == "clips_tab" -> leave(R.string.part_no_reels)
-            s.reelViewer -> if (s.sentInChat) InstagramVerdict.Allow else leave(R.string.part_no_other_reels)
+            s.reelViewer && !s.sentInChat -> leave(R.string.part_no_other_reels)
+            s.reelViewer -> s.reelArea?.takeUnless { s.busy }?.let { (top, bottom) ->
+                InstagramVerdict.Gate(top, bottom, PartInstagramMessages, R.string.part_no_other_reels)
+            } ?: InstagramVerdict.Allow
             s.reelsPage -> leave(R.string.part_no_reels)
             s.profileGridTop != null -> cover(s.profileGridTop, PartInstagramMessages)
-            s.tab == "feed_tab" -> cover(belowStories, PartInstagramMessages)
+            // Stories too: all of Home under its header.
+            s.tab == "feed_tab" -> cover(s.headerBottom ?: 0, PartInstagramMessages)
             s.tab == "search_tab" -> leave(R.string.part_no_search)
-            s.posts && !s.fromChat -> leave(R.string.part_no_posts)
+            // Blanked, never Back: while Instagram opens, Home's posts show before its tab bar does, and Back
+            // there would close the app.
+            s.posts && !s.fromChat -> cover(s.headerBottom ?: 0, PartInstagramMessages)
+            s.posts && s.laterPostsTop != null -> cover(maxOf(s.laterPostsTop, s.headerBottom ?: 0), PartInstagramMessages)
             else -> InstagramVerdict.Allow
         }
+        s.storyViewer -> InstagramVerdict.Allow
         reels && s.tab == "clips_tab" -> InstagramVerdict.Leave(PartReels, R.string.part_no_reels)
         search && s.tab == "search_tab" -> InstagramVerdict.Leave(PartInstagramSearch, R.string.part_no_search)
         feed && s.tab == "feed_tab" && s.posts -> cover(belowStories, PartInstagramFeed)
@@ -187,12 +207,19 @@ data class YouTubeScreen(
     val shortsTab: Boolean = false,
     /** The Home tab's feed, top to bottom, when Home is the chosen tab. */
     val homeFeed: Pair<Int, Int>? = null,
+    /** The list under (or beside) the open video: its details, comments, then every suggestion. */
+    val watchList: List<Int>? = null,
+    /** Where the first suggested video in [watchList] starts, null before any shows. */
+    val suggestionsTop: Int? = null,
+    /** The bar of the playlist the video plays from (Watch later, a playlist): it stays usable. */
+    val playlistBar: List<Int>? = null,
+    /** A panel is open over the video's page (description, comments, the playlist). */
+    val panelOpen: Boolean = false,
     /** The open video's player (not the miniplayer, not a preview in a list): left, top, right, bottom. */
     val watch: List<Int>? = null,
     /**
-     * What YouTube recommends around the open video, read from its own views: the list under or beside the
-     * player, the "Suggested video" that ends a video, the row that slides up in full screen. Each is left,
-     * top, right, bottom.
+     * What else YouTube recommends around the open video: the "Suggested video" that ends a video, the row
+     * that slides up in full screen. Each is left, top, right, bottom.
      */
     val related: List<List<Int>> = emptyList(),
     /** What YouTube shows around the playing video or Short: its title, channel, handle. */
@@ -205,8 +232,11 @@ sealed interface YouTubeVerdict {
     data class Leave(val key: String, @StringRes val says: Int) : YouTubeVerdict
     /** Not from a chosen channel: the Shield for [key] once YouTube has settled on it. */
     data class NotFromChannel(val key: String, @StringRes val says: Int) : YouTubeVerdict
-    /** Cover this rectangle: left, top, right, bottom. */
-    data class Cover(val bounds: List<Int>, val key: String) : YouTubeVerdict
+    /**
+     * Blank out [areas] (each left, top, right, bottom) so they show nothing. [gate]: taps go through it,
+     * swipes up and down don't, so nothing can be scrolled out from under the blanks.
+     */
+    data class Cover(val areas: List<List<Int>>, val key: String, val gate: List<Int>? = null) : YouTubeVerdict
 }
 
 /**
@@ -222,23 +252,31 @@ fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: P
         // Nothing to read yet (still loading, or full screen): judged once it shows.
         channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) ->
             YouTubeVerdict.NotFromChannel(channels.first, R.string.part_only_channels)
-        // Covered as YouTube draws it, so the cover moves with the list and nothing can be scrolled out from under it.
-        feed && s.related.isNotEmpty() -> YouTubeVerdict.Cover(
-            listOf(s.related.minOf { it[0] }, s.related.minOf { it[1] }, s.related.maxOf { it[2] }, s.related.maxOf { it[3] }),
-            PartYouTubeFeed,
-        )
-        // An older YouTube without those views: whatever is below or beside the player.
-        feed && s.watch != null -> {
+        // Under the video: its details and comments stay, every suggestion after them is blank, the playlist bar
+        // stays usable, and the list can't be scrolled. An open panel (description, comments) is left alone.
+        feed && s.watchList != null && !s.panelOpen -> {
+            val (left, top, right, bottom) = s.watchList
+            val from = (s.suggestionsTop ?: bottom).coerceIn(top, bottom)
+            val blank = s.playlistBar?.takeIf { it[1] < bottom && it[3] > from }?.let { bar ->
+                listOf(listOf(left, from, right, bar[1]), listOf(left, bar[3], right, bottom))
+            } ?: listOf(listOf(left, from, right, bottom))
+            YouTubeVerdict.Cover(blank.filter { it[1] < it[3] } + s.related, PartYouTubeFeed, gate = listOf(left, top, right, from).takeIf { from > top })
+        }
+        feed && s.related.isNotEmpty() -> YouTubeVerdict.Cover(s.related, PartYouTubeFeed)
+        // An older YouTube without those views: whatever is below or beside the player. An open panel (the
+        // playlist, comments) is left alone.
+        feed && s.watch != null && !s.panelOpen -> {
             val (_, _, right, bottom) = s.watch
             when {
                 // Side by side (landscape, tablets): what's beside the video.
-                right < screenWidth * 4 / 5 -> YouTubeVerdict.Cover(listOf(right, 0, screenWidth, screenBottom), PartYouTubeFeed)
-                bottom < screenBottom -> YouTubeVerdict.Cover(listOf(0, bottom, screenWidth, screenBottom), PartYouTubeFeed)
+                right < screenWidth * 4 / 5 -> YouTubeVerdict.Cover(listOf(listOf(right, 0, screenWidth, screenBottom)), PartYouTubeFeed)
+                bottom < screenBottom -> YouTubeVerdict.Cover(listOf(listOf(0, bottom, screenWidth, screenBottom)), PartYouTubeFeed)
                 else -> YouTubeVerdict.Allow
             }
         }
+        // Home's feed is blank. Its header stays free, so it can be pulled down to show Home and Subscriptions.
         feed && s.homeFeed != null && s.homeFeed.first < s.homeFeed.second ->
-            YouTubeVerdict.Cover(listOf(0, s.homeFeed.first, screenWidth, s.homeFeed.second), PartYouTubeFeed)
+            YouTubeVerdict.Cover(listOf(listOf(0, s.homeFeed.first, screenWidth, s.homeFeed.second)), PartYouTubeFeed)
         else -> YouTubeVerdict.Allow
     }
 }
