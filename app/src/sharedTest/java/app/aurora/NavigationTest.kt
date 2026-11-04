@@ -122,9 +122,9 @@ class NavigationTest {
     fun onboardingCompletesOnHome() {
         shieldOn()
         launch(onboarded = false)
-        // The tour picks nothing: Show me around, each tab in turn, then Shield.
-        awaitText("Show me around")
-        compose.onNodeWithText("Show me around").performClick()
+        // The tour picks nothing: Begin, each tab in turn, then Shield.
+        awaitText("Begin")
+        compose.onNodeWithText("Begin").performClick()
         repeat(4) {
             awaitText("Continue")
             compose.onNodeWithText("Continue").performClick()
@@ -221,8 +221,8 @@ class NavigationTest {
             app.preferences.setReduceMotion(true)
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        awaitText("Skip the tour")
-        compose.onNodeWithText("Skip the tour").performClick()
+        awaitText("Skip")
+        compose.onNodeWithText("Skip").performClick()
         awaitText("Turn on Shield.")
         org.junit.Assert.assertTrue(app.runtime.value!!.runs.isEmpty())
         awaitText("Skip for now")

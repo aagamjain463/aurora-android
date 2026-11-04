@@ -56,12 +56,12 @@ class WebTest {
     }
 
     @Test
-    fun instagramReelsAloneIsJustTheTab() {
+    fun instagramReelsTabIsJustTheTab() {
         fun v(s: InstagramScreen) = instagramVerdict(s, reels = true, messages = false, feed = false, search = false, screenBottom = 2400)
         assertEquals(InstagramVerdict.Leave(PartReels, R.string.part_no_reels), v(InstagramScreen(tab = "clips_tab", reelViewer = true)))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen(reelViewer = true)))
         assertEquals(InstagramVerdict.Allow, v(InstagramScreen(tab = "feed_tab", posts = true, tabBarTop = 2200)))
-        assertEquals(InstagramVerdict.Allow, v(InstagramScreen(profileGridTop = 774)))
+        assertEquals(InstagramVerdict.Allow, v(InstagramScreen(profileGridTop = 913)))
         // The older parts still hold: posts, and Search.
         val home = InstagramScreen(tab = "feed_tab", posts = true, headerBottom = 200, storiesBottom = 480, tabBarTop = 2200)
         assertEquals(InstagramVerdict.Cover(480, 2200, PartInstagramFeed), instagramVerdict(home, false, false, feed = true, search = false, screenBottom = 2400))
@@ -74,8 +74,21 @@ class WebTest {
     @Test
     fun youTubeWithoutRecommendations() {
         fun v(s: YouTubeScreen, shorts: Boolean = false, feed: Boolean = true) = youTubeVerdict(s, shorts, feed, null, screenWidth = 1080, screenBottom = 2400)
-        assertEquals(YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts), v(YouTubeScreen(shorts = true), shorts = true, feed = false))
+        // The Shorts tab: only a Short in the Shorts tab leaves; one opened from Home or Search plays.
+        assertEquals(YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts), v(YouTubeScreen(shorts = true, shortsTab = true), shorts = true, feed = false))
+        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true), shorts = true, feed = false))
+        // Shorts, feed and recommendations: every Short leaves.
         assertEquals(YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts), v(YouTubeScreen(shorts = true)))
+        // The list under the video, as YouTube lays it out, and the "Suggested video" over the ended player: one cover.
+        assertEquals(
+            YouTubeVerdict.Cover(listOf(0, 76, 1080, 2278), PartYouTubeFeed),
+            v(YouTubeScreen(watch = listOf(0, 76, 1080, 684), related = listOf(listOf(0, 684, 1080, 2278), listOf(0, 76, 1080, 684)))),
+        )
+        // Full screen: the row that slides up is covered, the video isn't.
+        assertEquals(
+            YouTubeVerdict.Cover(listOf(130, 700, 2278, 1080), PartYouTubeFeed),
+            youTubeVerdict(YouTubeScreen(watch = listOf(0, 0, 2408, 1080), related = listOf(listOf(130, 700, 2278, 1080))), false, true, null, 2408, 1080),
+        )
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true), feed = false))
         // Home's feed, under the video, beside it; full screen has nothing to cover.
         assertEquals(YouTubeVerdict.Cover(listOf(0, 300, 1080, 2250), PartYouTubeFeed), v(YouTubeScreen(homeFeed = 300 to 2250)))

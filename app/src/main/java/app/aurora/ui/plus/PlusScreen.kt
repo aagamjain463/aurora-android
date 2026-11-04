@@ -110,17 +110,14 @@ fun PlusScreen(onBack: () -> Unit) {
         onBack = onBack,
         art = ArtTier.Balanced,
         header = {
-            // First Light carries the page; no progress visual here, because there is no data to draw.
-            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XL, bottom = Space.S), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                BrandEyebrow(stringResource(R.string.plus_name))
+            // One line, then the two plans: nothing to read past them.
+            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XL, bottom = Space.L)) {
                 if (plan == Plan.Plus) Text(stringResource(R.string.plus_you_have_aurora_plus), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
                 else TwoToneHeadline(stringResource(R.string.plus_more_room_for_every_part_of_your_day), tailWords = 5, style = AuroraType.DisplayS.copy(fontSize = 42.sp, lineHeight = 45.sp))
-                Text(stringResource(R.string.plus_free_protects_just_as_strongly_as_plus_plus_removes_the_limits_s), color = colors.textSecondary, style = AuroraType.Body)
             }
         },
     ) {
         item(key = "plus") {
-            SectionLabel(stringResource(if (plan == Plan.Plus) R.string.plus_free_and_plus else R.string.plus_choose_a_plan))
             PlusCard(compare.filter { it.second != it.third }, current = plan == Plan.Plus) {
                 when {
                     plan == Plan.Plus || subscription?.state == "on_hold" -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
@@ -139,16 +136,10 @@ fun PlusScreen(onBack: () -> Unit) {
         }
         item(key = "free") {
             FreeCard(compare, current = plan != Plan.Plus, Modifier.padding(top = Space.M))
-            Text(
-                stringResource(R.string.plus_downgrading_never_deletes_anything_items_past_free_s_limits_are),
-                Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S),
-                color = colors.textTertiary,
-                style = AuroraType.Caption,
-            )
         }
         item(key = "buy") {
             if (plan == Plan.Plus) SectionLabel(stringResource(R.string.plus_your_subscription))
-            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                 subscription?.let { s ->
                     when {
                         plan == Plan.Plus && s.state == "in_grace_period" -> Notice(stringResource(R.string.plus_grace_title), stringResource(R.string.plus_grace_body))
@@ -192,11 +183,12 @@ fun PlusScreen(onBack: () -> Unit) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     AuroraButton(stringResource(R.string.plus_restore_purchases), { scope.launch { runCatching { app.billing.refresh() } } }, kind = ButtonKind.Quiet)
                 }
-                Text(stringResource(R.string.plus_play_note), color = colors.textTertiary, style = AuroraType.Caption)
                 Text(
                     stringResource(R.string.plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p),
+                    Modifier.fillMaxWidth(),
                     color = colors.textTertiary,
                     style = AuroraType.Caption,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
@@ -216,7 +208,6 @@ private fun FreeCard(rows: List<Triple<String, String, String>>, current: Boolea
             Text(stringResource(R.string.plus_free_name), Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 28.sp, lineHeight = 32.sp))
             if (current) PlanPill()
         }
-        Text(stringResource(R.string.plus_free_tagline), Modifier.padding(top = 6.dp), color = colors.textSecondary, style = AuroraType.Secondary)
         Column(Modifier.padding(top = 22.dp, bottom = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             limits.chunked(2).forEach { pair ->
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.M)) {
@@ -245,8 +236,8 @@ private fun FreeCard(rows: List<Triple<String, String, String>>, current: Boolea
 /**
  * Plus: the dawn card, the one object on the page that catches the sunrise. It sits on the deepest tone, its edge lit
  * in gold from above and fading down the sides; a single thread of dawn runs under the name. The lit mark and the lit
- * word "Plus" carry the brand. Each row says what Plus opens up, with Free's limit struck through beneath it, then the
- * way to get it ([actions]).
+ * word "Plus" carry the brand. Each row says what Plus opens up (Free's limits are on its own card), then the way to
+ * get it ([actions]).
  */
 @Composable
 private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier, actions: @Composable () -> Unit) {
@@ -270,7 +261,6 @@ private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolea
             if (current) PlanPill()
         }
         HeroHeadline(stringResource(R.string.plus_name), Modifier.padding(top = 22.dp), style = AuroraType.DisplayXL.copy(fontSize = 50.sp, lineHeight = 52.sp))
-        Text(stringResource(R.string.plus_plus_tagline), Modifier.padding(top = Space.S), color = colors.textSecondary, style = AuroraType.Body)
         // The horizon: one thread of dawn, brightest in the middle, gone at the ends.
         val dawn = dawnColors()
         Box(
@@ -282,14 +272,7 @@ private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolea
             Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
                 LitBadge(AuroraIcons.Check, Modifier.padding(end = Space.S), size = 26)
                 Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textPrimary, style = AuroraType.Secondary)
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(plus, color = colors.accent, style = AuroraType.BodyStrong, textAlign = TextAlign.End)
-                    // Free's limit, struck through: shown, not spoken (the Free card lists it for screen readers).
-                    if (!current) Text(
-                        free, Modifier.clearAndSetSemantics { }, color = colors.textTertiary, textAlign = TextAlign.End,
-                        style = AuroraType.Caption.copy(textDecoration = TextDecoration.LineThrough),
-                    )
-                }
+                Text(plus, color = colors.accent, style = AuroraType.BodyStrong, textAlign = TextAlign.End)
             }
         }
         Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) { actions() }

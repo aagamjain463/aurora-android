@@ -116,25 +116,22 @@ private const val PageCount = 6
 internal const val ShieldPage = PageCount - 1
 
 /** The four tabs, toured in the order they are used: make a Shield and an Intent, start them from Home, see it in Track. */
-private enum class Tour(val icon: ImageVector, val tab: Int, val title: Int, val body: Int, val points: List<Int>) {
-    Shield(AuroraIcons.Protect, R.string.tab_shield, R.string.onb_tour_shield_title, R.string.onb_tour_shield_body,
-        listOf(R.string.onb_tour_shield_point_1, R.string.onb_tour_shield_point_2, R.string.onb_tour_shield_point_3)),
-    Intent(AuroraIcons.Intent, R.string.tab_intent, R.string.onb_tour_intent_title, R.string.onb_tour_intent_body,
-        listOf(R.string.onb_tour_intent_point_1, R.string.onb_tour_intent_point_2, R.string.onb_tour_intent_point_3)),
-    Home(AuroraIcons.Home, R.string.tab_home, R.string.onb_tour_home_title, R.string.onb_tour_home_body,
-        listOf(R.string.onb_tour_home_point_1, R.string.onb_tour_home_point_2, R.string.onb_tour_home_point_3)),
-    Track(AuroraIcons.Track, R.string.tab_track, R.string.onb_tour_track_title, R.string.onb_tour_track_body,
-        listOf(R.string.onb_tour_track_point_1, R.string.onb_tour_track_point_2, R.string.onb_tour_track_point_3)),
+private enum class Tour(val title: Int, val body: Int) {
+    Shield(R.string.onb_tour_shield_title, R.string.onb_tour_shield_body),
+    Intent(R.string.onb_tour_intent_title, R.string.onb_tour_intent_body),
+    Home(R.string.onb_tour_home_title, R.string.onb_tour_home_body),
+    Track(R.string.onb_tour_track_title, R.string.onb_tour_track_body),
 }
 
 /**
- * A short tour, no setup: the promise, then Shield, Intent, Home and Track in plain words with a small moving
- * picture of each, then turning Shield on. Nothing is picked or started here. The person can leave and come back;
- * onboarding resumes where they were.
+ * A short tour, no setup: the promise, then Shield, Intent, Home and Track, each a moving picture, one serif line
+ * and one plain line, then turning Shield on. Everything is centred and quiet; one filled action per page. Nothing is
+ * picked or started here. The person can leave and come back; onboarding resumes where they were.
  */
 @Composable
 fun OnboardingScreen(onFinish: () -> Unit) {
     val app = LocalContext.current.applicationContext as AuroraApplication
+    val context = LocalContext.current
     val colors = Aurora.colors
     val reduced = Aurora.reducedMotion
     val prefs by app.preferences.preferences.collectAsStateWithLifecycle(initialValue = null)
@@ -144,6 +141,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     BackHandler(enabled = page > 0) { page-- }
     val p = page.coerceAtLeast(0)
     val shieldOn = rememberAccess(Access.Accessibility) == AccessState.Granted
+    var disclosure by rememberSaveable { mutableStateOf(false) }
     val finish = {
         app.scope.launch { runCatching { app.preferences.setOnboardingStep(0) } }
         onFinish()
@@ -151,12 +149,14 @@ fun OnboardingScreen(onFinish: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(if (p == 0) colors.sky else colors.background)) {
         Column(Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            // The welcome is the mark itself, set large; the pages after it carry the lockup and where you are.
-            if (p != 0) Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
-                AuroraMark(LockupMark)
-                Spacer(Modifier.width(Space.S))
-                Wordmark(Modifier.weight(1f))
-                PageDots(p)
+            // The welcome is the mark alone; the pages after it carry the lockup, and the tour can be skipped.
+            Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
+                if (p != 0) {
+                    AuroraMark(LockupMark)
+                    Spacer(Modifier.width(Space.S))
+                    Wordmark(Modifier.weight(1f))
+                    if (p < ShieldPage) AuroraButton(stringResource(R.string.onb_skip_tour), { page = ShieldPage }, kind = ButtonKind.Quiet, compact = true)
+                }
             }
             AnimatedContent(
                 targetState = p,
@@ -164,8 +164,8 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 transitionSpec = {
                     val forward = targetState > initialState
                     if (reduced) fadeIn(tween(Motion.Standard)) togetherWith fadeOut(tween(Motion.Quick))
-                    else (fadeIn(tween(Motion.Gentle)) + slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (forward) it / 4 else -it / 4 }) togetherWith
-                        (fadeOut(tween(Motion.Standard)) + slideOutHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (forward) -it / 6 else it / 6 })
+                    else (fadeIn(tween(Motion.Gentle)) + slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (forward) it / 5 else -it / 5 }) togetherWith
+                        (fadeOut(tween(Motion.Standard)) + slideOutHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (forward) -it / 8 else it / 8 })
                 },
                 label = "page",
             ) { step ->
@@ -177,37 +177,36 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             }
             val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             Column(
-                Modifier.padding(horizontal = Space.Gutter).padding(top = if (p == 0) 34.dp else Space.M, bottom = if (p == 0) (58.dp - navInset).coerceAtLeast(Space.M) else Space.M).animateContentSize(),
+                Modifier.padding(horizontal = Space.Gutter).padding(top = Space.M, bottom = (if (p == 0) 48.dp else Space.L) - navInset.coerceAtMost(Space.M)).animateContentSize(),
                 verticalArrangement = Arrangement.spacedBy(Space.XS),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                if (p != 0) PageDots(p, Modifier.padding(bottom = Space.M))
                 when {
                     p == 0 -> AuroraButton(stringResource(R.string.onb_begin), { page = 1 }, Modifier.fillMaxWidth())
-                    p < ShieldPage -> {
-                        AuroraButton(stringResource(R.string.action_continue), { page = p + 1 }, Modifier.fillMaxWidth())
-                        AuroraButton(stringResource(R.string.onb_skip_tour), { page = ShieldPage }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                    p < ShieldPage -> AuroraButton(stringResource(R.string.action_continue), { page = p + 1 }, Modifier.fillMaxWidth())
+                    // One filled action per page: until Shield is on, turning it on is it, and skipping stays quiet.
+                    !shieldOn -> {
+                        AuroraButton(stringResource(R.string.status_turn_on), { disclosure = true }, Modifier.fillMaxWidth())
+                        AuroraButton(stringResource(R.string.onb_skip), finish, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                     }
-                    // One filled action per page: until Shield is on, "Turn on Shield" is it, and skipping stays quiet.
-                    !shieldOn -> AuroraButton(stringResource(R.string.onb_skip), finish, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                     else -> AuroraButton(stringResource(R.string.onb_finish), finish, Modifier.fillMaxWidth())
                 }
-                if (p == 0) Text(
-                    stringResource(R.string.onb_welcome_privacy), Modifier.fillMaxWidth().padding(top = 8.dp),
-                    color = colors.textPrimary, style = AuroraType.Caption, textAlign = TextAlign.Center,
-                )
             }
         }
     }
+    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
 }
 
 /** Where you are: a lit dash for this page, points for the rest. */
 @Composable
-private fun PageDots(page: Int) {
+private fun PageDots(page: Int, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
     val spoken = stringResource(R.string.onb_step, page, PageCount - 1)
-    Row(Modifier.semantics { contentDescription = spoken }, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.semantics { contentDescription = spoken }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(PageCount - 1) { i ->
-            val width by animateDpAsState(if (i + 1 == page) 18.dp else 6.dp, tween(Motion.Gentle, easing = Motion.Ease), label = "dot")
-            Box(Modifier.height(4.dp).width(width).clip(Radius.Pill).background(if (i + 1 <= page) colors.accent else colors.hairline))
+            val width by animateDpAsState(if (i + 1 == page) 22.dp else 6.dp, tween(Motion.Gentle, easing = Motion.Ease), label = "dot")
+            Box(Modifier.height(4.dp).width(width).clip(Radius.Pill).background(if (i + 1 == page) colors.accent else colors.hairline))
         }
     }
 }
@@ -242,60 +241,57 @@ private fun ramp(t: Float, from: Float, span: Float = 0.1f): Float {
 }
 
 /**
- * The welcome: the mark and the name, set large in the middle of the sky; the promise rests low, by the action.
- * Each part settles in a beat after the last. The column fills the screen, and scrolls when text is large.
+ * The welcome: the lit mark alone in the middle of the night, and the promise under it with its last word lit.
+ * Each settles in a beat after the last. The column fills the screen, and scrolls when text is large.
  */
 @Composable
 internal fun Welcome() {
-    val colors = Aurora.colors
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter)) {
-            Box(Modifier.weight(1f).fillMaxWidth().heightIn(min = 200.dp), contentAlignment = Alignment.Center) {
-                Column(
-                    Modifier.padding(bottom = 40.dp).semantics(mergeDescendants = true) { },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
-                ) {
-                    AuroraMark(54.dp, Modifier.enter(0), lit = true)
-                    Text(stringResource(R.string.app_name), Modifier.enter(1), color = colors.textPrimary, style = AuroraType.HeroBold.copy(fontSize = 56.sp, lineHeight = 58.sp))
-                }
-            }
-            HeroHeadline(stringResource(R.string.today_headline), Modifier.enter(3))
-            Spacer(Modifier.height(14.dp))
-            Text(stringResource(R.string.today_description), Modifier.enter(4), color = colors.textSecondary, style = AuroraType.Body)
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(1f))
+            AuroraMark(76.dp, Modifier.enter(0), lit = true)
+            Spacer(Modifier.height(44.dp))
+            HeroHeadline(
+                stringResource(R.string.today_headline), Modifier.enter(2),
+                style = AuroraType.HeroBold.copy(fontSize = 48.sp, lineHeight = 50.sp, textAlign = TextAlign.Center),
+            )
+            Spacer(Modifier.weight(1.2f))
         }
     }
 }
 
-/** One tab in plain words: its picture, its name, one line, and three short points. */
+/** One tab: its moving picture, one serif line and one plain line, centred. */
 @Composable
 private fun TourPage(tour: Tour) {
     val colors = Aurora.colors
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.Gutter)) {
-        Spacer(Modifier.height(Space.M))
-        // Decorative: the words below say everything the picture shows.
-        Box(Modifier.fillMaxWidth().enter(0).clearAndSetSemantics { }) {
-            when (tour) {
-                Tour.Shield -> ShieldArt()
-                Tour.Intent -> IntentArt()
-                Tour.Home -> HomeArt()
-                Tour.Track -> TrackArt()
-            }
-        }
-        Spacer(Modifier.height(30.dp))
-        Row(Modifier.enter(1), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LitBadge(tour.icon, size = 30)
-            Eyebrow(stringResource(tour.tab), color = colors.accent)
-        }
-        Text(stringResource(tour.title), Modifier.padding(top = Space.S).enter(2).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-        Text(stringResource(tour.body), Modifier.padding(top = Space.XS).enter(3), color = colors.textSecondary, style = AuroraType.Body)
-        Column(Modifier.padding(top = Space.L, bottom = Space.M), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            tour.points.forEachIndexed { i, point ->
-                Row(Modifier.enter(4 + i), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-                    Box(Modifier.padding(top = 8.dp).size(6.dp).clip(Radius.Pill).background(colors.accent))
-                    Text(stringResource(point), color = colors.textPrimary, style = AuroraType.Body)
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(1f).heightIn(min = Space.M))
+            // Decorative: the words below say what the picture shows.
+            Box(Modifier.fillMaxWidth().enter(0).clearAndSetSemantics { }) {
+                when (tour) {
+                    Tour.Shield -> ShieldArt()
+                    Tour.Intent -> IntentArt()
+                    Tour.Home -> HomeArt()
+                    Tour.Track -> TrackArt()
                 }
             }
+            Spacer(Modifier.height(48.dp))
+            Text(
+                stringResource(tour.title), Modifier.enter(1).semantics { heading() },
+                color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center,
+            )
+            Text(
+                stringResource(tour.body), Modifier.padding(top = Space.S).widthIn(max = 300.dp).enter(2),
+                color = colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.weight(1.3f).heightIn(min = Space.M))
         }
     }
 }
@@ -430,36 +426,44 @@ private fun TrackArt() {
     }
 }
 
-/** The last page: Shield needs one permission, explained at the moment it is asked for. */
+/** The last page: Shield needs one permission, asked for by the action below and explained when it is. */
 @Composable
 private fun TurnOnShield() {
     val context = LocalContext.current
     val colors = Aurora.colors
     val access = rememberAccess(Access.Accessibility)
     val connected by ShieldService.connected.collectAsStateWithLifecycle()
-    var disclosure by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-        Spacer(Modifier.height(Space.XL))
-        LitBadge(AuroraIcons.Protect, Modifier.enter(0), size = 64)
-        Spacer(Modifier.height(Space.XS))
-        Eyebrow(stringResource(R.string.onb_shield_eyebrow), Modifier.enter(1), color = colors.accent)
-        Text(stringResource(R.string.onb_shield_title), Modifier.enter(1).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-        Text(stringResource(R.string.onb_shield_body), Modifier.enter(2), color = colors.textSecondary, style = AuroraType.Body)
-        Column(Modifier.padding(vertical = Space.S).enter(3), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-            StatusLine(stringResource(R.string.onb_shield_permission), access == AccessState.Granted)
-            StatusLine(stringResource(R.string.onb_shield_running), connected)
-        }
-        if (access != AccessState.Granted) AuroraButton(stringResource(R.string.status_turn_on), { disclosure = true }, Modifier.fillMaxWidth().enter(4))
-        Text(stringResource(R.string.onb_shield_privacy), Modifier.enter(5), color = colors.textTertiary, style = AuroraType.Caption)
-        // Xiaomi stops background services, so keeping Shield running belongs with turning it on.
-        if (isXiaomi) {
-            Spacer(Modifier.height(Space.S))
-            Text(stringResource(R.string.onb_keep_xiaomi), color = colors.textSecondary, style = AuroraType.Secondary)
-            AuroraButton(stringResource(R.string.keep_running_autostart), { openAutostart(context) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
-            AuroraButton(stringResource(R.string.keep_running_battery), { openAppInfo(context) }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(1f).heightIn(min = Space.M))
+            AuroraMark(64.dp, Modifier.enter(0), lit = true)
+            Spacer(Modifier.height(40.dp))
+            Text(
+                stringResource(R.string.onb_shield_title), Modifier.enter(1).semantics { heading() },
+                color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center,
+            )
+            Text(
+                stringResource(R.string.onb_shield_body), Modifier.padding(top = Space.S).widthIn(max = 300.dp).enter(2),
+                color = colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+            )
+            if (access == AccessState.Granted) Box(Modifier.padding(top = Space.L)) { StatusLine(stringResource(R.string.onb_shield_running), connected) }
+            // Xiaomi stops background services: once Shield is on, keeping it running is the one thing left.
+            if (isXiaomi && access == AccessState.Granted) {
+                Text(
+                    stringResource(R.string.onb_keep_xiaomi), Modifier.padding(top = Space.L).widthIn(max = 300.dp),
+                    color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center,
+                )
+                Column(Modifier.padding(top = Space.XS), horizontalAlignment = Alignment.CenterHorizontally) {
+                    AuroraButton(stringResource(R.string.keep_running_autostart), { openAutostart(context) }, kind = ButtonKind.Quiet, compact = true)
+                    AuroraButton(stringResource(R.string.keep_running_battery), { openAppInfo(context) }, kind = ButtonKind.Quiet, compact = true)
+                }
+            }
+            Spacer(Modifier.weight(1.3f).heightIn(min = Space.M))
         }
     }
-    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
 }
 
 @Composable

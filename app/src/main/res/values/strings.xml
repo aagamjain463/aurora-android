@@ -266,11 +266,9 @@
     <string name="onb_step">Step %1$d of %2$d</string>
     <string name="onb_shield_eyebrow">Shield</string>
     <string name="onb_shield_title">Turn on Shield.</string>
-    <string name="onb_shield_body">Shield is what blocks apps. It needs Android\'s accessibility permission, which only you can turn on.</string>
-    <string name="onb_shield_permission">Accessibility permission</string>
-    <string name="onb_shield_running">Shield running</string>
-    <string name="onb_shield_privacy">Shield reads only the name of the app in front. Nothing leaves your phone.</string>
-    <string name="onb_keep_xiaomi">Your phone can stop apps in the background, and Shield with them. Turn on Autostart for Aurora, set its battery saver to No restrictions, and lock Aurora in Recents.</string>
+    <string name="onb_shield_body">It sees only which app is open. Nothing leaves your phone.</string>
+    <string name="onb_shield_running">Shield is on</string>
+    <string name="onb_keep_xiaomi">Xiaomi phones stop apps in the background. Keep Shield running:</string>
 
     <!-- Focus -->
     <string name="focus_length_prompt">How long do you want to focus?</string>
@@ -332,19 +330,15 @@
     <string name="focus_delete_profile">Delete profile</string>
     <string name="plus_you_have_aurora_plus">You have Aurora Plus.</string>
     <string name="plus_more_room_for_every_part_of_your_day">More room, for every part of your day.</string>
-    <string name="plus_free_protects_just_as_strongly_as_plus_plus_removes_the_limits_s">Free protects just as strongly as Plus. Plus removes the limits, so Aurora can cover everything you care about.</string>
-    <string name="plus_free_and_plus">Free and Plus</string>
     <string name="plus_unavailable">Plans load from Google Play. They aren\'t available on this device right now.</string>
-    <string name="plus_downgrading_never_deletes_anything_items_past_free_s_limits_are">Downgrading never deletes anything. Items past Free\'s limits are saved and paused, and you choose which ones stay on.</string>
     <string name="plus_your_subscription">Your subscription</string>
-    <string name="plus_choose_a_plan">Choose a plan</string>
     <string name="plus_manage_in_google_play">Manage in Google Play</string>
     <string name="plus_checking_google_play">Checking Google Play…</string>
     <string name="plus_payment_pending">Payment pending</string>
     <string name="plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp">Google Play is waiting for your payment. Plus starts once it completes; nothing is charged twice.</string>
     <string name="plus_google_play">Google Play</string>
     <string name="plus_restore_purchases">Restore purchases</string>
-    <string name="plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p">Subscriptions renew until you cancel. Cancel any time in Google Play › Payments &amp; subscriptions; Plus stays until the end of the period you paid for.</string>
+    <string name="plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p">Renews until you cancel. Cancel any time in Google Play.</string>
     <string name="focus_holds_empty">Protect some apps, and Focus will hold them back while it runs.</string>
     <string name="focus_group_empty">%1$s has no protected apps yet, so nothing is held back.</string>
     <string name="focus_holds_off">Shield isn\'t on, so Focus can\'t hold apps back yet. Turn it on from Home.</string>
@@ -372,8 +366,6 @@
     <string name="plus_year_price">%1$s a year</string>
     <string name="plus_month_price">%1$s a month</string>
     <string name="plus_free_name">Aurora Free</string>
-    <string name="plus_free_tagline">Every Shield at full strength, with room to begin.</string>
-    <string name="plus_plus_tagline">No limits, for everything you care about.</string>
     <string name="plus_everything_in_free">Everything in Free, and</string>
     <string name="plus_your_plan">Your plan</string>
 
@@ -398,22 +390,22 @@
     <string name="part_no_posts">Posts are not allowed.</string>
     <string name="part_no_shorts">Shorts are not allowed.</string>
     <string name="part_only_channels">Only chosen channels are allowed.</string>
-    <string name="part_shorts">YouTube Shorts</string>
-    <string name="part_shorts_body">The rest of YouTube stays open.</string>
-    <string name="part_reels">Instagram Reels</string>
-    <string name="part_reels_body">Just the Reels tab. The rest of Instagram stays open.</string>
-    <string name="part_ig_messages">Instagram: messages and stories only</string>
-    <string name="part_ig_messages_body">Reels and posts are off everywhere. A reel or post a friend sends opens, but not the next one, and it can\'t be sent on.</string>
-    <string name="part_yt_feed">YouTube recommendations</string>
-    <string name="part_yt_feed_body">No Home feed, nothing beside or under a video, no Shorts. Watch from Subscriptions or Search.</string>
-    <string name="part_yt_channels">YouTube from chosen channels</string>
-    <string name="part_yt_channels_body">Only videos and Shorts from the channels you choose play.</string>
+    <string name="part_shorts">YouTube Shorts tab</string>
+    <string name="part_shorts_body">The Shorts tab is blocked. The rest of YouTube stays open.</string>
+    <string name="part_reels">Instagram Reels tab</string>
+    <string name="part_reels_body">The Reels tab is blocked. The rest of Instagram stays open.</string>
+    <string name="part_ig_messages">All Instagram Reels and posts, except stories and messages</string>
+    <string name="part_ig_messages_body">Reels and posts are blocked everywhere. A reel or post a friend sends still opens, but can\'t be sent on.</string>
+    <string name="part_yt_feed">YouTube Shorts, feed and recommendations</string>
+    <string name="part_yt_feed_body">All Shorts, the Home feed and everything suggested around a video are blocked. Subscriptions and Search stay.</string>
+    <string name="part_yt_channels">All YouTube channels, except the ones you choose</string>
+    <string name="part_yt_channels_body">Videos and Shorts from every other channel are blocked.</string>
     <!-- Parts of apps under their app's name: the app is already said, so the part's own name is enough. -->
-    <string name="part_reels_short">Reels</string>
-    <string name="part_ig_messages_short">Messages and stories only</string>
-    <string name="part_shorts_short">Shorts</string>
-    <string name="part_yt_feed_short">Recommendations</string>
-    <string name="part_yt_channels_short">Chosen channels only</string>
+    <string name="part_reels_short">Reels tab</string>
+    <string name="part_ig_messages_short">All Reels and posts, except stories and messages</string>
+    <string name="part_shorts_short">Shorts tab</string>
+    <string name="part_yt_feed_short">Shorts, feed and recommendations</string>
+    <string name="part_yt_channels_short">All channels, except the ones you choose</string>
     <string name="brand_instagram" translatable="false">Instagram</string>
     <string name="brand_youtube" translatable="false">YouTube</string>
     <string name="yt_channels_placeholder">Channel name or @handle</string>
@@ -893,7 +885,6 @@
     <string name="plus_conflict_move">Move to this account</string>
     <string name="plus_conflict_limit">This subscription moved recently. It can move again after 30 days.</string>
     <string name="plus_conflict_failed">That didn\'t work. Please try again.</string>
-    <string name="plus_play_note">Google Play bills the Google account the Play Store is using, which can differ from the one you sign in to Aurora with. Plus belongs to your Aurora account.</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_dark">Dark</string>
     <string name="settings_theme_light">Light</string>
@@ -992,28 +983,16 @@
     <string name="help_run_diagnostics">Run diagnostics</string>
 
     <!-- Onboarding tour -->
-    <string name="onb_begin">Show me around</string>
-    <string name="onb_skip_tour">Skip the tour</string>
-    <string name="onb_tour_shield_title">Shield blocks what distracts you.</string>
-    <string name="onb_tour_shield_body">Pick the apps, websites or parts of apps that pull you away. Choose how firm it is.</string>
-    <string name="onb_tour_shield_point_1">Flexible: blocked until you turn it off.</string>
-    <string name="onb_tour_shield_point_2">Friction or Cooldown: a challenge or a wait to end early.</string>
-    <string name="onb_tour_shield_point_3">Strict: no way out until the timer ends.</string>
-    <string name="onb_tour_intent_title">Intent asks before you open.</string>
-    <string name="onb_tour_intent_body">For apps you want to keep, but use on purpose.</string>
-    <string name="onb_tour_intent_point_1">Aurora pauses you for a moment.</string>
-    <string name="onb_tour_intent_point_2">You decide if you really want it.</string>
-    <string name="onb_tour_intent_point_3">You choose how long, and Aurora holds you to it.</string>
-    <string name="onb_tour_home_title">Home is where you start.</string>
-    <string name="onb_tour_home_body">Put a Shield and an Intent together into a session, and start it.</string>
-    <string name="onb_tour_home_point_1">Start now, later, on a schedule, or always.</string>
-    <string name="onb_tour_home_point_2">Save sessions you use often, to start them in one tap.</string>
-    <string name="onb_tour_home_point_3">See the time you take back, right on Home.</string>
-    <string name="onb_tour_track_title">Track shows your progress.</string>
-    <string name="onb_tour_track_body">See where your time goes, and build better habits.</string>
-    <string name="onb_tour_track_point_1">Usage: your screen time and top apps.</string>
-    <string name="onb_tour_track_point_2">Progress: your sessions and how they went.</string>
-    <string name="onb_tour_track_point_3">Habits: small promises you keep every day or week.</string>
+    <string name="onb_begin">Begin</string>
+    <string name="onb_skip_tour">Skip</string>
+    <string name="onb_tour_shield_title">Block what pulls you away.</string>
+    <string name="onb_tour_shield_body">Apps, websites, even Reels and Shorts. You choose how firm.</string>
+    <string name="onb_tour_intent_title">Open apps on purpose.</string>
+    <string name="onb_tour_intent_body">A pause first. Then you choose how long.</string>
+    <string name="onb_tour_home_title">Start in one tap.</string>
+    <string name="onb_tour_home_body">A Shield and an Intent, together as a session.</string>
+    <string name="onb_tour_track_title">Watch your habits grow.</string>
+    <string name="onb_tour_track_body">Your time, your sessions, your habits.</string>
     <string name="onb_tour_mock_question">Do you actually want to use the app?</string>
     <string name="onb_tour_mock_session">Your session</string>
 

@@ -148,7 +148,8 @@ sealed interface InstagramVerdict {
 
 /**
  * What Aurora does on this Instagram screen, given the parts a Shield holds back right now.
- * [reels]: only the Reels tab. [messages]: only chats and stories. The one reel or post a friend sent
+ * [reels]: the Reels tab (its button is covered too, see ContentService). [messages]: every reel and post, except
+ * stories and messages. The one reel or post a friend sent
  * opens from the chat; every other reel and post is held back (Home, Search, the Reels tab, the
  * "Suggested" reels after a sent one, audio pages, every profile's grid). Profiles themselves stay.
  * [feed] and [search] are the older separate parts: Home posts, and Search.
@@ -182,10 +183,18 @@ fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed
 data class YouTubeScreen(
     /** The Shorts player is open. */
     val shorts: Boolean = false,
+    /** The Shorts tab is the chosen tab (not a Short opened from Home, Search or a channel). */
+    val shortsTab: Boolean = false,
     /** The Home tab's feed, top to bottom, when Home is the chosen tab. */
     val homeFeed: Pair<Int, Int>? = null,
     /** The open video's player (not the miniplayer, not a preview in a list): left, top, right, bottom. */
     val watch: List<Int>? = null,
+    /**
+     * What YouTube recommends around the open video, read from its own views: the list under or beside the
+     * player, the "Suggested video" that ends a video, the row that slides up in full screen. Each is left,
+     * top, right, bottom.
+     */
+    val related: List<List<Int>> = emptyList(),
     /** What YouTube shows around the playing video or Short: its title, channel, handle. */
     val texts: List<String> = emptyList(),
 )
@@ -201,18 +210,24 @@ sealed interface YouTubeVerdict {
 }
 
 /**
- * What Aurora does on this YouTube screen. [shorts]: Shorts. [feed]: every recommendation (Home's feed,
- * what's beside or below a video, Shorts); Subscriptions and Search stay. [channels]: the channels key
- * and its channels, when only those may play.
+ * What Aurora does on this YouTube screen. [shorts]: the Shorts tab. [feed]: every Short, Home's feed and
+ * everything YouTube suggests around a video; Subscriptions, Search and the video itself stay.
+ * [channels]: the channels key and its channels, when only those may play.
  */
 fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: Pair<String, List<String>>?, screenWidth: Int, screenBottom: Int): YouTubeVerdict {
     val playing = s.shorts || s.watch != null
     return when {
-        s.shorts && shorts -> YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts)
+        s.shorts && shorts && s.shortsTab -> YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts)
         s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts)
         // Nothing to read yet (still loading, or full screen): judged once it shows.
         channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) ->
             YouTubeVerdict.NotFromChannel(channels.first, R.string.part_only_channels)
+        // Covered as YouTube draws it, so the cover moves with the list and nothing can be scrolled out from under it.
+        feed && s.related.isNotEmpty() -> YouTubeVerdict.Cover(
+            listOf(s.related.minOf { it[0] }, s.related.minOf { it[1] }, s.related.maxOf { it[2] }, s.related.maxOf { it[3] }),
+            PartYouTubeFeed,
+        )
+        // An older YouTube without those views: whatever is below or beside the player.
         feed && s.watch != null -> {
             val (_, _, right, bottom) = s.watch
             when {
