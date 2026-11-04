@@ -298,6 +298,17 @@ class ScreenshotTest(private val variant: Variant) {
         capture("onboarding_how") { OnboardingScreen(onFinish = {}) }
     }
 
+    /** A page for each tab. */
+    @Test fun onboardingTabShield() = tab(2, "onboarding_tab_shield")
+    @Test fun onboardingTabIntent() = tab(3, "onboarding_tab_intent")
+    @Test fun onboardingTabHome() = tab(4, "onboarding_tab_home")
+    @Test fun onboardingTabTrack() = tab(5, "onboarding_tab_track")
+
+    private fun tab(step: Int, name: String) {
+        runBlocking { application.preferences.setOnboardingStep(step) }
+        capture(name) { OnboardingScreen(onFinish = {}) }
+    }
+
     /** Habits completed move to History, with their results. */
     @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun habitHistory() {

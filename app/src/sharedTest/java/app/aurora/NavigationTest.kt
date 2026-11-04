@@ -122,11 +122,13 @@ class NavigationTest {
     fun onboardingCompletesOnHome() {
         shieldOn()
         launch(onboarded = false)
-        // Onboarding picks nothing: the welcome, how Aurora works, then Shield.
+        // Onboarding picks nothing: the welcome, how Aurora works, each tab in turn, then Shield.
         awaitText("Get started")
         compose.onNodeWithText("Get started").performClick()
-        awaitText("Continue")
-        compose.onNodeWithText("Continue").performClick()
+        repeat(5) {
+            awaitText("Continue")
+            compose.onNodeWithText("Continue").performClick()
+        }
         awaitText("Go to Home")
         compose.onNodeWithText("Go to Home").performClick()
         scrollTo("Start session").assertIsDisplayed()

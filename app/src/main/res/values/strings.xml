@@ -985,13 +985,17 @@
 
     <!-- Onboarding tour -->
     <string name="onb_begin">Get started</string>
-    <string name="onb_welcome_body">Block what pulls you away. Open apps only on purpose.</string>
     <string name="onb_how_title">How Aurora works.</string>
     <string name="onb_how_body">Four tabs. Nothing more.</string>
     <string name="onb_skip_tour">Skip</string>
+    <string name="onb_tour_shield_body">Apps, websites, even Reels and Shorts. You choose how firm.</string>
     <string name="onb_tour_shield_title">Block what pulls you away.</string>
+    <string name="onb_tour_intent_body">A pause first. Then you choose how long.</string>
     <string name="onb_tour_intent_title">Open apps on purpose.</string>
+    <string name="onb_tour_home_body">A Shield and an Intent, together as a session.</string>
     <string name="onb_tour_home_title">Start in one tap.</string>
+    <string name="onb_tour_track_body">Your time, your sessions, your habits.</string>
+    <string name="onb_tour_mock_session">Your session</string>
     <string name="onb_tour_track_title">Watch your habits grow.</string>
 
     <!-- Habit history -->
