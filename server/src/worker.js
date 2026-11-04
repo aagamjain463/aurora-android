@@ -438,7 +438,6 @@ async function reserve(request, env, fetcher) {
   const enforceDevice = deviceQuota(env) === 'enforce'
   const watchDevice = deviceQuota(env) !== 'off'
   for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
-    const existing = await env.DB.prepare('SELECT * FROM quota_reservations WHERE account_id = ? AND idempotency_key = ?').bind(account.id, idempotencyKey).first()
     // Both revisions before either ledger: whatever is written after this read makes the insert below a no-op.
     const { quota_revision: revision } = await env.DB.prepare('SELECT quota_revision FROM accounts WHERE id = ?').bind(account.id).first()
     const { quota_revision: deviceRevision } = await env.DB.prepare('SELECT quota_revision FROM devices WHERE id = ?').bind(installId).first()
@@ -446,6 +445,10 @@ async function reserve(request, env, fetcher) {
     const machine = watchDevice ? await deviceLedgerOf(env, installId, now) : []
     const day = quotaZone(ledger, now, zone)
     const deviceDay = quotaZone(machine, now, zone)
+    // The key after the ledgers: a duplicate request racing this one is either in the ledgers read above and found
+    // here (a replay), or wrote after the revisions were read, so this one's insert is a no-op and it looks again.
+    // Read before the ledgers, a duplicate committed in between was judged as new time and refused.
+    const existing = await env.DB.prepare('SELECT * FROM quota_reservations WHERE account_id = ? AND idempotency_key = ?').bind(account.id, idempotencyKey).first()
     const status = (at, extra = []) => {
       const own = { ...statusOf([...ledger, ...extra], at, day), limitedBy: 'account' }
       if (!enforceDevice) return own

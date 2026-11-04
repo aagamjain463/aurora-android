@@ -126,6 +126,28 @@ test('9. a replayed reservation returns the same authorization and spends nothin
   assert.deepEqual([a.uid, a.installId, a.commitmentId], ['a', 'phone', 'c1'])
 })
 
+test('9a. a duplicate request racing the first, at any offset, gets the one reservation: never refused as new time', async () => {
+  const ticks = (n) => Array.from({ length: n }).reduce((p) => p.then(() => new Promise((r) => setImmediate(r))), Promise.resolve())
+  // The server's now differs by a few milliseconds per request, so a duplicate judged as new time never fits.
+  // Offsetting the second request walks it through every step of the first, as real D1 timing would.
+  // Every reading of the clock a millisecond later, as two requests on separate isolates would see it.
+  const realNow = Date.now
+  let drift = 0
+  Date.now = () => realNow() + drift++
+  try {
+    for (let offset = 0; offset < 40; offset++) {
+      const w = world()
+      const request = { installId: 'phone', idempotencyKey: 'k', commitmentId: 'c', mode: 'always_block', minutes: 120, zone: UTC }
+      const results = await Promise.all([w.call('/v1/quota/reserve', idToken('a'), request), ticks(offset).then(() => w.call('/v1/quota/reserve', idToken('a'), request))])
+      assert.ok(results.every((r) => r.body.allowed), `offset ${offset}: ${JSON.stringify(results.map((r) => r.body))}`)
+      assert.equal(new Set(results.map((r) => JSON.parse(r.body.authorization.payload).reservationId)).size, 1)
+      assert.equal(w.DB.rows('SELECT * FROM quota_reservations').length, 1)
+    }
+  } finally {
+    Date.now = realNow
+  }
+})
+
 test('9b. a captured device proof is worthless with another sign-in or another body', async () => {
   const w = world()
   const key = deviceKey()

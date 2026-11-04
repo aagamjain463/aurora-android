@@ -83,7 +83,8 @@ D1 runs a batch as one SQL transaction on a single primary that serialises write
 atomic across Worker instances and isolates (no in-memory lock is assumed anywhere). If anything wrote to either
 ledger after the read, the insert is a no-op and the request retries (6 attempts, then `503 try_again`). The
 idempotency key (`UNIQUE (account_id, idempotency_key)`, the app sends its commitment id) makes retries and
-duplicate requests return the first reservation, but only to the installation that made it (another installation
+duplicate requests return the first reservation (the key is read after both ledgers, so a duplicate committed
+mid-request is found as a replay, never judged as new time and refused: test `9a`), but only to the installation that made it (another installation
 reusing the key gets `409 idempotency_conflict`). Releasing a reservation that hasn't begun frees its key: the app's
 key for a recurring occurrence is fixed (`rec:<schedule>:<start>`), so a schedule paused and turned back on asks
 with the same key and is charged again instead of replaying the released authorization for free. Migration
@@ -146,11 +147,36 @@ modified build (section 4); nothing can stop one from enforcing whatever it want
 
 ## 5. Device Recall: not integrated
 
-Device Recall (three bits Google keeps per device across reinstalls and resets) is the only supported way to notice
-a phone that was reset or reinstalled to farm new allowances. Aurora has no evidence of approved access, so it is
-not called, not stubbed and not behind a flag. If access is granted, the plan is: on `attest`, read the bits; write
-one bit ("Free allowance used today") with a short write date; treat a set bit on a fresh installation as one more
-signal for `abuse_events`, never as an identifier and never stored beyond the device row's verdict.
+Device Recall is the only supported way to notice a phone that was reinstalled or reset to farm new allowances
+(section 10 explains why the Android ID is not). Facts from Google's documentation, read 2026-11-04
+(developer.android.com/google/play/integrity/device-recall):
+
+- Three custom bits per device, shared by all of a developer's apps, read with an integrity verdict and written
+  server to server within 14 days of verifying that token. Google keeps them "even after your app is reinstalled or
+  the device is reset", for 3 years after the last read or write.
+- Google names this use: "devices that already redeemed high-value items (such as a free trial), or devices that
+  are being used repeatedly to create new accounts for abusive purposes". It must not be used "to fingerprint or
+  track individual users or devices".
+- **Beta**, behind an interest form and approval, then switched on in Play Console. Needs a Play-licensed user
+  account (otherwise unevaluated), and no emulators.
+
+Aurora has no approved access, so it is not called, not stubbed and not behind a flag. If access is granted, the
+plan is:
+
+1. On `attest` (Play Integrity is already wired, section 4), read the bits with the verdict.
+2. When an installation spends its whole Free day, write one bit ("allowance spent recently"). Never a quota, a
+   minute count or an account.
+3. A fresh installation whose verdict shows that bit set starts with today's Free allowance already spent (as if
+   its installation ledger held the day). That is reinstall-resistant *enforcement*, not detection, because the
+   bit comes from Google's verdict, not from the app: a modified client can withhold the verdict (it stays
+   `unknown`, section 4) but can't forge a clear bit. To confirm in the beta documentation before building:
+   whether a verdict says when a bit was written. Without that, the bit must be cleared by the next day's write,
+   so a phone is never held back for longer than the day it actually spent.
+4. Rollout like everything here: `shadow` (record `recall_shadow` events) for weeks, then `enforce`. A bit is
+   cleared by writing it again; support can do that on request.
+
+What it would still not stop: phones without Play services or a Play-licensed account, and a modified client that
+never attests (section 8).
 
 ## 6. Lifecycle: what is enforced and what is only detectable
 
@@ -206,7 +232,7 @@ a modified client can protect as much as it likes on its own phone.
 | Replay a reservation, a proof, or an authorization | Closed (idempotency, proof bound to token and body, authorization bound to uid, install and commitment) |
 | Spend or poison someone else's installation ledger | Closed once that id is bound to a key; before then, needs the victim's random id |
 | Change the phone's clock or time zone | Closed on the server; the app's own clock policy is in `CommittedQuota.kt` |
-| Reinstall or clear data, then a new account | **Open.** Each costs a reinstall and a new verified email. Only Device Recall could notice it. |
+| Reinstall or clear data, then a new account | **Open.** Each costs a reinstall and a new verified email. The Android ID was evaluated and rejected (section 10); only Device Recall (section 5) can close it. |
 | Modified client: count targets wrongly, invent ids, skip proofs | **Open** for local enforcement; server limits still hold per id and per account. See "How a modified app skips Play Integrity" below. |
 | Pause and resume a schedule to get its reservation back for free | Closed (a release frees the key; the next ask is charged) |
 | Reuse another installation's idempotency key to borrow its authorization | Closed (`409 idempotency_conflict`) |
@@ -259,3 +285,43 @@ enforcement stay valid either way.
 Not production-ready until stages 1 to 3 have run on staging with real Keystore keys and real D1, and the full
 server and Android suites pass there; the automated tests here use a SQLite stand-in for D1 and Robolectric
 without a Keystore. The steps are in `docs/ANTI_ABUSE_STAGING_TESTS.md`.
+
+## 10. Reinstall resistance: why not the Android ID
+
+Evaluated 2026-11-04 as a third ledger keyed by `HMAC(server secret, SHA-256 of Settings.Secure.ANDROID_ID)`, on top of
+the account and installation ledgers. It was built and tested, then **withdrawn before commit**; the patch is kept
+outside the repository (`~/aurora-backups/phone-key-ledger-android-id-withdrawn-20261104.patch`) as a record, not
+for use.
+
+What the Android ID would have given. Since Android 8 (Aurora's `minSdk` is 26) it is scoped to the app's signing
+key, the Android user and the phone, and keeps its value across an uninstall and reinstall of the same signed app.
+It changes with a factory reset, in another Android user or work profile, and for a build signed with another key
+(a debug or sideloaded build). So it would have stopped an ordinary reinstall plus a new account, from the genuine
+app, on the same phone.
+
+Why it was withdrawn:
+
+1. **Google Play policy.** The User Data policy: "Persistent device identifiers may not be linked to other personal
+   and sensitive user data or resettable device identifiers except for the purposes of Telephony linked to a SIM
+   identity … and Enterprise device management apps using device owner mode." The Android ID survives reinstalls,
+   so it is a persistent identifier. The quota ledger links it to an account and its verified email. Fraud and
+   abuse prevention is not an exception, and an HMAC changes the value, not the linking. Android's identifier
+   guidance points abuse protection at Play Integrity, not the Android ID.
+2. **No trustworthy binding.** The value is whatever the app sends. Play Integrity attests the app and the device,
+   not a value the app reads from Settings: putting a hash of it into the request hash proves only that the
+   genuine app sent it, and the bypass (a modified client that invents a new value per reinstall, or never
+   attests) stays open. Hard enforcement would rest on a client claim.
+3. **The compliant substitutes don't survive a reinstall.** App set ID (Google's suggestion for fraud prevention)
+   is reset when "the last app from a given set of apps is uninstalled from the device", which for Aurora is every
+   uninstall. A Firebase installation id or Aurora's own id lives only as long as the install.
+
+So Aurora still reads no hardware or persistent identifier, and the privacy policy is unchanged: section 1 stays
+true. The reinstall-plus-new-account loophole stays **open** and **undetected**. Everything else in this document
+still holds: the account ledger stops reinstalls under the *same* account, and the installation ledger stops
+account switching without a reinstall.
+
+**Strongest compliant alternative: Device Recall** (section 5). It survives reinstall *and* factory reset, it is
+Google's answer rather than the app's, and Google names repeated free trials and repeated account creation as its
+use. It needs beta approval. Next step for the founder: submit the Device Recall interest form from the Play
+Console account, and finish Play Integrity rollout (section 9, stage 4), which Device Recall rides on.
+
