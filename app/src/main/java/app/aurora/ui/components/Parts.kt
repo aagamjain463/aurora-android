@@ -108,9 +108,9 @@ fun Tag(text: String, modifier: Modifier = Modifier, accent: Boolean = false) {
     Text(
         text.lowercase(),
         modifier
-            .glass(colors, Radius.Pill, tint = if (accent) colors.accent else colors.violet)
+            .glass(colors, Radius.Pill, tint = if (accent) colors.accent else colors.muted)
             .padding(horizontal = 8.dp, vertical = 2.dp),
-        color = if (accent) colors.accent else colors.violetText,
+        color = if (accent) colors.accent else colors.mutedText,
         style = AuroraType.Caption,
     )
 }
@@ -151,7 +151,7 @@ fun ProgressLine(fraction: Float, modifier: Modifier = Modifier, warm: Boolean =
     val colors = Aurora.colors
     val f by rememberFill(fraction.coerceIn(0f, 1f))
     Box(modifier.fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.hairline)) {
-        Box(Modifier.fillMaxWidth(f).height(4.dp).clip(Radius.Pill).background(if (warm) colors.violet else colors.accent))
+        Box(Modifier.fillMaxWidth(f).height(4.dp).clip(Radius.Pill).background(if (warm) colors.muted else colors.accent))
     }
 }
 

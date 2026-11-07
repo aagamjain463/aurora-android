@@ -4,7 +4,7 @@ The current Home/Shield/Intent/Track model, including Goals, is described in
 [CONFIGURATIONS.md](CONFIGURATIONS.md). It supersedes this earlier
 `feat/aurora-product-reinvention` navigation and activation flow.
 The previous product and validation records remain in Git history. Brand details are in
-[BRAND_SYSTEM.md](BRAND_SYSTEM.md), enforcement in [SHIELD.md](SHIELD.md), and copy review in
+[the brand guidelines](../brand/Aurora_Brand_Guidelines.md), enforcement in [SHIELD.md](SHIELD.md), and copy review in
 [AURORA_COPY_REVIEW.md](AURORA_COPY_REVIEW.md).
 
 ## Protection model

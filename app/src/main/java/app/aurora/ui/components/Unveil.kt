@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.IntSize
 import app.aurora.R
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.Motion
-import app.aurora.ui.theme.Palette
 import kotlinx.coroutines.flow.first
 
 /** Whether the opening is on screen. Anything that performs on first show waits for it to part. */
@@ -88,10 +87,9 @@ internal fun opensWithFirstLight(recreated: Boolean, awayMs: Long?, touchExplori
 internal fun stepOpening(p: Float, dt: Float, ms: Int): Float = (p + dt * 1000f / ms).coerceAtMost(1f)
 
 /**
- * First Light: the mark settles in on the page colour, holds, and the night fades off the
- * real page as it rises into place. This is the only place the logo animates: the system splash before it is empty
- * page colour, so the mark can't appear twice. A tap hurries it. With reduced motion the finished logo fades straight
- * away. It only ever draws, so nothing else waits on it.
+ * The opening: the approved logo, already on screen from the system splash, holds for a moment on its black; then the
+ * black fades off the real page as it rises into place. The logo itself never animates or changes. A tap hurries it.
+ * With reduced motion it fades straight away. It only ever draws, so nothing else waits on it.
  */
 @Composable
 fun AuroraUnveil(modifier: Modifier = Modifier) {
@@ -132,36 +130,26 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
         }
         Opening.finish()
     }
-    val mark = androidx.compose.ui.res.painterResource(R.drawable.ic_aurora_mark)
-    // The opening is always night, whatever the theme: the mark is lit by the dawn. No glow behind it.
-    val dawnColors = app.aurora.ui.theme.DarkColors
+    // The same art as the system splash, at the same size on the same black, so the handover is invisible.
+    val logo = androidx.compose.ui.graphics.ImageBitmap.imageResource(R.drawable.ic_launcher_logo)
     val night = colorResource(R.color.aurora_splash)
     Box(
         modifier.fillMaxSize()
             .pointerInput(Unit) { detectTapGestures { pace = minOf(pace, HurryMs) } }
             .clearAndSetSemantics { }
             .drawWithCache {
-                val markSize = Size(MarkDp * density, MarkDp * density * mark.intrinsicSize.height / mark.intrinsicSize.width)
-                val left = size.width / 2f - markSize.width / 2f
-                val top = size.height / 2f - markSize.height / 2f
+                val side = (LogoDp * density).toInt()
+                val left = (size.width - side) / 2f
+                val top = (size.height - side) / 2f
                 val rise = RiseDp * density
-                val dawn = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(dawnColors.light, dawnColors.glowTop, dawnColors.glowHot, dawnColors.glowCool), startY = 0f, endY = markSize.height,
-                )
                 onDrawBehind {
-                    val v = p
-                    val form = (v * TotalMs / FormMs).coerceIn(0f, 1f)
-                    val gone = leaving(v)
+                    val gone = leaving(p)
                     drawRect(night, alpha = 1f - gone)
-                    // The mark rises in from just below like the sun, lit by the dawn, holds, and lifts away with the night.
-                    val shown = if (reduced) 1f else smooth(form)
-                    translate(left, top + (1f - shown) * rise - gone * rise) {
-                        val layer = androidx.compose.ui.graphics.Paint().apply { alpha = shown * (1f - gone) }
-                        drawContext.canvas.saveLayer(androidx.compose.ui.geometry.Rect(Offset.Zero, markSize), layer)
-                        with(mark) { draw(markSize) }
-                        drawRect(dawn, size = markSize, blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn)
-                        drawContext.canvas.restore()
-                    }
+                    // The logo holds still, then lifts away with the black as the page rises into place.
+                    drawImage(
+                        logo, dstOffset = androidx.compose.ui.unit.IntOffset(left.toInt(), (top - gone * rise).toInt()),
+                        dstSize = IntSize(side, side), alpha = 1f - gone, filterQuality = FilterQuality.High,
+                    )
                 }
             },
     )
@@ -169,29 +157,24 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
 
 private fun leaving(p: Float) = Motion.Ease.transform(((p - PartAt) / (1f - PartAt)).coerceIn(0f, 1f))
 
-private fun smooth(v: Float): Float {
-    val k = v.coerceIn(0f, 1f)
-    return k * k * (3f - 2f * k)
-}
-
-private const val TotalMs = 2200
-private const val FormMs = 900
-private const val HurryMs = 350
-private const val ReducedMs = 1100
+private const val TotalMs = 1400
+private const val HurryMs = 300
+private const val ReducedMs = 900
 private const val MaxStep = 1f / 30f
 private const val CalmFrames = 4
 private const val CalmFrameNs = 24_000_000L
 private const val SettleMaxNs = 700_000_000L
 /** The page draws again under the opaque night, while the logo is still, so that frame's cost is never seen. */
-private const val ShowAt = 1500f / TotalMs
+private const val ShowAt = 700f / TotalMs
 /** The finished logo has held for its moment: the night starts to fade and the page rises. */
-private const val PartAt = 1700f / TotalMs
+private const val PartAt = 900f / TotalMs
 /** The night is nearly gone: Home's content can start its own entrance. Together they drop frames on a mid-range phone. */
-private const val ContentAt = 2050f / TotalMs
+private const val ContentAt = 1250f / TotalMs
 /** The night has gone: the sky over the page can start to rise. */
-private const val LeaveAt = 2150f / TotalMs
+private const val LeaveAt = 1350f / TotalMs
 private const val RiseDp = 14f
 private const val ReopenAfterMs = 5 * 60 * 1000L
 
-private const val MarkDp = 72f
+/** The Android 12+ splash draws an un-backed icon 288dp square. */
+private const val LogoDp = 288f
 

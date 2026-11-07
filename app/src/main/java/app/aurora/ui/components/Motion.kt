@@ -107,7 +107,7 @@ fun Modifier.pressable(shape: Shape, role: Role = Role.Button, onClickLabel: Str
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         if (pressed && !Aurora.reducedMotion) 0.96f else 1f,
-        if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.55f, stiffness = 700f),
+        if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.9f, stiffness = 700f),
         label = "press",
     )
     graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }

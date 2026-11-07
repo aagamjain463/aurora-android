@@ -108,7 +108,7 @@ fun StepFlow(
                     Box(Modifier.weight(1f).height(8.dp), contentAlignment = Alignment.CenterStart) {
                         Box(Modifier.fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.hairline))
                         Box(Modifier.fillMaxWidth(filled).height(4.dp).clip(Radius.Pill).background(colors.accent))
-                        if (i == index) Box(Modifier.align(Alignment.CenterEnd).size(8.dp).graphicsLayer { alpha = filled; scaleX = filled; scaleY = filled }.clip(Radius.Pill).background(colors.light))
+                        if (i == index) Box(Modifier.align(Alignment.CenterEnd).size(8.dp).graphicsLayer { alpha = filled; scaleX = filled; scaleY = filled }.clip(Radius.Pill).background(colors.textPrimary))
                     }
                 }
             }
@@ -175,7 +175,7 @@ fun LazyListScope.appChecklist(
         Column {
         val count = if (q.isEmpty()) stringResource(R.string.picker_count, visible.size, selected.count { !it.startsWith(WebPrefix) }) else stringResource(R.string.picker_matches, visible.size)
         Text(
-            count.uppercase(),
+            count,
             Modifier.padding(start = 4.dp, top = Space.S, bottom = 2.dp).clearAndSetSemantics { this.text = androidx.compose.ui.text.AnnotatedString(count) },
             color = Aurora.colors.textTertiary, style = AuroraType.Eyebrow,
         )
@@ -338,7 +338,7 @@ fun DetailsDialog(title: String, rows: List<Pair<String, String>>, onDismiss: ()
             rows.filter { it.second.isNotBlank() }.forEachIndexed { i, (label, value) ->
                 if (i > 0) app.aurora.ui.components.RowDivider()
                 Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp).semantics(mergeDescendants = true) { }) {
-                    Text(label.uppercase(), color = colors.textTertiary, style = AuroraType.Eyebrow)
+                    Text(label, color = colors.textTertiary, style = AuroraType.Eyebrow)
                     Text(value, Modifier.padding(top = 4.dp), color = colors.textPrimary, style = AuroraType.Body)
                 }
             }

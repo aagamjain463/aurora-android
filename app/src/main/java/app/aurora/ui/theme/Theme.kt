@@ -19,7 +19,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-/** 4dp grid. The screen gutter is [Gutter]; everything else steps along this scale. */
+/** 8dp grid in 4dp steps (tokens: space-dp). The screen gutter is [Gutter]; everything else steps along this scale. */
 object Space {
     val XXS = 4.dp
     val XS = 8.dp
@@ -28,28 +28,32 @@ object Space {
     val L = 24.dp
     val XL = 32.dp
     val XXL = 48.dp
-    val Gutter = 24.dp
+    val Gutter = 20.dp
 }
 
-/** Corner radii (tokens: radius). Interactive pills are fully round; cards are 26dp. */
+/** Corner radii (tokens: radius-dp). Buttons and fields 14dp, cards 20dp, dialogs 24dp; chips and toggles are round. */
 object Radius {
-    val S = RoundedCornerShape(12.dp)
-    val M = RoundedCornerShape(18.dp)
+    val S = RoundedCornerShape(10.dp)
+    /** Buttons, fields, icon wells. */
+    val M = RoundedCornerShape(14.dp)
+    val Button = M
     /** Cards. */
-    val L = RoundedCornerShape(26.dp)
-    val Dialog = RoundedCornerShape(30.dp)
+    val L = RoundedCornerShape(20.dp)
+    val Dialog = RoundedCornerShape(24.dp)
     val Pill = RoundedCornerShape(percent = 50)
 }
 
-/** Motion tokens. One easing curve everywhere: quick to respond, slow to settle. */
+/** Motion tokens (tokens: motion-ms). One easing curve everywhere: quick to respond, calm to settle. */
 object Motion {
     val Ease = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-    const val Quick = 120
+    /** Micro-interactions. */
+    const val Quick = 160
+    /** Navigation. */
     const val Standard = 240
-    const val Gentle = 420
-    /** Hero art and the day's numbers settling in on first show. */
-    const val Reveal = 900
-    const val Breath = 4200
+    /** Modals and sheets. */
+    const val Gentle = 280
+    /** The day's numbers settling in on first show. */
+    const val Reveal = 600
 }
 
 val LocalAuroraColors = staticCompositionLocalOf { DarkColors }
@@ -59,12 +63,12 @@ object Aurora {
     val colors: AuroraColors
         @Composable @ReadOnlyComposable get() = LocalAuroraColors.current
 
-    /** True when the person (or the system) asked for less motion: no movement, scaling or ambient loops. */
+    /** True when the person (or the system) asked for less motion: no movement or scaling. */
     val reducedMotion: Boolean
         @Composable @ReadOnlyComposable get() = LocalReducedMotion.current
 }
 
-/** Tween on the aurora curve, or an instant snap when motion is reduced. */
+/** Tween on Aurora's curve, or an instant snap when motion is reduced. */
 @Composable
 @ReadOnlyComposable
 fun <T> auroraTween(durationMs: Int = Motion.Standard): FiniteAnimationSpec<T> =
@@ -83,7 +87,7 @@ fun AuroraTheme(reduceMotion: Boolean, themeMode: ThemeMode = ThemeMode.Dark, co
     }
     val colors = if (dark) DarkColors else LightColors
     val context = LocalContext.current
-    // Android Go phones hold still too: every moving light is a redraw they can't spare.
+    // Android Go phones hold still too: every animation is a redraw they can't spare.
     val systemReduced = remember(context) { systemAnimationsOff(context) || context.getSystemService(android.app.ActivityManager::class.java).isLowRamDevice }
     CompositionLocalProvider(
         LocalAuroraColors provides colors,

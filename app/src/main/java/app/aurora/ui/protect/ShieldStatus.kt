@@ -100,7 +100,7 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
             .padding(Space.L),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        if (!good) app.aurora.ui.components.LitBadge(app.aurora.ui.components.AuroraIcons.Protect, size = 44, tint = colors.rose)
+        if (!good) app.aurora.ui.components.LitBadge(app.aurora.ui.components.AuroraIcons.Protect, size = 44, tint = colors.textSecondary)
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = if (good) AuroraType.Title else AuroraType.Headline)
         Text(body, color = if (good) colors.textSecondary else colors.textPrimary, style = if (good) AuroraType.Secondary else AuroraType.Body)
         when (status) {

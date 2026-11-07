@@ -44,7 +44,7 @@ import app.aurora.ui.theme.Space
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.uppercase(),
+        text,
         modifier
             .padding(start = Space.Gutter + 4.dp, end = Space.Gutter, top = Space.L, bottom = 10.dp)
             .clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
@@ -62,7 +62,7 @@ fun Eyebrow(
     textAlign: androidx.compose.ui.text.style.TextAlign? = null,
 ) {
     Text(
-        text.uppercase(),
+        text,
         modifier.semantics { contentDescription = text },
         color = color,
         style = AuroraType.Eyebrow,
@@ -199,9 +199,9 @@ fun ComingSoonRow(title: String, subtitle: String, icon: ImageVector) {
             Text(
                 "soon",
                 Modifier
-                    .glass(colors, Radius.Pill, tint = colors.violet)
+                    .glass(colors, Radius.Pill, tint = colors.muted)
                     .padding(horizontal = 10.dp, vertical = 4.dp),
-                color = colors.violetText,
+                color = colors.mutedText,
                 style = AuroraType.Caption,
             )
         },

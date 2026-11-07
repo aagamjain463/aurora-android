@@ -81,7 +81,7 @@ fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSe
                 onDuplicate = { vm.run { vm.app.saveIntentPreset(p.copy(id = newId(), name = vm.app.getString(R.string.preset_copy_name, p.name), createdAt = System.currentTimeMillis())) } },
                 onDelete = { deleting = p },
                 modifier = Modifier.padding(bottom = Space.S),
-                edge = Aurora.colors.rose,
+                edge = Aurora.colors.textSecondary,
             )
         }
     }
@@ -187,7 +187,7 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
                     item(key = "length") {
                         DurationPicker(cooldown, { cooldown = it }, IntentCooldownPresets, Modifier.padding(top = Space.S), title = stringResource(R.string.intent_cooldown_title), hint = stringResource(R.string.intent_cooldown_hint), max = 12 * 60)
                     }
-                    item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.violetText, style = AuroraType.BodyStrong) }
+                    item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.mutedText, style = AuroraType.BodyStrong) }
                 }
             }
             IntentStep.Review -> {

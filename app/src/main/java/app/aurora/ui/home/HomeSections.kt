@@ -2,7 +2,6 @@ package app.aurora.ui.home
 
 import app.aurora.ui.components.Eyebrow
 import app.aurora.ui.components.glass
-import app.aurora.ui.components.sunlit
 import app.aurora.ui.components.RollingClock
 import androidx.compose.foundation.background
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -122,7 +121,7 @@ fun ChooseCard(onStart: () -> Unit, busy: String? = null) {
             return@Column
         }
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 58.dp).pressable(Radius.Pill, onClick = onStart).clip(Radius.Pill).sunlit(colors).padding(horizontal = Space.L),
+            Modifier.fillMaxWidth().heightIn(min = 54.dp).pressable(Radius.Button, onClick = onStart).clip(Radius.Button).background(colors.accent).padding(horizontal = Space.L),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
@@ -213,7 +212,7 @@ fun LazyListScope.homeLater(d: ProtectData, app: AuroraApplication, onOpenFocus:
 private fun HomeLabel(text: String) {
     // Small caps like every section label; read aloud as written.
     Text(
-        text.uppercase(),
+        text,
         Modifier.rise().padding(start = Space.Gutter + 4.dp, end = Space.Gutter, top = Space.L, bottom = 10.dp)
             .clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
         color = Aurora.colors.textTertiary, style = AuroraType.Eyebrow,
@@ -250,7 +249,7 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
     var confirm by remember { mutableStateOf(false) }
     var ending by remember { mutableStateOf(false) }
     val host = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    val tint = run.shield?.let { modeColor(it.mode) } ?: colors.rose
+    val tint = run.shield?.let { modeColor(it.mode) } ?: colors.textSecondary
     val end = run.endAt(d.time)
     // A commitment carried over from another account doesn't show what it covers.
     val keys = if (run.carried) emptyList() else (run.shield?.keys.orEmpty() + run.intent?.keys.orEmpty()).distinct()
@@ -276,14 +275,14 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
         }
         // The hero above already says this for the run it counts down.
         if (!inHero) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-            Box(Modifier.size(8.dp).clip(Radius.Pill).background(if (connected) colors.accent else colors.violet))
-            Text(stringResource(if (connected) R.string.home_enforced else R.string.home_not_enforced), color = if (connected) colors.accent else colors.violetText, style = AuroraType.Caption)
+            Box(Modifier.size(8.dp).clip(Radius.Pill).background(if (connected) colors.accent else colors.muted))
+            Text(stringResource(if (connected) R.string.home_enforced else R.string.home_not_enforced), color = if (connected) colors.accent else colors.mutedText, style = AuroraType.Caption)
         }
         run.focus?.let { f ->
             val target = f.minutes?.let { it * 60_000L } ?: ((end ?: d.time.wall) - run.startAt(d.time))
             val done = (d.time.wall - run.startAt(d.time)).coerceIn(0, target.coerceAtLeast(1))
             Column(Modifier.fillMaxWidth().clip(Radius.M).background(colors.field).padding(Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                Eyebrow(stringResource(R.string.focus_name), color = colors.rose)
+                Eyebrow(stringResource(R.string.focus_name), color = colors.textSecondary)
                 Text(f.task, color = colors.textPrimary, style = AuroraType.BodyStrong)
                 ProgressLine(done.toFloat() / target.coerceAtLeast(1), warm = true)
                 AuroraButton(stringResource(R.string.home_open_focus), { onOpenFocus(run.id) }, kind = ButtonKind.Quiet, compact = true, icon = AuroraIcons.Focus)
@@ -299,10 +298,10 @@ fun RunCard(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpenFocus:
                 Modifier.fillMaxWidth().glass(colors, Radius.Pill).padding(horizontal = Space.M, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
-                Icon(AuroraIcons.Lock, null, tint = colors.violetText, modifier = Modifier.size(18.dp))
+                Icon(AuroraIcons.Lock, null, tint = colors.mutedText, modifier = Modifier.size(18.dp))
                 Text(
                     run.committedUntil?.let { stringResource(R.string.home_committed_until, clockTime(it)) } ?: stringResource(R.string.session_ends_automatically),
-                    color = colors.violetText, style = AuroraType.Label,
+                    color = colors.mutedText, style = AuroraType.Label,
                 )
             }
         }
@@ -339,7 +338,7 @@ private fun ActivationCard(a: Activation, d: ProtectData, app: AuroraApplication
                 next != null -> stringResource(R.string.home_next_start, java.time.Instant.ofEpochMilli(next).atZone(zone).format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM, ")) + clockTime(next))
                 else -> ""
             },
-            color = if (a.enabled && entitled) colors.accent else colors.violetText, style = AuroraType.Label,
+            color = if (a.enabled && entitled) colors.accent else colors.mutedText, style = AuroraType.Label,
         )
         Row(Modifier.padding(top = Space.XS), horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
             AuroraButton(
@@ -359,7 +358,7 @@ private fun LegacyFocusCard(title: String, left: Long, onOpen: () -> Unit) {
         Modifier.rise().padding(horizontal = Space.Gutter).padding(top = Space.XS).fillMaxWidth().pressable(Radius.L, onClick = onOpen).auroraSurface(colors, warm = true).padding(horizontal = 22.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        Eyebrow(stringResource(R.string.focus_name), color = colors.rose)
+        Eyebrow(stringResource(R.string.focus_name), color = colors.textSecondary)
         Text(title, color = colors.textPrimary, style = AuroraType.Title)
         Text(formatClock(left), color = colors.textPrimary, style = AuroraType.Headline)
     }
@@ -378,7 +377,7 @@ fun outcomeName(o: Outcome): String = stringResource(
 /** An Intent preset's name, in the sun's colour beside the Shield's mode chip. */
 @Composable
 fun IntentChip(name: String) {
-    val tint = Aurora.colors.rose
+    val tint = Aurora.colors.textSecondary
     Row(
         Modifier.glass(Aurora.colors, Radius.Pill, tint = tint).padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -394,8 +393,8 @@ fun OutcomeTag(o: Outcome) {
     val colors = Aurora.colors
     val (bg, fg) = when (o) {
         Outcome.Succeeded -> colors.accentSoft to colors.accent
-        Outcome.Partial -> colors.rose.copy(alpha = 0.14f) to colors.rose
-        Outcome.NotAchieved -> colors.violetSoft to colors.violetText
+        Outcome.Partial -> colors.textSecondary.copy(alpha = 0.14f) to colors.textSecondary
+        Outcome.NotAchieved -> colors.mutedSoft to colors.mutedText
         Outcome.Unverified -> colors.elevated to colors.textSecondary
     }
     Text(outcomeName(o), Modifier.clip(Radius.Pill).background(bg).padding(horizontal = 10.dp, vertical = 4.dp), color = fg, style = AuroraType.Caption)

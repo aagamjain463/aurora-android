@@ -107,9 +107,9 @@ Aurora collects user account info (email address, user ID via Firebase Authentic
 
 ## 5. Store listing assets
 
-- Icon: `brand/store/out/play-icon-512.png` (512 × 512, full square; Play rounds the corners).
-- Feature graphic: `brand/store/out/feature-graphic.png` (1024 × 500).
-- Phone screenshots: `brand/store/out/01-home.png` … `05-track.png` (rendered by `brand/tools/store.sh`).
+- Icon: `brand/exports/play-icon-512.png` (512 × 512, full square; Play rounds the corners).
+- Feature graphic and phone screenshots: not yet made for the new identity (the First Light set is in
+  `backups/branding/first-light-2026-11-07/`). Make them from real screens, monochrome, with the approved logo.
   Screenshots 02 and 03 use test fixtures; capture them again on a phone before the public launch.
 
 ## 6. Before moving from Internal testing to Production

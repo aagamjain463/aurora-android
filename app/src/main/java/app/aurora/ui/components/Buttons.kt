@@ -47,7 +47,7 @@ enum class ButtonKind {
     /** Low-emphasis actions such as "Not now". */
     Quiet,
 
-    /** Ending something early, such as a Focus session. Outlined in coral, never filled. */
+    /** Ending something early, such as a Focus session. Outlined in the danger colour, never filled. */
     Danger,
 }
 
@@ -66,12 +66,13 @@ fun AuroraButton(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed && !Aurora.reducedMotion) 0.97f else 1f,
-        if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.5f, stiffness = 700f),
+        if (pressed && !Aurora.reducedMotion) 0.98f else 1f,
+        if (Aurora.reducedMotion) snap() else androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Quick, easing = app.aurora.ui.theme.Motion.Ease),
         label = "press",
     )
     // The suggested next step answers with a light tick under the finger.
     val haptics = LocalHapticFeedback.current
+    val shape = if (compact) Radius.Pill else Radius.Button
     val (container, content) = when (kind) {
         ButtonKind.Primary -> if (enabled) colors.accent to colors.onAccent else colors.field to colors.textTertiary
         ButtonKind.Secondary -> Color.Transparent to colors.textPrimary
@@ -81,16 +82,16 @@ fun AuroraButton(
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled || kind == ButtonKind.Primary) 1f else 0.4f }
-            .heightIn(min = when { kind == ButtonKind.Quiet || compact -> 48.dp; kind == ButtonKind.Primary -> 58.dp; else -> 54.dp })
-            .clip(Radius.Pill)
-            // The one filled action is sunlit: pale dawn on top, warming to peach underneath (ink on paper by day).
-            .then(if (kind == ButtonKind.Primary && enabled) Modifier.sunlit(colors) else Modifier.background(container))
+            .heightIn(min = when { kind == ButtonKind.Quiet || compact -> 48.dp; else -> 54.dp })
+            .clip(shape)
+            // The one filled action: solid Porcelain at night, solid Obsidian by day.
+            .background(container)
             .then(
                 when (kind) {
-                    // A waiting primary keeps its pill outline, so it never melts into the dune as bare text.
-                    ButtonKind.Primary -> if (enabled) Modifier else Modifier.border(1.dp, colors.hairlineStrong, Radius.Pill)
-                    ButtonKind.Secondary -> Modifier.glass(colors, Radius.Pill)
-                    ButtonKind.Danger -> Modifier.glass(colors, Radius.Pill, tint = colors.danger)
+                    // A waiting primary keeps its outline, so it never melts into the page as bare text.
+                    ButtonKind.Primary -> if (enabled) Modifier else Modifier.border(1.dp, colors.hairlineStrong, shape)
+                    ButtonKind.Secondary -> Modifier.border(1.dp, colors.hairlineStrong, shape)
+                    ButtonKind.Danger -> Modifier.border(1.dp, colors.danger.copy(alpha = 0.6f), shape)
                     ButtonKind.Quiet -> Modifier
                 },
             )

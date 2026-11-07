@@ -15,7 +15,6 @@ import app.aurora.protect.Mode
 import app.aurora.ui.components.Chip
 import app.aurora.ui.components.minutesText
 import app.aurora.ui.components.glass
-import app.aurora.ui.components.sunlit
 import app.aurora.ui.home.IntentChip
 import app.aurora.ui.protect.ModeChip
 import androidx.compose.foundation.layout.Arrangement
@@ -220,7 +219,7 @@ private fun Page(content: @Composable ColumnScope.() -> Unit) {
 internal fun Welcome() {
     val colors = Aurora.colors
     Page {
-        AuroraMark(84.dp, lit = true)
+        AuroraMark(84.dp)
         Spacer(Modifier.height(40.dp))
         HeroHeadline(
             stringResource(R.string.today_headline),
@@ -311,7 +310,7 @@ private fun ShieldArt() {
                         contentAlignment = Alignment.Center,
                     ) { Icon(icon, null, Modifier.size(24.dp), tint = colors.textTertiary) }
                     Box(
-                        Modifier.align(Alignment.BottomEnd).offset(6.dp, 6.dp).size(26.dp).clip(Radius.Pill).sunlit(colors),
+                        Modifier.align(Alignment.BottomEnd).offset(6.dp, 6.dp).size(26.dp).clip(Radius.Pill).background(colors.accent),
                         contentAlignment = Alignment.Center,
                     ) { Icon(AuroraIcons.Lock, null, Modifier.size(13.dp), tint = colors.onAccent) }
                 }
@@ -395,7 +394,7 @@ private fun TurnOnShield() {
     val access = rememberAccess(Access.Accessibility)
     val connected by ShieldService.connected.collectAsStateWithLifecycle()
     Page {
-        AuroraMark(64.dp, lit = true)
+        AuroraMark(64.dp)
         Spacer(Modifier.height(36.dp))
         Text(
             stringResource(R.string.onb_shield_title), Modifier.semantics { heading() },

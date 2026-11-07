@@ -44,7 +44,6 @@ import app.aurora.protect.Rules
 import app.aurora.protect.ShieldService
 import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraDialog
-import app.aurora.ui.components.sunlit
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.AuroraRow
@@ -200,15 +199,12 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
                     .fillMaxWidth()
                     .pressable(Radius.L, onClick = onPlus)
                     .clip(Radius.L)
-                    .sunlit(colors)
+                    .background(colors.accent)
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                androidx.compose.material3.Icon(
-                    androidx.compose.ui.res.painterResource(R.drawable.ic_aurora_mark), null,
-                    Modifier.size(width = 26.dp, height = 20.dp), tint = colors.onAccent,
-                )
+                app.aurora.ui.components.AuroraMark(32.dp)
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.plus_name), color = colors.onAccent, style = AuroraType.DisplayS.copy(fontSize = 24.sp, lineHeight = 28.sp))
                     Text(
@@ -344,7 +340,7 @@ fun SettingsScreen(onBack: () -> Unit, onReplayIntro: () -> Unit, onAccount: () 
         }
         item(key = "signature") {
             Column(Modifier.fillMaxWidth().padding(top = Space.XXL), horizontalAlignment = Alignment.CenterHorizontally) {
-                AuroraMark(36.dp, lit = true)
+                AuroraMark(36.dp)
                 Spacer(Modifier.height(Space.S))
                 Text(stringResource(R.string.settings_tagline), color = colors.textSecondary, style = AuroraType.DisplayS.copy(fontSize = 20.sp, lineHeight = 24.sp))
                 Text(

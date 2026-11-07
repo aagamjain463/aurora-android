@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The approved logo (brand/Aurora_Final_Approved_Logo.png) on its own black; the launcher supplies the outer shape.
+     The monochrome layer (themed icons) is the logo's own silhouette, the same one-colour cut as the notification icon. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_mark_lit" />
-    <monochrome android:drawable="@drawable/ic_launcher_mark" />
+    <foreground android:drawable="@drawable/ic_launcher_logo" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>

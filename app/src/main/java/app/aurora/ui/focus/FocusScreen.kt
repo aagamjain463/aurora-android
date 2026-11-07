@@ -25,7 +25,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.setProgress
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import app.aurora.ui.components.chipText
 import app.aurora.ui.components.minutesSpoken
@@ -453,7 +452,7 @@ private fun <T> LightTabs(
                 Box(
                     Modifier.padding(top = 6.dp).size(4.dp)
                         .graphicsLayer { alpha = dot; scaleX = dot; scaleY = dot }
-                        .clip(CircleShape).background(if (colors.isDark) colors.glowTop else colors.light),
+                        .clip(CircleShape).background(colors.textPrimary),
                 )
             }
         }
@@ -478,7 +477,7 @@ private fun GoalField(value: String, onValueChange: (String) -> Unit, modifier: 
     val focus = LocalFocusManager.current
     var focused by remember { mutableStateOf(false) }
     val line by animateColorAsState(if (focused) colors.textSecondary else colors.hairlineStrong, auroraTween(), label = "line")
-    val style = AuroraType.DisplayS.copy(fontSize = 24.sp, lineHeight = 30.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center, color = colors.textPrimary)
+    val style = AuroraType.Headline.copy(textAlign = TextAlign.Center, color = colors.textPrimary)
     BasicTextField(
         value, { if (it.length <= 60) onValueChange(it) },
         modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },

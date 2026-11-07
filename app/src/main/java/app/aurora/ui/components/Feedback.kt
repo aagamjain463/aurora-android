@@ -50,7 +50,7 @@ import app.aurora.ui.theme.Space
 fun StatusPill(text: String, live: Boolean, modifier: Modifier = Modifier, warm: Boolean = false) {
     val colors = Aurora.colors
     val dotColor = when {
-        warm -> colors.violet
+        warm -> colors.muted
         live -> colors.accent
         else -> colors.textTertiary
     }
@@ -207,7 +207,7 @@ fun AuroraDialog(
                     .padding(horizontal = 26.dp).padding(top = 30.dp, bottom = Space.XS),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (icon != null) LitBadge(icon, size = 52) else AuroraMark(22.dp, lit = true)
+                if (icon != null) LitBadge(icon, size = 52) else AuroraMark(22.dp)
                 Spacer(Modifier.height(18.dp))
                 Text(
                     title, Modifier.fillMaxWidth().semantics { heading() },

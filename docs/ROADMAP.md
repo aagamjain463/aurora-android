@@ -7,10 +7,10 @@ Read it with:
 
 - [`BUSINESS_MODEL.md`](BUSINESS_MODEL.md): aurora Free and aurora plus, the limits, how they are
   counted, and the entitlement system;
-- [`BRAND.md`](BRAND.md): the brand and design system;
+- [`Aurora_Brand_Guidelines.md`](../brand/Aurora_Brand_Guidelines.md): the brand and design system;
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): the current architecture.
 
-`BRAND.md` wins over this plan. `BUSINESS_MODEL.md` wins on what each plan includes.
+The brand guidelines win over this plan. `BUSINESS_MODEL.md` wins on what each plan includes.
 
 - **Status:** approved plan. Phase 2 is in progress (see its status note).
 - **Settled decisions:** D2 (business model), D4 (website filtering approach), D10 (India prices)
@@ -451,7 +451,7 @@ policy gate stay open. The build differs from the tasks below as follows (`SHIEL
 - No Shield appears for aurora, the launcher, system UI, the keyboard, or phone and emergency flows.
 - The service holds no work when no rule is active: no wake locks and no polling.
 - On Free, a 6th item can't be added, and the message offers removing an item.
-- Copy passes the voice rules in `BRAND.md`.
+- Copy passes the voice rules in the brand guidelines.
 
 ### Testing
 
@@ -777,7 +777,7 @@ Android 17.
 ### Tasks
 
 1. **Accessibility audit.** TalkBack, Switch Access, 200% font scale and display size, and colour
-   contrast on every new screen against the `BRAND.md` thresholds.
+   contrast on every new screen against the brand guidelines (WCAG AA).
 2. **Localisation.** Move copy to `strings.xml` with plurals. Start with English, and add languages
    after D11. Test pseudo-locales (`en-XA`, `ar-XB`) for length and right-to-left layout. Format
    rupee prices with the locale's currency formatting.
@@ -823,7 +823,7 @@ the Play policy declarations reviewed before billing is added.
    the full test matrix.
 3. **Declarations.** Submit the Accessibility API declaration (form, in-app disclosure, video), the
    Usage access justification, and a draft Data safety form, so Play reviews them on the closed track.
-4. **Privacy policy page.** A hosted page that follows `BRAND.md`. Play requires a URL.
+4. **Privacy policy page.** A hosted page that follows the brand guidelines. Play requires a URL.
 5. **Closed testing track.** Recruit testers as G9 requires. Give them a short, calm feedback channel
    outside the app (aurora has no analytics). Use Play Console vitals for crashes and ANRs.
 6. **Business checks.** Watch where testers hit Free limits and what they say about them. Report this
@@ -1059,7 +1059,7 @@ confirmed before that phase's acceptance. Business questions Q1–Q9 are in `BUS
 
 | ID | Decision | Recommended default | Needed by |
 | --- | --- | --- | --- |
-| D1 | Keep the "Protect" tab and call the moment "the shield", or rename the tab "Shield"? | Keep "Protect" (matches `BRAND.md` and the icon). Use "shield" in copy. | Phase 3 |
+| D1 | Keep the "Protect" tab and call the moment "the shield", or rename the tab "Shield"? | Keep "Protect" (matches the icon). Use "shield" in copy. | Phase 3 |
 | D5 | Should Lockdown shield Android's own settings for aurora (accessibility, app info)? | No. It reads as hostile and raises policy risk. Say honestly what Lockdown can't stop. | Phase 6 |
 | D6 | Candidate browsers for G11 | Chrome, Samsung Internet, Firefox, Edge, Brave, DuckDuckGo | Phase 13 |
 | D7 | Candidate content surfaces for G12 | YouTube Shorts, Instagram Reels | Phase 13 |

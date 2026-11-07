@@ -224,7 +224,7 @@ fun AuroraNavBar(items: List<NavItem>, current: String?, onSelect: (String) -> U
                     Box(
                         Modifier.align(Alignment.BottomCenter).padding(bottom = 9.dp).size(4.dp)
                             .graphicsLayer { alpha = dot; scaleX = dot; scaleY = dot }
-                            .clip(androidx.compose.foundation.shape.CircleShape).background(if (colors.isDark) colors.glowTop else colors.light),
+                            .clip(androidx.compose.foundation.shape.CircleShape).background(colors.textPrimary),
                     )
                 }
             }

@@ -237,7 +237,7 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, on
                 content()
                 Spacer(Modifier.height((30.dp - navInset).coerceAtLeast(Space.M)))
             } else {
-                app.aurora.ui.components.AuroraMark(26.dp, Modifier.padding(top = 34.dp), lit = true)
+                app.aurora.ui.components.AuroraMark(26.dp, Modifier.padding(top = 34.dp))
                 Spacer(Modifier.weight(0.62f).heightIn(min = Space.L))
                 AppTile(label, icon, 64.dp, 18.dp)
                 // The icon names an app; a website has only its name.
@@ -308,7 +308,7 @@ private fun SessionNote(text: String) {
         "\u201C" + text + "\u201D",
         Modifier.padding(top = 26.dp).fillMaxWidth().semantics { contentDescription = "$label: $text" },
         color = colors.textPrimary,
-        style = AuroraType.DisplayS.copy(fontSize = 22.sp, lineHeight = 28.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+        style = AuroraType.DisplayS.copy(fontSize = 22.sp, lineHeight = 28.sp),
         textAlign = if (start) TextAlign.Start else TextAlign.Center,
     )
 }
@@ -359,8 +359,8 @@ private fun Countdown(until: Long, now: Long, caption: String) {
 private fun RestartNote(text: String = stringResource(R.string.shield_restart_note)) {
     Text(
         text,
-        Modifier.fillMaxWidth().padding(top = Space.XS).clip(Radius.Pill).background(Aurora.colors.violetSoft).padding(horizontal = Space.M, vertical = 10.dp),
-        color = Aurora.colors.violetText,
+        Modifier.fillMaxWidth().padding(top = Space.XS).clip(Radius.Pill).background(Aurora.colors.mutedSoft).padding(horizontal = Space.M, vertical = 10.dp),
+        color = Aurora.colors.mutedText,
         style = AuroraType.Label,
         textAlign = TextAlign.Center,
     )
@@ -511,7 +511,7 @@ fun EndSession(app: AuroraApplication, run: ConfigRun, host: androidx.lifecycle.
             Modifier.verticalScroll(rememberScrollState()).fillMaxWidth().heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            AuroraMark(26.dp, Modifier.padding(top = 34.dp), lit = true)
+            AuroraMark(26.dp, Modifier.padding(top = 34.dp))
             Spacer(Modifier.height(Space.XL))
             if (shield.mode == Mode.Friction) {
                 Headline(stringResource(R.string.end_session_friction_title))
@@ -625,7 +625,7 @@ internal fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () -
             onDone = check,
         )
         if (misses > 0) {
-            Text(stringResource(R.string.friction_math_wrong), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.violetText, style = AuroraType.Secondary)
+            Text(stringResource(R.string.friction_math_wrong), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = colors.mutedText, style = AuroraType.Secondary)
         }
         AuroraButton(stringResource(R.string.friction_math_check), check, Modifier.fillMaxWidth(), enabled = answer.isNotBlank())
     }
@@ -792,7 +792,7 @@ private fun ReasonCard(icon: androidx.compose.ui.graphics.vector.ImageVector, la
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.M),
     ) {
-        LitBadge(icon, tint = if (warm) colors.rose else colors.accent, size = 52)
+        LitBadge(icon, tint = if (warm) colors.textSecondary else colors.accent, size = 52)
         Column(Modifier.weight(1f)) {
             Text(label, color = colors.textSecondary, style = AuroraType.Caption)
             Text(text, color = colors.textPrimary, style = AuroraType.Title)

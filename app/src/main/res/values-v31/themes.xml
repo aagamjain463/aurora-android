@@ -1,13 +1,11 @@
 <resources>
     <style name="Theme.Aurora" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/aurora_window</item>
-        <!-- Android 12+ splash: the empty page colour. The mark appears once, in the opening (AuroraUnveil). -->
+        <!-- Android 12+ splash: the approved logo on Obsidian, at once. -->
         <item name="android:windowSplashScreenBackground">@color/aurora_splash</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_logo</item>
     </style>
 
-    <!-- With reduced motion: the finished symbol, still. The opening shows the same still logo, so it never forms. -->
-    <style name="Theme.Aurora.StillSplash">
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_mark_lit</item>
-    </style>
+    <!-- Reduced motion uses the same still splash. -->
+    <style name="Theme.Aurora.StillSplash" />
 </resources>

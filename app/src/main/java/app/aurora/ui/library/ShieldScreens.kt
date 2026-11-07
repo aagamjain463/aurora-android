@@ -316,7 +316,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
                 stepTitle(R.string.shield_type_title, null)
                 items(Mode.entries, key = { "mode-" + it.name }) { m -> ChoiceCard(modeName(m), modeDescription(m), mode == m, { mode = m }, icon = modeIcon(m)) }
                 if (mode.strict) item(key = "ab-note") {
-                    Text(stringResource(R.string.shield_always_block_note), Modifier.padding(top = Space.XS), color = colors.violetText, style = AuroraType.Secondary)
+                    Text(stringResource(R.string.shield_always_block_note), Modifier.padding(top = Space.XS), color = colors.mutedText, style = AuroraType.Secondary)
                 }
                 // The chosen type's settings follow on the same step.
                 if (mode == Mode.Friction) {
@@ -339,7 +339,7 @@ private fun ShieldEditor(vm: ProtectModel, initial: ShieldPreset, onBack: () -> 
             } else if (mode == Mode.Cooldown) {
                 item(key = "wait-title") { SettingsTitle(stringResource(R.string.duration_cooldown_prompt), stringResource(R.string.duration_cooldown_hint)) }
                 item(key = "wait") { DurationPicker(wait, { wait = it }, ShieldWaitPresets, max = 12 * 60) }
-                item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.violetText, style = AuroraType.BodyStrong) }
+                item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.mutedText, style = AuroraType.BodyStrong) }
             }
             }
             ShieldStep.Review -> {

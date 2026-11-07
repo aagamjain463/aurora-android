@@ -454,7 +454,7 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
                 ) to colors.textTertiary
                 p.state == GoalState.OnTrack -> stringResource(R.string.goal_on_track) to colors.accent
                 p.state == GoalState.Achieved -> stringResource(R.string.goal_achieved) to colors.accent
-                failed -> stringResource(R.string.goal_failed) to colors.violetText
+                failed -> stringResource(R.string.goal_failed) to colors.mutedText
                 else -> "" to colors.textTertiary
             }
             if (status.isNotEmpty()) Text(status, Modifier.padding(start = Space.S, top = 8.dp), color = tone, style = AuroraType.Caption)
@@ -496,7 +496,7 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
                 }
                 Row(Modifier.padding(top = Space.S), verticalAlignment = Alignment.Bottom) {
                     Text(left, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Headline.copy(fontSize = 22.sp, lineHeight = 28.sp))
-                    if (right != null) Text(right, Modifier.padding(bottom = 3.dp), color = if (failed) colors.violetText else colors.textTertiary, style = AuroraType.Caption)
+                    if (right != null) Text(right, Modifier.padding(bottom = 3.dp), color = if (failed) colors.mutedText else colors.textTertiary, style = AuroraType.Caption)
                 }
                 ProgressLine(value.toFloat() / g.target.coerceAtLeast(1), warm = failed)
             }
@@ -508,7 +508,7 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
     }
 }
 
-/** The track record, as points of light: lit for success, a violet ring for failure, faint where nothing was judged. */
+/** The track record, as points of light: lit for success, a hollow ring for failure, faint where nothing was judged. */
 @Composable
 private fun DayStrip(marks: List<DayMark>, modifier: Modifier = Modifier, dot: Dp = 14.dp) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) { marks.forEach { DayDot(it, dot) } }
@@ -520,7 +520,7 @@ private fun DayDot(m: DayMark, size: Dp) {
     val base = Modifier.size(size).clip(Radius.Pill)
     when (m) {
         DayMark.Succeeded -> Box(base.background(colors.accent))
-        DayMark.Missed -> Box(base.border(1.5.dp, colors.violet.copy(alpha = 0.7f), Radius.Pill))
+        DayMark.Missed -> Box(base.border(1.5.dp, colors.muted.copy(alpha = 0.7f), Radius.Pill))
         DayMark.Pending -> Box(base.border(1.5.dp, colors.accent.copy(alpha = 0.7f), Radius.Pill))
         DayMark.Rest -> Box(base.background(colors.hairline))
         DayMark.Before -> Box(base.background(colors.hairline.copy(alpha = 0.35f)))

@@ -255,7 +255,7 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, spoken:
 fun ScreenIntro(title: String, modifier: Modifier = Modifier, eyebrow: String? = null, body: String? = null) {
     val colors = Aurora.colors
     Column(modifier.padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        if (eyebrow != null) Text(eyebrow.uppercase(), color = colors.textTertiary, style = AuroraType.Eyebrow)
+        if (eyebrow != null) Text(eyebrow, color = colors.textTertiary, style = AuroraType.Eyebrow)
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
         if (body != null) Text(body, color = colors.textSecondary, style = AuroraType.Body)
     }
@@ -367,7 +367,7 @@ fun Card(modifier: Modifier = Modifier, tint: Color? = null, content: @Composabl
 fun PillarHeading(title: String, body: String, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
     Column(modifier.padding(start = Space.Gutter, end = Space.Gutter, top = Space.XXL, bottom = Space.M)) {
-        Box(Modifier.width(40.dp).heightIn(min = 3.dp).clip(Radius.Pill).background(colors.violet))
+        Box(Modifier.width(40.dp).heightIn(min = 3.dp).clip(Radius.Pill).background(colors.muted))
         Spacer(Modifier.size(Space.M))
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Headline)
         Text(body, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Start)

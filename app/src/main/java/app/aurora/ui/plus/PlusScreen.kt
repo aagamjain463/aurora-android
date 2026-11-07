@@ -70,7 +70,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextDecoration
 import app.aurora.ui.components.HeroHeadline
 import app.aurora.ui.components.LitBadge
-import app.aurora.ui.components.dawnColors
 
 /**
  * Aurora Plus. Calm and honest: what Free already includes, what Plus adds, prices exactly as Google Play
@@ -113,7 +112,7 @@ fun PlusScreen(onBack: () -> Unit) {
             // One line, then the two plans: nothing to read past them.
             Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XL, bottom = Space.L)) {
                 if (plan == Plan.Plus) Text(stringResource(R.string.plus_you_have_aurora_plus), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-                else TwoToneHeadline(stringResource(R.string.plus_more_room_for_every_part_of_your_day), tailWords = 5, style = AuroraType.DisplayS.copy(fontSize = 42.sp, lineHeight = 45.sp))
+                else TwoToneHeadline(stringResource(R.string.plus_more_room_for_every_part_of_your_day), tailWords = 5, style = AuroraType.Display)
             }
         },
     ) {
@@ -242,31 +241,18 @@ private fun FreeCard(rows: List<Triple<String, String, String>>, current: Boolea
 @Composable
 private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier, actions: @Composable () -> Unit) {
     val colors = Aurora.colors
-    val edge = colors.glowTop
     Column(
         modifier.padding(horizontal = Space.Gutter).fillMaxWidth()
-            .then(if (colors.isDark) Modifier else Modifier.shadow(16.dp, Radius.L, ambientColor = DayShade, spotColor = DayShade))
-            .clip(Radius.L)
-            .background(if (colors.isDark) colors.sky else colors.surface)
-            .border(
-                if (colors.isDark) 1.dp else 1.5.dp,
-                Brush.verticalGradient(0f to edge.copy(alpha = if (colors.isDark) 0.85f else 1f), 0.55f to edge.copy(alpha = if (colors.isDark) 0.18f else 0.45f), 1f to colors.hairline),
-                Radius.L,
-            )
-            .padding(horizontal = Space.L, vertical = 26.dp),
+            .glass(colors, Radius.L)
+            .padding(horizontal = Space.L, vertical = Space.L),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            AuroraMark(30.dp, lit = true)
+            AuroraMark(40.dp)
             Spacer(Modifier.weight(1f))
             if (current) PlanPill()
         }
-        HeroHeadline(stringResource(R.string.plus_name), Modifier.padding(top = 22.dp), style = AuroraType.DisplayXL.copy(fontSize = 50.sp, lineHeight = 52.sp))
-        // The horizon: one thread of dawn, brightest in the middle, gone at the ends.
-        val dawn = dawnColors()
-        Box(
-            Modifier.padding(vertical = 22.dp).fillMaxWidth().height(1.dp)
-                .background(Brush.horizontalGradient(listOf(Color.Transparent) + dawn.reversed().drop(1) + dawn.drop(1) + Color.Transparent)),
-        )
+        HeroHeadline(stringResource(R.string.plus_name), Modifier.padding(top = Space.L), style = AuroraType.DisplayXL)
+        Box(Modifier.padding(vertical = Space.L).fillMaxWidth().height(1.dp).background(colors.hairline))
         Eyebrow(stringResource(R.string.plus_everything_in_free), Modifier.padding(bottom = Space.XS), color = colors.textTertiary)
         rows.forEach { (feature, free, plus) ->
             Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
@@ -280,7 +266,6 @@ private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolea
 }
 
 /** The day theme's warm shadow, as on [glass]: paper on paper. */
-private val DayShade = Color(0xFF6B4A2E).copy(alpha = 0.18f)
 
 @Composable
 private fun PlanPill(modifier: Modifier = Modifier) {

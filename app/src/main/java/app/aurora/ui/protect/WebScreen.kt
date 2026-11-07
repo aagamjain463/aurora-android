@@ -122,7 +122,7 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
                 )
                 AuroraButton(stringResource(R.string.web_add), { add(domain, sites, vm, context) { e -> error = e; if (e == null) domain = "" } }, kind = ButtonKind.Secondary)
             }
-            error?.let { Text(it, Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS), color = colors.violetText, style = AuroraType.Caption) }
+            error?.let { Text(it, Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XS), color = colors.mutedText, style = AuroraType.Caption) }
             WebHint(stringResource(R.string.web_hint))
             if (sites.isNotEmpty()) {
                 RowGroup(Modifier.padding(top = Space.M)) {
