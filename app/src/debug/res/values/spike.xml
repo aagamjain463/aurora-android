@@ -1,0 +1,8 @@
+<resources>
+    <string name="spike_service_description">Debug spike. aurora reads only the name of the app in front, to pause you before an app you chose to protect. Nothing leaves your phone.</string>
+
+    <!-- The Shield is always the dark field, whatever the system theme. -->
+    <style name="Theme.Aurora.Shield" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/aurora_icon_background</item>
+    </style>
+</resources>

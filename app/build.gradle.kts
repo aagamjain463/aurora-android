@@ -133,12 +133,24 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
-        // Release speed under the debug key, so it installs over a debug build and keeps the app's data.
+        // Release speed under the debug key, keeping installed app data.
         create("phone") {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
         }
+        // G1 latency build includes the debug-only spike; never shipped.
+        create("g1") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
+    }
+
+    sourceSets.getByName("g1") {
+        kotlin.directories += "src/debug/java"
+        res.srcDir("src/debug/res")
+        manifest.srcFile("src/debug/AndroidManifest.xml")
     }
 
     compileOptions {
