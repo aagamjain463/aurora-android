@@ -51,7 +51,6 @@ import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ChoicePills
-import app.aurora.ui.components.HorizonGlow
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraTheme
 import app.aurora.ui.theme.AuroraType
@@ -151,16 +150,10 @@ fun SpikeShieldContent(
         Log.i(SpikeTag, "shield-latency mechanism=$mechanism pkg=$packageName ms=${SystemClock.uptimeMillis() - eventUptime}")
     }
 
-    AuroraTheme(darkTheme = true, reduceMotion = false) {
+    AuroraTheme(reduceMotion = false) {
         val colors = Aurora.colors
         val label = app?.label ?: packageName
         Box(Modifier.fillMaxSize().background(colors.background)) {
-            HorizonGlow(
-                intensity = 0.35f,
-                warmth = 0.15f,
-                breathing = step == Step.Reflect,
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.45f).align(Alignment.BottomCenter),
-            )
             Column(
                 Modifier
                     .fillMaxSize()

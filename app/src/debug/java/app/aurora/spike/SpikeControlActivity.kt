@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.AuroraApplication
+import app.aurora.plan.ProtectedItem
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.ChoicePills
 import app.aurora.ui.components.Notice
@@ -51,14 +52,15 @@ class SpikeControlActivity : ComponentActivity() {
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         val app = application as AuroraApplication
         setContent {
-            val prefs by app.preferences.preferences.collectAsStateWithLifecycle(initialValue = null)
+            val protectedList by app.protection.list.collectAsStateWithLifecycle(initialValue = null)
+            val protectedApps = protectedList?.items.orEmpty().filterIsInstance<ProtectedItem.App>()
             var tick by remember { mutableIntStateOf(0) }
             var mode by remember { mutableStateOf(SpikeShieldService.mode(this)) }
             LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
             val probe = remember(tick) { probe(this) }
-            val status = spikeStatus(prefs?.protectedApps.orEmpty().isNotEmpty(), probe.enabledInSettings, SpikeShieldService.connected)
+            val status = spikeStatus(protectedApps.isNotEmpty(), probe.enabledInSettings, SpikeShieldService.connected)
 
-            AuroraTheme(darkTheme = true, reduceMotion = false) {
+            AuroraTheme(reduceMotion = false) {
                 val colors = Aurora.colors
                 Column(
                     Modifier.fillMaxSize().background(colors.background).systemBarsPadding()
@@ -68,7 +70,7 @@ class SpikeControlActivity : ComponentActivity() {
                     Text("Enforcement spike", color = colors.textPrimary, style = AuroraType.Display)
                     StatusPill(status.name, live = status == SpikeStatus.Active, warm = status != SpikeStatus.Active)
                     Text(
-                        "Protected apps: ${prefs?.protectedApps?.size ?: 0} (choose them on the Protect tab)\n" +
+                        "Protected apps: ${protectedApps.size} (choose them on the Protect tab)\n" +
                             "Listed in Settings: ${probe.enabledInSettings}\n" +
                             "AccessibilityManager reports enabled: ${probe.enabledInManager}\n" +
                             "Service connected (this process): ${SpikeShieldService.connected}\n" +

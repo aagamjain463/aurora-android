@@ -24,6 +24,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import app.aurora.AuroraApplication
+import app.aurora.plan.ProtectedItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
@@ -49,7 +50,9 @@ class SpikeShieldService : AccessibilityService() {
         connected = true
         exempt = SystemExempt + runtimeExempt(this)
         scope = MainScope().also { s ->
-            s.launch { (application as AuroraApplication).preferences.preferences.collect { protected = it.protectedApps } }
+            s.launch { (application as AuroraApplication).protection.list.collect {
+                protected = it.items.filterIsInstance<ProtectedItem.App>().map { app -> app.packageName }.toSet()
+            } }
         }
         Log.i(SpikeTag, "service connected exempt=$exempt")
         G1.service(this, "connected")
