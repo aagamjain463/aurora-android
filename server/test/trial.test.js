@@ -296,3 +296,75 @@ test('housekeeping keeps claims of live accounts and drops unlinked ones three y
   await housekeeping(w.env, w.fetcher)
   assert.deepEqual(claimsIn(w).map((r) => r.installation_id), ['p1'])
 })
+
+/** The inline path: the token for the claim's nonce comes with the claim, as the app sends it. */
+async function inlineClaim(w, key, uid, installId, shape = verdict) {
+  const first = await claim(w, key, uid, installId)
+  if (first.status !== 428) return first
+  w.state.verdict = () => shape(first.body.attestNonce)
+  return claim(w, key, uid, installId, { integrityToken: `tok-${uid}` })
+}
+const recalled = (bit) => (n) => verdict(n, { deviceIntegrity: { deviceRecognitionVerdict: ['MEETS_DEVICE_INTEGRITY'], deviceRecall: { values: bit === null ? {} : { bitFirst: bit }, writeDates: {} } } })
+
+test('the Integrity token can ride on the claim itself; a nonce is spent once', async () => {
+  const w = trialWorld()
+  const key = deviceKey()
+  const ok = await inlineClaim(w, key, 'alice', 'p1')
+  assert.equal(ok.status, 200, JSON.stringify(ok.body))
+  // Replaying the same token on another account: the nonce is gone.
+  const replay = await claim(w, key, 'bob', 'p1', { integrityToken: 'tok-alice' })
+  assert.ok(replay.status === 409 || replay.body.reason === 'device_used')
+  assert.equal(w.state.recallWrites.length, 0, 'Device Recall off: nothing written')
+})
+
+test('Device Recall enforce: a reset phone whose recall bit is set gets no second trial; a grant writes the bit', async () => {
+  const w = trialWorld()
+  w.env.DEVICE_RECALL = 'enforce'
+  // The attestation-route verdict isn't enough with recall on: the claim needs its own token to write with.
+  const key = deviceKey()
+  const viaRoute = await androidClaim(w, key, 'alice', 'p1', recalled(false))
+  assert.equal(viaRoute.status, 428)
+  assert.equal(viaRoute.body.inline, true)
+  w.state.verdict = () => recalled(false)(viaRoute.body.attestNonce)
+  const granted = await claim(w, key, 'alice', 'p1', { integrityToken: 'tok-a' })
+  assert.equal(granted.status, 200, JSON.stringify(granted.body))
+  assert.deepEqual(w.state.recallWrites, [{ integrityToken: 'tok-a', newValues: { bitFirst: true } }])
+  assert.equal(claimsIn(w)[0].evidence, 'play_integrity+recall')
+
+  // Factory reset: new install id, new key, new account; Google still remembers the phone.
+  const reset = await inlineClaim(w, deviceKey(), 'bob', 'p2', recalled(true))
+  assert.equal(reset.status, 403)
+  assert.equal(reset.body.reason, 'device_used')
+  // Unevaluated recall (no Play-licensed account, say) is inconclusive: the strong verdict decides.
+  assert.equal((await inlineClaim(w, deviceKey(), 'carol', 'p3', recalled(null))).status, 200)
+  // Google can't record the bit: no trial yet, try later.
+  w.state.recallDown = true
+  const down = await inlineClaim(w, deviceKey(), 'dan', 'p4', recalled(false))
+  assert.equal(down.status, 503)
+  assert.equal(w.DB.rows("SELECT * FROM trial_claims WHERE installation_id = 'p4'").length, 0)
+})
+
+test('Device Recall shadow: grants as before, records what enforce would refuse', async () => {
+  const w = trialWorld()
+  w.env.DEVICE_RECALL = 'shadow'
+  const r = await inlineClaim(w, deviceKey(), 'bob', 'p2', recalled(true))
+  assert.equal(r.status, 200)
+  assert.equal(w.DB.rows("SELECT * FROM abuse_events WHERE kind = 'recall_shadow'").length, 1)
+  assert.equal(w.state.recallWrites.length, 1)
+})
+
+test('matrix: 90 strict minutes used, reinstall, same account: 30 minutes left, not a fresh 120', async () => {
+  const w = trialWorld()
+  w.env.DEVICE_QUOTA = 'enforce'
+  const zone = 'UTC'
+  const at = Date.now() + 60_000
+  // A window that crosses UTC midnight is charged to two days; this test is about one.
+  if (new Date(at + 91 * 60_000).getUTCDate() !== new Date(at).getUTCDate()) return
+  const before = deviceKey()
+  const r = await signedCall(w, before, '/v1/quota/reserve', idToken('alice'), { installId: 'old-install', idempotencyKey: 'k1', commitmentId: 'c1', mode: 'always_block', minutes: 90, zone, startAt: at })
+  assert.equal(r.body.allowed, true, JSON.stringify(r.body))
+  const after = deviceKey()
+  const synced = await sync(w, after, 'alice', 'new-install')
+  assert.equal(synced.body.quota.remainingMs, 30 * 60_000)
+  assert.equal(synced.body.quota.limitedBy, 'account')
+})

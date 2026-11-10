@@ -90,7 +90,7 @@ export function idToken(uid, over = {}, { key = firebaseKey.privateKey, kid = KI
 export const verifySignature = ({ payload, signature }) => createVerify('RSA-SHA256').update(payload).verify(signing.publicKey, signature, 'base64')
 
 export function world({ without } = {}) {
-  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [], apple: null, deviceCheck: null, products: new Map(), appleTx: null }
+  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [], apple: null, deviceCheck: null, products: new Map(), appleTx: null, recallWrites: [], recallDown: false }
   const fetcher = async (url, init) => {
     const u = String(url)
     if (u.includes('/jwk/securetoken')) {
@@ -111,6 +111,10 @@ export function world({ without } = {}) {
     if (u.endsWith('accounts:delete')) {
       state.deleted.push(JSON.parse(init.body).localId)
       return new Response('{}')
+    }
+    if (u.endsWith('/deviceRecall:write')) {
+      state.recallWrites.push(JSON.parse(init.body))
+      return new Response('{}', { status: state.recallDown ? 500 : 200 })
     }
     if (u.includes('playintegrity.googleapis.com')) {
       if (state.integrityDown) return new Response('{}', { status: 500 })

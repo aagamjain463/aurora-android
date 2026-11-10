@@ -27,6 +27,9 @@ TRIAL = "off"
 # Founding Lifetime (docs/MONETIZATION_PLAN.md, 3.4): "on" opens holds and shows the offer. Verified purchases are
 # honored whatever this says. Needs migration 0006. The product must be a US-only one-time product in Play Console
 # (non-consumable in App Store Connect, US storefront only), and must be deactivated by hand when sales close.
+# Device Recall (beta, needs Google's approval; docs/ANTI_ABUSE.md, section 5): off, shadow or enforce. Writes bitFirst =
+# "an Aurora trial was granted on this phone" and refuses a trial where it is set (enforce).
+DEVICE_RECALL = "off"
 LIFETIME = "off"
 LIFETIME_PRODUCT_ID = "aurora_plus_lifetime_us"
 APPLE_LIFETIME_PRODUCT_ID = "aurora_plus_lifetime_us"

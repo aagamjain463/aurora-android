@@ -765,6 +765,50 @@ async function decodeIntegrity(env, token, fetcher) {
   return (await res.json()).tokenPayloadExternal
 }
 
+/**
+ * Device Recall (beta): sets "an Aurora trial was granted on this device" (bitFirst) in Google's per-device store, which
+ * survives reinstalls and resets. Server to server, with the token verified for this claim (good for 14 days).
+ * developer.android.com/google/play/integrity/device-recall, read 2026-11-10.
+ */
+async function writeRecall(env, token, fetcher) {
+  const access = await googleAccessToken(env.GOOGLE_SERVICE_ACCOUNT, 'https://www.googleapis.com/auth/playintegrity', fetcher)
+  const res = await fetcher(`https://playintegrity.googleapis.com/v1/${env.PACKAGE_NAME}/deviceRecall:write`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ integrityToken: token, newValues: { bitFirst: true } }),
+  })
+  if (!res.ok) throw new Error(`recall ${res.status}`)
+}
+
+/** A Play Integrity token for the nonce this device was given. Each nonce counts once; the verdict is kept a week. */
+/**
+ * Spends this device's nonce on a Play Integrity token and records the verdict. { refused } when the token can't be
+ * judged; otherwise the judgement and Google's decoded verdict (for Device Recall). Each nonce counts once.
+ */
+async function spendAttestation(env, here, token, fetcher, now) {
+  const nonce = here.attest_nonce
+  if (!nonce || !(here.attest_nonce_expires_at > now)) return { refused: json(409, { error: 'stale_nonce' }) }
+  let verdict
+  try {
+    verdict = await decodeIntegrity(env, token, fetcher)
+  } catch {
+    // Google can't say. Nothing changes: inconclusive is never held against the device.
+    return { refused: json(503, { error: 'try_again' }) }
+  }
+  const integrity = judgeIntegrity(verdict, env, nonce, now)
+  const licensed = licensedOf(verdict)
+  // Spent either way, in one statement, so the same token or nonce can't be presented twice.
+  const { meta } = await env.DB.prepare(
+    `UPDATE devices SET attest_nonce = NULL, attest_nonce_expires_at = NULL,
+       integrity = COALESCE(?1, integrity), integrity_at = CASE WHEN ?1 IS NULL THEN integrity_at ELSE ?2 END,
+       licensed = CASE WHEN ?1 IS NULL THEN licensed ELSE ?5 END
+     WHERE id = ?3 AND attest_nonce = ?4`,
+  ).bind(integrity, now, here.id, nonce, licensed ? 1 : 0).run()
+  if (meta.changes === 0) return { refused: json(409, { error: 'stale_nonce' }) }
+  if (integrity === null) return { refused: json(400, { error: 'integrity_mismatch' }) }
+  return { integrity, licensed, verdict }
+}
+
 /** A Play Integrity token for the nonce this device was given. Each nonce counts once; the verdict is kept a week. */
 async function attest(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher)
@@ -777,30 +821,13 @@ async function attest(request, env, fetcher) {
   // Only a keyed installation is ever given a nonce. Not a reason to start over as a new installation.
   if (!here.proved) return json(403, { error: 'device_unproved' })
   if (!(await allowed(env, `attest:${installId}`, 5, 3600))) return json(429, { error: 'slow_down' })
-  const nonce = here.attest_nonce
-  if (!nonce || !(here.attest_nonce_expires_at > now)) return json(409, { error: 'stale_nonce' })
-  let verdict
-  try {
-    verdict = await decodeIntegrity(env, token, fetcher)
-  } catch {
-    // Google can't say. Nothing changes: inconclusive is never held against the device.
-    return json(503, { error: 'try_again' })
-  }
-  const integrity = judgeIntegrity(verdict, env, nonce, now)
-  // Spent either way, in one statement, so the same token or nonce can't be presented twice.
-  const { meta } = await env.DB.prepare(
-    `UPDATE devices SET attest_nonce = NULL, attest_nonce_expires_at = NULL,
-       integrity = COALESCE(?1, integrity), integrity_at = CASE WHEN ?1 IS NULL THEN integrity_at ELSE ?2 END,
-       licensed = CASE WHEN ?1 IS NULL THEN licensed ELSE ?5 END
-     WHERE id = ?3 AND attest_nonce = ?4`,
-  ).bind(integrity, now, installId, nonce, licensedOf(verdict) ? 1 : 0).run()
-  if (meta.changes === 0) return json(409, { error: 'stale_nonce' })
-  if (integrity === null) return json(400, { error: 'integrity_mismatch' })
-  if (integrity === 'failed') {
+  const spent = await spendAttestation(env, here, token, fetcher, now)
+  if (spent.refused) return spent.refused
+  if (spent.integrity === 'failed') {
     const account = await ensureAccount(env, claims, now)
     await audit(env, 'integrity_failed', installId, account.id)
   }
-  return json(200, { integrity })
+  return json(200, { integrity: spent.integrity })
 }
 
 async function requestDeletion(request, env, fetcher) {
@@ -945,6 +972,7 @@ async function accountIneligible(env, account, rows, now) {
   return used ? 'account_used' : null
 }
 
+const recallMode = (env) => env.DEVICE_RECALL ?? 'off'
 const trialsOn = (env) => env.TRIAL === 'on' && Boolean(env.TRIAL_PEPPER)
 
 /** What the app shows about the trial. 'available' is the account's side only; the device is judged at the claim. */
@@ -969,13 +997,13 @@ const trialRefused = (status, reason, more = {}) => json(status, { error: 'trial
  */
 async function claimTrial(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { revocation: true })
-  const { installId, platform, deviceToken } = await body(request)
+  const { installId, platform, deviceToken, integrityToken } = await body(request)
   if (!isId(installId) || !['android', 'ios'].includes(platform)) return json(400, { error: 'bad_request' })
   if (platform === 'ios' && !text(deviceToken, 8192)) return json(400, { error: 'bad_request' })
   if (!trialsOn(env)) return trialRefused(404, 'off')
   if (!(await allowed(env, `trial:${claims.sub}`, 10, 3600))) return json(429, { error: 'slow_down' })
   const now = Date.now()
-  const here = await device(request, env, installId, now)
+  let here = await device(request, env, installId, now)
   if (!here) return deviceRefused()
   if (!(await allowed(env, `trial-device:${installId}`, 10, 3600))) return json(429, { error: 'slow_down' })
   const account = await ensureAccount(env, claims, now)
@@ -995,12 +1023,29 @@ async function claimTrial(request, env, fetcher) {
   if (!here.proved) return refuse(403, 'device_unverifiable')
 
   let evidence
+  let recall = null
   if (platform === 'android') {
+    // The token for this claim's nonce can come with the claim itself, which Device Recall needs: it writes with it.
+    if (text(integrityToken, 8192)) {
+      const spent = await spendAttestation(env, here, integrityToken, fetcher, now)
+      if (spent.refused) return spent.refused
+      here = { ...here, integrity: spent.integrity, integrity_at: now, licensed: spent.licensed ? 1 : 0 }
+      recall = spent.verdict?.deviceIntegrity?.deviceRecall?.values ?? {}
+    }
     const verdict = androidVouches(here, now)
     // No verdict made for this claim yet: ask for one. A fresh verdict that doesn't vouch is an answer, not a retry.
     if (!verdict.fresh) return trialRefused(428, 'attestation_required', { attestNonce: await issueNonce(env, here, now) })
     if (!verdict.ok) return refuse(403, 'device_ineligible')
     evidence = 'play_integrity'
+    // Device Recall (docs/ANTI_ABUSE.md, section 5): off, shadow (record what it would refuse) or enforce.
+    if (recallMode(env) !== 'off') {
+      if (recall === null) return trialRefused(428, 'attestation_required', { attestNonce: await issueNonce(env, here, now), inline: true })
+      if (recall.bitFirst === true) {
+        if (recallMode(env) === 'enforce') return refuse(403, 'device_used')
+        await audit(env, 'recall_shadow', installId, account.id)
+      }
+      if (recallMode(env) === 'enforce') evidence = 'play_integrity+recall'
+    }
   } else {
     if (!deviceCheckReady(env)) return refuse(503, 'not_configured')
     try {
@@ -1022,6 +1067,18 @@ async function claimTrial(request, env, fetcher) {
     if (await env.DB.prepare('SELECT 1 FROM trial_claims WHERE account_id = ?').bind(account.id).first()) return granted()
     const sameDevice = await env.DB.prepare('SELECT 1 FROM trial_claims WHERE installation_id = ?').bind(installId).first()
     return refuse(403, sameDevice ? 'device_used' : 'account_used')
+  }
+  if (platform === 'android' && recallMode(env) !== 'off') {
+    try {
+      await writeRecall(env, integrityToken, fetcher)
+    } catch {
+      // Enforcing: a trial Google doesn't remember could be claimed again after a reset, so it isn't granted yet.
+      if (recallMode(env) === 'enforce') {
+        await env.DB.prepare('DELETE FROM trial_claims WHERE id = ?').bind(id).run()
+        return json(503, { error: 'try_again' })
+      }
+      await audit(env, 'recall_write_failed', installId, account.id)
+    }
   }
   if (platform === 'ios') {
     try {
