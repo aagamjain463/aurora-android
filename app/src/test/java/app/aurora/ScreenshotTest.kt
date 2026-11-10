@@ -9,6 +9,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.onAllNodesWithText
@@ -78,6 +81,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import app.aurora.progress.RunRecord
 import app.aurora.progress.Outcome
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
  * Every screen, and the Shield, in light, dark, 200% font scale and reduced motion, rendered on the JVM.
@@ -159,6 +164,16 @@ class ScreenshotTest(private val variant: Variant) {
         if (screen.startsWith("shield_")) compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Photos", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
+        if (screen == "pass_chooser") {
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Pass").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Pass").performClick()
+            compose.waitForIdle()
+        }
+        if (screen == "pass_editor") {
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Reddit for work").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Reddit for work").performClick()
+            compose.waitForIdle()
+        }
         compose.onRoot().captureRoboImage("src/test/screenshots/${screen}_${variant.name}.png")
     }
 
@@ -201,6 +216,22 @@ class ScreenshotTest(private val variant: Variant) {
         capture("focus_running") { FocusScreen(onClose = {}) }
     }
 
+    /** A 25-minute session that ended a minute ago: the level has drained. */
+    @Test fun focusComplete() {
+        val start = kotlinx.coroutines.CoroutineScope(Dispatchers.Default).async {
+            application.startFocus(25, null, null, "Study mathematics")
+            application.runtime.update { r -> r.copy(focus = r.focus?.let { it.copy(startElapsed = it.startElapsed - 26 * 60_000L, startWall = it.startWall - 26 * 60_000L) }) }
+        }
+        val deadline = System.currentTimeMillis() + 10_000
+        while (!start.isCompleted) {
+            check(System.currentTimeMillis() < deadline) { "startFocus didn't finish" }
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            Thread.sleep(5)
+        }
+        start.getCompletionExceptionOrNull()?.let { throw it }
+        capture("focus_complete") { FocusScreen(onClose = {}) }
+    }
+
     // ---- The four-pillar model ----------------------------------------------------------------------
 
     private val social = ShieldPreset("s1", "Social Media Shield", listOf("com.example.photos", "web:reddit.com"), Mode.Cooldown, cooldownWaitMinutes = 1, createdAt = 2)
@@ -241,7 +272,149 @@ class ScreenshotTest(private val variant: Variant) {
         capture("home_active") { HomeUnderTest() }
     }
 
-    /** Saved sessions, nothing running: Home offers them one tap from starting. */
+    /**
+     * One session running with two Shields, an Intent and two unlocks (a break used once). [unlocked]: a break is on now.
+     * Saved as "Deep work" for the start and contents screens.
+     */
+    private fun busy(unlocked: Boolean = false) = runBlocking {
+        library()
+        val now = System.currentTimeMillis()
+        val focus = ShieldPreset("s3", "Games", listOf("web:chess.com"), Mode.Friction, createdAt = 3)
+        val chat = IntentPreset("i2", "Intentional chat", listOf("web:discord.com"), IntentConfig(reflectionSeconds = 10), createdAt = 3)
+        val unlocks = listOf(
+            app.aurora.protect.SessionUnlock("u1", "Break", minutes = 10, times = 5),
+            app.aurora.protect.SessionUnlock("u2", "Reddit for work", partIds = listOf("s1"), minutes = 30, times = 1, focusRuns = true),
+        )
+        val deep = UsageConfig(
+            "deep", "Deep work", shieldIds = listOf("s1", "s3"), intentIds = listOf("i2"), mode = Mode.Cooldown, cooldownWaitMinutes = 5,
+            focus = FocusPlan("Deep work", goal = "Draft the essay"), unlocks = unlocks, createdAt = 9,
+        )
+        application.rules.update { it.copy(shields = it.shields + focus, intentPresets = it.intentPresets + chat, configs = it.configs + deep) }
+        val breaks = listOf(app.aurora.protect.UnlockUse("u1", now - 15 * 60_000L, now - 5 * 60_000L)) +
+            if (unlocked) listOf(app.aurora.protect.UnlockUse("u1", now - 2 * 60_000L, now + 8 * 60_000L)) else emptyList()
+        application.runtime.update {
+            it.copy(unlocks = mapOf("now:x" to breaks), runs = listOf(
+                ConfigRun(
+                    "now:x", "deep", "Deep work", shield = social.copy(keys = social.keys + "web:chess.com", mode = Mode.Cooldown), intent = chat,
+                    focus = deep.focus, start = now - 3_600_000, end = now + 1_800_000, mode = Mode.Cooldown, unlocks = unlocks,
+                ),
+            ))
+        }
+    }
+
+    /** A running session fills the phone's first screen; Time Reclaimed waits a scroll below. */
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    @Test fun homeSessionPhone() {
+        busy()
+        capture("home_session_phone") { HomeUnderTest() }
+    }
+
+    /** The Focus timer with passes: one quiet pill at its foot. */
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    @Test fun focusRunPasses() {
+        busy()
+        capture("focus_run_passes") { FocusRunScreen("now:x") {} }
+    }
+
+    /** The same during a Break: the pill turns to Lock again. */
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    @Test fun focusRunOnPass() {
+        busy(unlocked = true)
+        capture("focus_run_on_pass") { FocusRunScreen("now:x") {} }
+        compose.onNodeWithText("Paused · Break").assertIsDisplayed()
+    }
+
+    /** Using a pass: each by name with how many are left, nothing more. */
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    @Test fun passChooser() {
+        busy()
+        capture("pass_chooser") { HomeUnderTest() }
+    }
+
+    /** On a tablet turned sideways (phones stay upright): what it is beside its controls. */
+    @Config(qualifiers = "w1280dp-h800dp-land-xhdpi")
+    @Test fun homeSessionLandscape() {
+        busy()
+        capture("home_session_landscape") { HomeUnderTest() }
+    }
+
+    /** Home with the session running: its time, apps, Focus and Unlock. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun homeMany() {
+        busy()
+        capture("home_many") { HomeUnderTest() }
+    }
+
+    /** A break on: the session says so, with its own clock and the way to lock again now. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun sessionUnlocked() {
+        busy(unlocked = true)
+        capture("session_unlocked") { HomeUnderTest() }
+    }
+
+    /** A new session's Shields and Intents: as many as wanted, each app in one of them. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun sessionContents() {
+        busy()
+        capture("session_contents") { ConfigureScreen(true, "deep", false, null, null, {}, {}, {}, {}, {}, {}, startStep = "Contents") }
+    }
+
+    /** A session's unlocks, set up with it. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun sessionUnlocks() {
+        busy()
+        capture("session_unlocks") { ConfigureScreen(true, "deep", false, null, null, {}, {}, {}, {}, {}, {}, startStep = "Unlocks") }
+    }
+
+    /** A running session in full: its time, what it has given back, what it is, blocks and allows. */
+    @Config(qualifiers = "w411dp-h2000dp-xxhdpi")
+    @Test fun runDetail() {
+        busy()
+        capture("run_detail") { app.aurora.ui.session.RunDetailScreen("now:x", {}, {}) }
+    }
+
+    /** A new session's passes, none yet: the three kinds, each a tap from being added. */
+    @Test fun passesEmpty() {
+        library()
+        capture("passes_empty") { Configure(custom = false, config = "c1", step = "Unlocks", timing = When.Now) }
+    }
+
+    /** One pass opened to change: what it is for, its name, its apps, how long, how often. */
+    @Config(qualifiers = "w411dp-h1400dp-xxhdpi")
+    @Test fun passEditor() {
+        busy()
+        capture("pass_editor") { ConfigureScreen(true, "deep", false, null, null, {}, {}, {}, {}, {}, {}, startSaved = true) }
+    }
+
+    /** Starting a saved session: its unlocks first, with the rest to view, not change. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun sessionStart() {
+        busy()
+        capture("session_start") { ConfigureScreen(true, "deep", false, null, null, {}, {}, {}, {}, {}, {}, startSaved = true) }
+    }
+
+    /** Starting a session whose app another session already holds then. */
+    @Test fun conflict() {
+        library()
+        capture("conflict") {
+            val vm = app.aurora.auroraViewModel { app.aurora.ui.protect.ProtectModel(it) }
+            val d by vm.data.collectAsStateWithLifecycle()
+            val now = System.currentTimeMillis()
+            d?.let { app.aurora.ui.session.ConflictDialog(app.aurora.protect.Conflict(app.aurora.protect.ConflictKind.Apps, setOf("com.example.photos"), "Study Session", now, now + 3_600_000), it) {} }
+        }
+    }
+
+    /** Home's Start a session: New or Saved. */
+    @Test fun startChooser() = capture("start_session") { app.aurora.ui.session.StartChooser({}, {}, {}) }
+
+    /** Saved sessions on their own screen, opened only from Home's Saved Sessions button. */
+    @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
+    @Test fun savedSessions() {
+        library()
+        capture("saved_sessions") { app.aurora.ui.home.SavedSessionsScreen({}, {}, {}) }
+    }
+
+    /** Saved sessions, nothing running: Home offers a Saved Sessions button under Start session. */
     @Config(qualifiers = "w411dp-h1900dp-xxhdpi")
     @Test fun homeReady() {
         library()
@@ -272,7 +445,7 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun intentBuilder() {
         library()
-        capture("intent_builder") { IntentEditorScreen("i1", {}, {}, startStep = 2) }
+        capture("intent_builder") { IntentEditorScreen("i1", {}, {}, startStep = 3) }
     }
 
     @Composable
@@ -281,10 +454,10 @@ class ScreenshotTest(private val variant: Variant) {
 
     @Test fun normalUse() = capture("configure_normal") { Configure(custom = false) }
 
-    /** Create or Choose a Session: New first, then Saved Sessions. */
-    @Test fun savedSessions() {
+    /** How strict the session is: its own step, after what it holds. */
+    @Test fun configureStrictness() {
         library()
-        capture("configure_saved") { Configure(custom = false, step = "Saved") }
+        capture("configure_strictness") { Configure(custom = false, step = "Strictness") }
     }
 
     @Test fun onboardingShield() {
@@ -292,13 +465,19 @@ class ScreenshotTest(private val variant: Variant) {
         capture("onboarding_shield") { OnboardingScreen(onFinish = {}) }
     }
 
-    /** The tour, one page per tab. */
-    @Test fun onboardingTourShield() = tour(1, "onboarding_tour_shield")
-    @Test fun onboardingTourIntent() = tour(2, "onboarding_tour_intent")
-    @Test fun onboardingTourHome() = tour(3, "onboarding_tour_home")
-    @Test fun onboardingTourTrack() = tour(4, "onboarding_tour_track")
+    /** How Aurora works: the four tabs on one card. */
+    @Test fun onboardingHow() {
+        runBlocking { application.preferences.setOnboardingStep(1) }
+        capture("onboarding_how") { OnboardingScreen(onFinish = {}) }
+    }
 
-    private fun tour(step: Int, name: String) {
+    /** A page for each tab. */
+    @Test fun onboardingTabShield() = tab(2, "onboarding_tab_shield")
+    @Test fun onboardingTabIntent() = tab(3, "onboarding_tab_intent")
+    @Test fun onboardingTabHome() = tab(4, "onboarding_tab_home")
+    @Test fun onboardingTabTrack() = tab(5, "onboarding_tab_track")
+
+    private fun tab(step: Int, name: String) {
         runBlocking { application.preferences.setOnboardingStep(step) }
         capture(name) { OnboardingScreen(onFinish = {}) }
     }
@@ -317,6 +496,13 @@ class ScreenshotTest(private val variant: Variant) {
 
     /** Review as a person sees it with Shield on, and with Shield off. */
     private fun grantShield() = android.provider.Settings.Secure.putString(application.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "app.aurora/.protect.ShieldService")
+
+    /** Review for a session made from New session: Save this session sits above Focus and the message. */
+    @Test fun reviewNewSession() {
+        library()
+        grantShield()
+        capture("configure_review_new") { Configure(custom = false, config = "c1", step = "Review", timing = When.Now) }
+    }
 
     @Test fun reviewShieldOff() {
         library()
@@ -396,9 +582,14 @@ class ScreenshotTest(private val variant: Variant) {
     @Test fun focusRun() {
         library(running = true)
         capture("focus_run") { FocusRunScreen("now:x") {} }
+        compose.onNodeWithText("Focused").assertDoesNotExist()
     }
 
     @Test fun shieldCooldown() = capture("shield_cooldown") { ShieldContent(shield(ShieldReason.Cooldown)) { } }
+
+    /** The Shield follows the device's own rotation: a phone held sideways in a blocked app. */
+    @Config(qualifiers = "w891dp-h411dp-land-xxhdpi")
+    @Test fun shieldLandscape() = capture("shield_landscape") { ShieldContent(shield(ShieldReason.Cooldown)) { } }
 
     /** A running Intent session, so the cooldown belongs to one and the Shield shows its timer. */
     @Test fun shieldIntentCooldown() {
@@ -443,8 +634,42 @@ class ScreenshotTest(private val variant: Variant) {
         capture("shield_intent_note") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
     }
 
+    // A phone on its side: every moment fits without scrolling.
+    @Config(qualifiers = "w914dp-h411dp-xxhdpi")
+    @Test fun shieldFlexibleNoteLand() {
+        noted()
+        capture("shield_flexible_note_land") { ShieldContent(shield(ShieldReason.Flexible)) { } }
+    }
+
+    @Config(qualifiers = "w914dp-h411dp-xxhdpi")
+    @Test fun shieldIntentNoteLand() {
+        noted()
+        capture("shield_intent_note_land") { ShieldContent(shield(ShieldReason.Intent, null)) { } }
+    }
+
+    @Config(qualifiers = "w914dp-h411dp-xxhdpi")
+    @Test fun shieldFrictionLand() = capture("shield_friction_land") { ShieldContent(shield(ShieldReason.Friction)) { } }
+
+    @Config(qualifiers = "w914dp-h411dp-xxhdpi")
+    @Test fun shieldIntentCooldownLand() {
+        library(running = true)
+        capture("shield_intent_cooldown_land") { ShieldContent(shield(ShieldReason.IntentCooldown)) { } }
+    }
+
     @Config(qualifiers = "w411dp-h2400dp-xxhdpi")
     @Test fun plus() = capture("plus") { app.aurora.ui.plus.PlusScreen(onBack = {}) }
+    @Test fun plus_trial_offer() = capture("plus_trial_offer") { app.aurora.ui.plus.TrialSection(app.aurora.account.RemoteTrial("available", days = 14), onTrial = false, free = true, message = null) {} }
+    @Test fun home_trial_countdown() {
+        val end = 1_763_209_600_000
+        capture("home_trial_countdown") { app.aurora.ui.plus.TrialCountdown(end, end - 9 * 86_400_000L - 3_600_000L, onOpen = {}) }
+    }
+    @Test fun home_trial_last_day() {
+        val end = 1_763_209_600_000
+        capture("home_trial_last_day") { app.aurora.ui.plus.TrialCountdown(end, end - 3_600_000L, onOpen = {}) }
+    }
+    @Test fun onboarding_trial_offer() = capture("onboarding_trial_offer") { app.aurora.ui.plus.TrialOfferPage(message = null) }
+    @Test fun plus_trial_active() = capture("plus_trial_active") { app.aurora.ui.plus.TrialSection(app.aurora.account.RemoteTrial("active", startedAt = 1_762_000_000_000, endsAt = 1_763_209_600_000), onTrial = true, free = false, message = null) {} }
+
     @Test fun login() {
         capture("login") { app.aurora.ui.account.Login(onEmail = {}) }
         val help = compose.onNodeWithText("Trouble signing in?", useUnmergedTree = true)
@@ -456,6 +681,22 @@ class ScreenshotTest(private val variant: Variant) {
         org.junit.Assert.assertTrue("Help belongs below the legal links", help.fetchSemanticsNode().boundsInRoot.top >= privacy.bottom)
     }
     @Test fun account() =capture("account") { app.aurora.ui.account.AccountScreen(onBack = {}, onPlus = {}) }
+    @Test fun permission_shield() = capture("permission_shield") {
+        val ask = app.aurora.ui.protect.rememberPermissionRequest()
+        androidx.compose.runtime.LaunchedEffect(Unit) { ask(app.aurora.data.Access.Accessibility) }
+    }
+    /** A session's details: its Shield and its Intent each a card, with what each covers. */
+    @Test fun sessionDetails() = capture("session_details") {
+        app.aurora.ui.library.DetailsDialog(
+            "Study Session",
+            listOf("Your note" to "Exam on Friday."),
+            {},
+            listOf(
+                app.aurora.ui.library.DetailSection(app.aurora.ui.components.AuroraIcons.Protect, "Shield · blocked", "Social Media Shield · Friction", listOf("Apps" to "Instagram, YouTube", "Websites" to "reddit.com")),
+                app.aurora.ui.library.DetailSection(app.aurora.ui.components.AuroraIcons.Intent, "Intent · asks before opening", "Mindful Opening · 10s pause", listOf("Apps" to "Photos, Chrome")),
+            ),
+        ) {}
+    }
     @Test fun limit_shield() = capture("limit_shield") { app.aurora.ui.plus.LimitPromptDialog(app.aurora.LimitPrompt(app.aurora.plan.LimitDecision(false, app.aurora.plan.LimitReason.ShieldTargets, 5, 5, 0, app.aurora.plan.Remedy.FreeASlot, true)), {}, {}) }
     @Test fun limit_committed() = capture("limit_committed") { app.aurora.ui.plus.LimitPromptDialog(app.aurora.LimitPrompt(app.aurora.plan.LimitDecision(false, app.aurora.plan.LimitReason.CommittedProtection, 95 * 60_000L, 120 * 60_000L, 25 * 60_000L, app.aurora.plan.Remedy.ChooseShorter, true, resetAt = 0), { }), {}, {}) }
     @Test fun goal_limit() = capture("goal_limit") { app.aurora.ui.track.GoalLimitDialog(app.aurora.progress.Goal("g", "Daily Study", app.aurora.progress.GoalKind.Session, app.aurora.progress.GoalPeriod.Daily, 60), {}, {}, { _, _ -> }) }
@@ -467,7 +708,16 @@ class ScreenshotTest(private val variant: Variant) {
         runBlocking {
             app.history.update { it.copy(runs = listOf(RunRecord("f1", "c1", "Study Session", start = now - 7_800_000, plannedEnd = now - 600_000, end = now - 600_000, verifiedMs = 7_200_000, protection = Outcome.Succeeded))) }
         }
-        capture("session_history") { SessionHistoryScreen {} }
+        capture("session_history") { SessionHistoryScreen(onBack = {}) }
+    }
+
+    @Test fun sessionHistoryDay() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        val now = System.currentTimeMillis()
+        runBlocking {
+            app.history.update { it.copy(runs = listOf(RunRecord("f1", "c1", "Study Session", start = now - 7_800_000, plannedEnd = now - 600_000, end = now - 600_000, verifiedMs = 7_200_000, protection = Outcome.Succeeded))) }
+        }
+        capture("session_history_day") { SessionHistoryScreen({}, initialDay = java.time.LocalDate.now().toString()) }
     }
 
     /** How Aurora works: every tab explained, from Settings or any tab's info button. */

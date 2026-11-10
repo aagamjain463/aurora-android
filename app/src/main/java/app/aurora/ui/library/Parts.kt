@@ -1,5 +1,14 @@
 package app.aurora.ui.library
 
+import app.aurora.ui.components.glassRim
+import app.aurora.ui.components.glassFill
+import app.aurora.ui.components.glassCard
+import androidx.compose.ui.layout.onSizeChanged
+
+import app.aurora.ui.components.material
+
+import app.aurora.ui.components.backdropSource
+
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import app.aurora.ui.components.AuroraSwitch
@@ -49,6 +58,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import app.aurora.R
 import app.aurora.data.InstalledApp
 import app.aurora.plan.ProtectedItem
@@ -74,7 +85,7 @@ import app.aurora.ui.components.ContentMaxWidth
 
 /*
  * Pieces shared by the Shield, Intent, Home and Goal builders: a stepped flow, the complete app list,
- * the website list, and the preset card. Built only from the First Light components.
+ * the website list, and the preset card. Built only from the shared Aurora components.
  */
 
 /**
@@ -98,42 +109,48 @@ fun StepFlow(
     BackHandler(onBack = onBack)
     Box(Modifier.fillMaxSize().background(colors.background), contentAlignment = Alignment.TopCenter) {
     Column(Modifier.widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = Space.XS, vertical = Space.XS), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = Space.M, end = Space.Gutter, top = Space.M, bottom = Space.XS), verticalAlignment = Alignment.CenterVertically) {
             AuroraIconButton(AuroraIcons.Back, stringResource(R.string.action_back), onBack)
-            // The horizon fills step by step; the light marks where the person is.
-            Row(Modifier.weight(1f).padding(horizontal = Space.S).semantics(mergeDescendants = true) { contentDescription = "${index + 1}/$steps" }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // A hairline per step, filled up to where the person is; the count sits quietly at its end.
+            Row(Modifier.weight(1f).padding(start = Space.M).semantics(mergeDescendants = true) { contentDescription = "${index + 1}/$steps" }, horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically) {
                 // One step has no progress to show.
-                if (steps > 1) repeat(steps) { i ->
-                    val filled by androidx.compose.animation.core.animateFloatAsState(if (i <= index) 1f else 0f, app.aurora.ui.theme.auroraTween(app.aurora.ui.theme.Motion.Gentle), label = "step")
-                    Box(Modifier.weight(1f).height(8.dp), contentAlignment = Alignment.CenterStart) {
-                        Box(Modifier.fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.hairline))
-                        Box(Modifier.fillMaxWidth(filled).height(4.dp).clip(Radius.Pill).background(colors.accent))
-                        if (i == index) Box(Modifier.align(Alignment.CenterEnd).size(8.dp).graphicsLayer { alpha = filled; scaleX = filled; scaleY = filled }.clip(Radius.Pill).background(colors.light))
+                if (steps > 1) {
+                    repeat(steps) { i ->
+                        val filled by androidx.compose.animation.core.animateFloatAsState(if (i <= index) 1f else 0f, app.aurora.ui.theme.auroraTween(app.aurora.ui.theme.Motion.Gentle), label = "step")
+                        Box(Modifier.weight(1f).height(2.dp).clip(Radius.Pill).background(colors.hairline)) {
+                            Box(Modifier.fillMaxWidth(filled).height(2.dp).background(colors.plus))
+                        }
                     }
+                    Text("${index + 1}/$steps", Modifier.padding(start = Space.XS), color = colors.textTertiary, style = AuroraType.Caption.copy(fontFeatureSettings = "tnum"))
                 }
             }
-            Box(Modifier.size(Space.M))
         }
         // Each step starts at its top and settles in from the side it came from.
         val reduced = Aurora.reducedMotion
         var last by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(index) }
         val from = if (index >= last) 1f else -1f
         androidx.compose.runtime.SideEffect { last = index }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         androidx.compose.runtime.key(index) {
             val side = androidx.compose.runtime.remember { from }
             val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
             androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Gentle, easing = app.aurora.ui.theme.Motion.Ease)) }
             LazyColumn(
-                Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = shown.value; translationX = (1f - shown.value) * 72.dp.toPx() * side },
-                contentPadding = PaddingValues(horizontal = Space.Gutter, vertical = Space.M),
-                verticalArrangement = Arrangement.spacedBy(Space.S),
+                Modifier.fillMaxSize().graphicsLayer { alpha = shown.value; translationX = (1f - shown.value) * 72.dp.toPx() * side },
+                contentPadding = PaddingValues(start = Space.Gutter, end = Space.Gutter, top = Space.L, bottom = Space.XL),
+                verticalArrangement = Arrangement.spacedBy(Space.M),
                 content = content,
             )
         }
-        // Same gutter as the content above, so the button and its note line up with the page.
-        Column(Modifier.padding(horizontal = Space.Gutter, vertical = Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        }
+        // The action sits on the page itself, aligned to the gutter: no tray, no rim around it.
+        Column(
+            Modifier.fillMaxWidth().background(colors.background).padding(start = Space.Gutter, end = Space.Gutter, top = Space.S, bottom = Space.M),
+            verticalArrangement = Arrangement.spacedBy(Space.S),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             footer?.invoke(this)
-            if (!primaryEnabled && whyDisabled != null) Text(whyDisabled, color = colors.textSecondary, style = AuroraType.Secondary)
+            if (!primaryEnabled && whyDisabled != null) Text(whyDisabled, color = colors.textTertiary, style = AuroraType.Secondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             AuroraButton(primary, onPrimary, Modifier.fillMaxWidth(), enabled = primaryEnabled)
         }
     }
@@ -143,7 +160,7 @@ fun StepFlow(
 /** A step's heading and one supporting line. */
 fun LazyListScope.stepTitle(@androidx.annotation.StringRes title: Int, @androidx.annotation.StringRes body: Int?, vararg args: Any) {
     item(key = "step-title") {
-        Column(Modifier.padding(bottom = Space.S), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        Column(Modifier.padding(top = Space.XS, bottom = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
             Text(stringResource(title, *args), Modifier.semantics { heading() }, color = Aurora.colors.textPrimary, style = AuroraType.DisplayS)
             if (body != null) Text(stringResource(body), color = Aurora.colors.textSecondary, style = AuroraType.Body)
         }
@@ -175,7 +192,7 @@ fun LazyListScope.appChecklist(
         Column {
         val count = if (q.isEmpty()) stringResource(R.string.picker_count, visible.size, selected.count { !it.startsWith(WebPrefix) }) else stringResource(R.string.picker_matches, visible.size)
         Text(
-            count.uppercase(),
+            count,
             Modifier.padding(start = 4.dp, top = Space.S, bottom = 2.dp).clearAndSetSemantics { this.text = androidx.compose.ui.text.AnnotatedString(count) },
             color = Aurora.colors.textTertiary, style = AuroraType.Eyebrow,
         )
@@ -192,13 +209,13 @@ fun LazyListScope.appChecklist(
             topStart = if (i == 0) r else 0.dp, topEnd = if (i == 0) r else 0.dp,
             bottomStart = if (i == visible.lastIndex) r else 0.dp, bottomEnd = if (i == visible.lastIndex) r else 0.dp,
         )
-        Column(Modifier.fillMaxWidth().clip(shape).background(colors.surface)) {
+        Column(Modifier.fillMaxWidth().glassCard(colors, shape, edge = false)) {
             if (i > 0) androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().height(1.dp).background(colors.hairline))
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 62.dp)
                     .toggleable(on, role = Role.Switch) { onToggle(app.packageName) }
                     .semantics(mergeDescendants = true) { stateDescription = state }
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                    .padding(horizontal = Space.Inner, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -246,16 +263,21 @@ fun LazyListScope.siteEditor(sites: List<String>, onChange: (List<String>) -> Un
     }
 }
 
-/** A tab's opening over First Light: the mark and one confident line. */
+/** A tab's opening: the logo and one confident line. */
 @Composable
-fun TabHeader(title: String, onOpenSettings: (() -> Unit)?, topic: app.aurora.ui.guide.GuideTopic? = null, onOpenGuide: (() -> Unit)? = null) {
+fun TabHeader(title: String, onOpenSettings: (() -> Unit)?) {
     val colors = Aurora.colors
-    var info by rememberSaveable { mutableStateOf(false) }
-    if (info && topic != null) app.aurora.ui.guide.GuideDialog(topic, { info = false }, onOpenGuide)
     Column {
-        AuroraHeader(onOpenSettings, onInfo = topic?.let { { info = true } })
-        Spacer(Modifier.height(64.dp))
-        Text(title, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.L).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
+        AuroraHeader(onOpenSettings)
+        Spacer(Modifier.height(56.dp))
+        // Set like Home's promise: two tones, the last sentence (or the last word) in full ink on its own line.
+        val sentences = title.trimEnd().split(". ")
+        val tail = if (sentences.size > 1) sentences.last().split(" ").size else 1
+        app.aurora.ui.components.TwoToneHeadline(
+            title, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.L), tailWords = tail,
+            style = AuroraType.HeroBold.copy(fontSize = 38.sp, lineHeight = 1.16.em),
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 24.sp, maxFontSize = 38.sp),
+        )
     }
 }
 
@@ -280,7 +302,7 @@ fun PresetCard(
 ) {
     val colors = Aurora.colors
     Column(
-        modifier.padding(horizontal = Space.Gutter).fillMaxWidth().pressable(Radius.L, onClick = onEdit).auroraSurface(colors, edge = edge).padding(horizontal = 22.dp, vertical = 20.dp),
+        modifier.padding(horizontal = Space.Gutter).fillMaxWidth().pressable(Radius.L, onClick = onEdit).auroraSurface(colors, edge = edge).padding(horizontal = Space.Inner, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
         // Laid out like every Aurora tile: name and its control on top, then what it is, then its mode and apps.
@@ -294,7 +316,7 @@ fun PresetCard(
                     open, { open = false },
                     shape = Radius.M,
                     containerColor = colors.elevated,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.hairline),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.glassRim()),
                 ) {
                     ItemMenuItems({ open = false }, onView, onEdit, onDuplicate, onDelete)
                 }
@@ -323,9 +345,18 @@ fun ItemMenuItems(close: () -> Unit, onView: () -> Unit, onEdit: () -> Unit, onD
     MenuItem(stringResource(R.string.preset_delete), AuroraIcons.Trash, danger = true) { close(); onDelete() }
 }
 
-/** A saved item's or a finished session's details: label over value, one per line. [onEdit] adds Edit. */
+/**
+ * One part of a session in [DetailsDialog]: what it is ([kind], "Shield"), which one ([name], with its mode), and what
+ * it covers. A session's Shield and Intent each get one, so it's plain which apps are blocked and which are asked about.
+ */
+data class DetailSection(val icon: androidx.compose.ui.graphics.vector.ImageVector, val kind: String, val name: String, val rows: List<Pair<String, String>>)
+
+/**
+ * A saved item's or a finished session's details: [sections] first, each its own card, then label over value, one per
+ * line. [onEdit] adds Edit.
+ */
 @Composable
-fun DetailsDialog(title: String, rows: List<Pair<String, String>>, onDismiss: () -> Unit, onEdit: (() -> Unit)? = null) {
+fun DetailsDialog(title: String, rows: List<Pair<String, String>>, onDismiss: () -> Unit, sections: List<DetailSection> = emptyList(), onEdit: (() -> Unit)? = null) {
     val colors = Aurora.colors
     app.aurora.ui.components.AuroraDialog(
         title, onDismiss,
@@ -333,16 +364,45 @@ fun DetailsDialog(title: String, rows: List<Pair<String, String>>, onDismiss: ()
         { onDismiss(); onEdit?.invoke() },
         dismissLabel = if (onEdit != null) stringResource(R.string.action_close) else null,
     ) {
-        // One quiet panel of label-over-value lines, split by hairlines.
-        Column(Modifier.fillMaxWidth().clip(Radius.M).background(colors.field)) {
-            rows.filter { it.second.isNotBlank() }.forEachIndexed { i, (label, value) ->
-                if (i > 0) app.aurora.ui.components.RowDivider()
-                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp).semantics(mergeDescendants = true) { }) {
-                    Text(label.uppercase(), color = colors.textTertiary, style = AuroraType.Eyebrow)
-                    Text(value, Modifier.padding(top = 4.dp), color = colors.textPrimary, style = AuroraType.Body)
+        val shown = rows.filter { it.second.isNotBlank() }
+        Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+            sections.forEach { section ->
+                // Its own card: the badge and the kind over its name, then what it covers.
+                Column(Modifier.fillMaxWidth().glassCard(colors, Radius.M, fill = colors.glassFill(field = true))) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = Space.Inner, vertical = 14.dp).semantics(mergeDescendants = true) { },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        app.aurora.ui.components.LitBadge(section.icon, size = 36)
+                        Column(Modifier.weight(1f)) {
+                            Text(section.kind, color = colors.textTertiary, style = AuroraType.Eyebrow)
+                            Text(section.name, Modifier.padding(top = 2.dp), color = colors.textPrimary, style = AuroraType.BodyStrong)
+                        }
+                    }
+                    section.rows.filter { it.second.isNotBlank() }.forEach { (label, value) ->
+                        app.aurora.ui.components.RowDivider()
+                        DetailLine(label, value)
+                    }
+                }
+            }
+            // One quiet panel of label-over-value lines, split by hairlines.
+            if (shown.isNotEmpty()) Column(Modifier.fillMaxWidth().glassCard(colors, Radius.M, fill = colors.glassFill(field = true))) {
+                shown.forEachIndexed { i, (label, value) ->
+                    if (i > 0) app.aurora.ui.components.RowDivider()
+                    DetailLine(label, value)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    val colors = Aurora.colors
+    Column(Modifier.fillMaxWidth().padding(horizontal = Space.Inner, vertical = 14.dp).semantics(mergeDescendants = true) { }) {
+        Text(label, color = colors.textTertiary, style = AuroraType.Eyebrow)
+        Text(value, Modifier.padding(top = 4.dp), color = colors.textPrimary, style = AuroraType.Body)
     }
 }
 
@@ -380,12 +440,12 @@ fun PickRow(title: String, subtitle: String, selected: Boolean, onClick: () -> U
         modifier.fillMaxWidth().glass(colors, Radius.L, tint = if (selected) colors.accent else null)
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics(mergeDescendants = true) { this.selected = selected }
-            .padding(Space.M),
+            .padding(horizontal = 20.dp, vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.M),
     ) {
         leading?.invoke()
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (tag != null) Box(Modifier.padding(bottom = Space.XS)) { tag() }
             Text(title, color = colors.textPrimary, style = AuroraType.Title)
             if (subtitle.isNotEmpty()) Text(subtitle, color = colors.textSecondary, style = AuroraType.Secondary)

@@ -19,8 +19,12 @@ class AppCatalog(private val context: Context) {
     private val pm: PackageManager get() = context.packageManager
     private val iconPx = (48 * context.resources.displayMetrics.density).roundToInt()
 
+    // Decoded label + icon per package, for the life of the process: the picker, Home and the Shield screens open
+    // with icons already there instead of re-decoding ~100 drawables each time.
+    // ponytail: an app that changes its icon in an update shows the old one until Aurora's process restarts.
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, InstalledApp>()
+
     /** Every app the person can open from their launcher, alphabetically, excluding aurora. */
-    // ponytail: reloads per screen (~100 icons, a few hundred ms); cache + package-change receiver if it shows up in profiles.
     suspend fun launchableApps(): List<InstalledApp> = withContext(Dispatchers.IO) {
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         @Suppress("DEPRECATION")
@@ -28,14 +32,16 @@ class AppCatalog(private val context: Context) {
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
             .filter { it.packageName != context.packageName }
-            .map { it.toInstalledApp() }
+            .map { cache.getOrPut(it.packageName) { it.toInstalledApp() } }
             .sortedWith(compareBy(Collator.getInstance()) { it.label })
     }
 
     /** One app by package, or null if it has been uninstalled. */
     suspend fun app(packageName: String): InstalledApp? = withContext(Dispatchers.IO) {
         try {
-            pm.getApplicationInfo(packageName, 0).toInstalledApp()
+            // Asked every time, so an uninstalled app is still null; only the decoding is cached.
+            val info = pm.getApplicationInfo(packageName, 0)
+            cache.getOrPut(packageName) { info.toInstalledApp() }
         } catch (_: PackageManager.NameNotFoundException) {
             null
         }
@@ -44,7 +50,8 @@ class AppCatalog(private val context: Context) {
     /** Just the name, which is much faster than the icon: the Shield shows it first. */
     suspend fun label(packageName: String): String? = withContext(Dispatchers.IO) {
         try {
-            pm.getApplicationInfo(packageName, 0).loadLabel(pm).toString()
+            val info = pm.getApplicationInfo(packageName, 0)
+            cache[packageName]?.label ?: info.loadLabel(pm).toString()
         } catch (_: PackageManager.NameNotFoundException) {
             null
         }

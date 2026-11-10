@@ -3,8 +3,15 @@ main = "src/worker.js"
 compatibility_date = "2026-10-01"
 
 [vars]
+# Google Play.
 PACKAGE_NAME = "app.aurora"
 PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
+# App Store. Its routes answer 503 until the APPLE_* secrets below are set.
+APPLE_BUNDLE_ID = "com.aagamjain.Aurora"
+APPLE_PRODUCT_IDS = "aurora_plus_monthly,aurora_plus_annual"
+# App Review buys with a sandbox account in the production app, so this has to be "1" while Apple reviews a build.
+# Sandbox receipts create only ios_sandbox review access; production Plus and quota ignore them.
+APPLE_ALLOW_SANDBOX = "1"
 # The Firebase project whose ID tokens this server accepts.
 FIREBASE_PROJECT_ID = "aurora-24aa9"
 ENVIRONMENT = "production"
@@ -14,6 +21,26 @@ ENVIRONMENT = "production"
 DEVICE_QUOTA = "shadow"
 INTEGRITY = "off"
 APP_CERT_SHA256 = ""
+# 14-day trial (docs/MONETIZATION_PLAN.md, 3.2): "on" or "off". Needs migration 0005 and the TRIAL_PEPPER secret; iOS
+# claims also need APPLE_TEAM_ID and the DeviceCheck key. Android claims are refused unless DEVICE_RECALL = "enforce".
+# Keep "off" until the trial-data retention period is approved (docs/PRIVACY_TRIAL_RETENTION_REVIEW.md).
+TRIAL = "off"
+# App Attest on iOS trial claims: "off" or "enforce". Needs the App Attest capability in the iOS build.
+APP_ATTEST = "off"
+# Founding Lifetime (docs/MONETIZATION_PLAN.md, 3.4): "on" opens holds and shows the offer. Verified purchases are
+# honored whatever this says. Needs migration 0006. The product must be a US-only one-time product in Play Console
+# (non-consumable in App Store Connect, US storefront only), and must be deactivated by hand when sales close.
+# Device Recall (beta, needs Google's approval; docs/ANTI_ABUSE.md, section 5). Android trials exist only with "enforce":
+# it writes bitFirst = "an Aurora trial was granted on this phone", refuses a trial where it is set, and refuses one
+# where Google can't recall the phone. Any other value means no Android trials. Set "enforce" only after the
+# physical-device checks in docs/MONETIZATION_PLAN.md section 11 pass (factory reset included).
+DEVICE_RECALL = "off"
+LIFETIME = "off"
+LIFETIME_PRODUCT_ID = "aurora_plus_lifetime_us"
+APPLE_LIFETIME_PRODUCT_ID = "aurora_plus_lifetime_us"
+APPLE_TEAM_ID = ""
+# DeviceCheck and App Attest: "production" for App Store and TestFlight builds, "development" for Xcode-signed debug builds.
+DEVICECHECK_ENV = "production"
 
 # wrangler d1 create aurora, then paste its id here. Then: wrangler d1 migrations apply aurora --remote
 [[d1_databases]]
@@ -26,4 +53,7 @@ migrations_dir = "migrations"
 [triggers]
 crons = ["17 3 * * *"]
 
-# Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN.
+# Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN,
+# APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY (the App Store Connect .p8 file's contents), TRIAL_PEPPER (32+ random
+# bytes; rotating it forgets every trial ever claimed, so never rotate it), DEVICECHECK_KEY_ID, DEVICECHECK_PRIVATE_KEY
+# (a .p8 key with DeviceCheck enabled, from Certificates, Identifiers & Profiles > Keys).

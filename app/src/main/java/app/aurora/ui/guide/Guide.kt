@@ -98,33 +98,6 @@ private fun section(topic: GuideTopic): Section = when (topic) {
     )
 }
 
-@Composable
-private fun Points(topic: GuideTopic) {
-    val colors = Aurora.colors
-    Column(verticalArrangement = Arrangement.spacedBy(Space.M)) {
-        section(topic).all.forEach { p ->
-            Column(Modifier.semantics(mergeDescendants = true) { }) {
-                Text(p.title, color = colors.textPrimary, style = AuroraType.BodyStrong)
-                Text(p.body, Modifier.padding(top = 2.dp), color = colors.textSecondary, style = AuroraType.Secondary)
-            }
-        }
-    }
-}
-
-/** A tab's info button opens this: what the tab offers, and the way to the whole guide. */
-@Composable
-fun GuideDialog(topic: GuideTopic, onDismiss: () -> Unit, onOpenGuide: (() -> Unit)?) {
-    AuroraDialog(stringResource(topic.title), onDismiss, stringResource(R.string.settings_got_it), onDismiss) {
-        Column(verticalArrangement = Arrangement.spacedBy(Space.L)) {
-            Points(topic)
-            if (onOpenGuide != null) AuroraButton(
-                stringResource(R.string.guide_see_all), { onDismiss(); onOpenGuide() }, Modifier.fillMaxWidth(),
-                kind = ButtonKind.Secondary, icon = AuroraIcons.Info,
-            )
-        }
-    }
-}
-
 /** How Aurora works: every tab, explained in one place. */
 @Composable
 fun GuideScreen(onBack: () -> Unit) {
@@ -204,7 +177,7 @@ private fun Topic(topic: GuideTopic) {
 private fun Item(p: Point, number: Int?, last: Boolean) {
     val colors = Aurora.colors
     Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(horizontal = 18.dp).semantics(mergeDescendants = true) { },
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(horizontal = Space.Inner).semantics(mergeDescendants = true) { },
         horizontalArrangement = Arrangement.spacedBy(Space.M),
     ) {
         Column(Modifier.fillMaxHeight().padding(top = if (number == null || number == 1) Space.M else 0.dp), horizontalAlignment = Alignment.CenterHorizontally) {

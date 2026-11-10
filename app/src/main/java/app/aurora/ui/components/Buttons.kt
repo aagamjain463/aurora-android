@@ -36,6 +36,7 @@ import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
+import app.aurora.ui.theme.clipShape
 
 enum class ButtonKind {
     /** One per screen: the thing aurora suggests you do next. */
@@ -47,8 +48,17 @@ enum class ButtonKind {
     /** Low-emphasis actions such as "Not now". */
     Quiet,
 
-    /** Ending something early, such as a Focus session. Outlined in coral, never filled. */
+    /** Ending something early, such as a Focus session. Outlined in the danger colour, never filled. */
     Danger,
+
+    /** The way into Aurora Plus: solid gold, Obsidian type. Only ever for Plus. */
+    Plus,
+
+    /** A quiet link to Aurora Plus, in gold ink. */
+    PlusQuiet,
+
+    /** A soft tinted fill with no rim, for a repeated action inside a card (a saved session's Start). */
+    Tonal,
 }
 
 @Composable
@@ -66,40 +76,46 @@ fun AuroraButton(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed && !Aurora.reducedMotion) 0.97f else 1f,
-        if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.5f, stiffness = 700f),
+        if (pressed && !Aurora.reducedMotion) 0.98f else 1f,
+        if (Aurora.reducedMotion) snap() else androidx.compose.animation.core.tween(app.aurora.ui.theme.Motion.Quick, easing = app.aurora.ui.theme.Motion.Ease),
         label = "press",
     )
     // The suggested next step answers with a light tick under the finger.
     val haptics = LocalHapticFeedback.current
+    val shape = if (compact) Radius.Pill else Radius.Button
     val (container, content) = when (kind) {
         ButtonKind.Primary -> if (enabled) colors.accent to colors.onAccent else colors.field to colors.textTertiary
         ButtonKind.Secondary -> Color.Transparent to colors.textPrimary
         ButtonKind.Quiet -> Color.Transparent to colors.textSecondary
         ButtonKind.Danger -> Color.Transparent to colors.danger
+        ButtonKind.Plus -> if (enabled) Color.Transparent to app.aurora.ui.theme.Palette.Obsidian else colors.field to colors.textTertiary
+        ButtonKind.PlusQuiet -> Color.Transparent to colors.plus
+        ButtonKind.Tonal -> colors.accentSoft to colors.textPrimary
     }
     Box(
         modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled || kind == ButtonKind.Primary) 1f else 0.4f }
-            .heightIn(min = when { kind == ButtonKind.Quiet || compact -> 48.dp; kind == ButtonKind.Primary -> 58.dp; else -> 54.dp })
-            .clip(Radius.Pill)
-            // The one filled action is sunlit: pale dawn on top, warming to peach underneath (ink on paper by day).
-            .then(if (kind == ButtonKind.Primary && enabled) Modifier.sunlit(colors) else Modifier.background(container))
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled || kind == ButtonKind.Primary || kind == ButtonKind.Plus) 1f else 0.4f }
+            .heightIn(min = when { kind == ButtonKind.Quiet || kind == ButtonKind.PlusQuiet || compact -> 48.dp; else -> 54.dp })
+            .clip(shape.clipShape)
+            // The one filled action: solid Porcelain at night, solid Obsidian by day.
+            .background(container, shape)
             .then(
                 when (kind) {
-                    // A waiting primary keeps its pill outline, so it never melts into the dune as bare text.
-                    ButtonKind.Primary -> if (enabled) Modifier else Modifier.border(1.dp, colors.hairlineStrong, Radius.Pill)
-                    ButtonKind.Secondary -> Modifier.glass(colors, Radius.Pill)
-                    ButtonKind.Danger -> Modifier.glass(colors, Radius.Pill, tint = colors.danger)
-                    ButtonKind.Quiet -> Modifier
+                    // A waiting primary keeps its outline, so it never melts into the page as bare text.
+                    ButtonKind.Primary -> if (enabled) Modifier.glassShine(colors, shape) else Modifier.glassCard(colors, shape)
+                    // Secondary actions are glass controls: a whisper of fill, a lit rim, a sheen.
+                    ButtonKind.Secondary -> Modifier.glassControl(shape)
+                    ButtonKind.Danger -> Modifier.glassCard(colors, shape, tint = colors.danger)
+                    ButtonKind.Plus -> if (enabled) Modifier.plusFill(shape) else Modifier.glassCard(colors, shape)
+                    ButtonKind.Quiet, ButtonKind.PlusQuiet, ButtonKind.Tonal -> Modifier
                 },
             )
             .clickable(
                 interactionSource = interaction,
-                indication = ripple(color = content),
+                indication = HighlightIndication(content),
                 enabled = enabled,
                 role = Role.Button,
-                onClick = { if (kind == ButtonKind.Primary) haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onClick() },
+                onClick = { if (kind == ButtonKind.Primary || kind == ButtonKind.Plus) haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onClick() },
             )
             .padding(horizontal = if (compact) Space.M else Space.L),
         contentAlignment = Alignment.Center,
@@ -110,8 +126,8 @@ fun AuroraButton(
             // breaking into a column of single words.
             Text(
                 text, color = content, style = when (kind) {
-                    ButtonKind.Primary -> AuroraType.Label
-                    ButtonKind.Quiet -> AuroraType.BodyStrong.copy(fontSize = 15.sp)
+                    ButtonKind.Primary, ButtonKind.Plus -> AuroraType.Label
+                    ButtonKind.Quiet, ButtonKind.PlusQuiet -> AuroraType.BodyStrong.copy(fontSize = 15.sp)
                     else -> AuroraType.Title
                 }, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 maxLines = if (compact) 1 else Int.MAX_VALUE, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -127,7 +143,9 @@ fun AuroraIconButton(icon: ImageVector, label: String, onClick: () -> Unit, modi
     Box(
         modifier
             .size(48.dp)
-            .pressable(Radius.Pill, onClickLabel = label, onClick = onClick),
+            .pressable(Radius.Pill, onClickLabel = label, onClick = onClick)
+            .padding(2.dp)
+            .glassControl(Radius.Pill),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = label, tint = Aurora.colors.textPrimary, modifier = Modifier.size(20.dp))

@@ -52,7 +52,7 @@ import app.aurora.ui.theme.Space
 
 /** The Intent tab: saved Intent presets. Like Shield, it creates; Home starts. */
 @Composable
-fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSettings: () -> Unit, onOpenGuide: () -> Unit = {}) {
+fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSettings: () -> Unit) {
     val vm = auroraViewModel { ProtectModel(it) }
     val data by vm.data.collectAsStateWithLifecycle()
     var deleting by remember { mutableStateOf<IntentPreset?>(null) }
@@ -62,26 +62,26 @@ fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSe
         title = stringResource(R.string.tab_intent),
         tabBar = true,
         art = ArtTier.Balanced,
-        header = { TabHeader(stringResource(R.string.intent_tab_title), onOpenSettings, app.aurora.ui.guide.GuideTopic.Intent, onOpenGuide) },
+        header = { TabHeader(stringResource(R.string.intent_tab_title), onOpenSettings) },
     ) {
         item(key = "create") {
-            AuroraButton(stringResource(R.string.intent_create), onCreate, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.M).fillMaxWidth(), icon = AuroraIcons.Plus)
+            AuroraButton(stringResource(R.string.intent_create), onCreate, Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.XL).fillMaxWidth(), icon = AuroraIcons.Plus)
         }
         if (d == null) return@AuroraScreen
         val running = vm.app.runsNow(d.time).mapNotNull { it.intent?.id }.toSet()
         val presets = d.rules.intentPresets.sortedByDescending { it.createdAt }
         if (presets.isEmpty()) item(key = "empty") {
-            EmptyState(stringResource(R.string.intent_lib_empty_title), "", icon = AuroraIcons.Intent)
+            EmptyState(stringResource(R.string.intent_lib_empty_title), "")
         }
         items(presets, key = { it.id }) { p ->
             PresetCard(
-                p.name, { Tag(pluralStringResource(R.plurals.count_apps, p.keys.size, p.keys.size), accent = true) }, intentSummary(p.config), p.keys, d, p.id in running,
+                p.name, { Tag(intentCount(p.keys), accent = true) }, intentSummary(p.config), p.keys, d, p.id in running,
                 onView = { viewing = p },
                 onEdit = { onEdit(p.id) },
                 onDuplicate = { vm.run { vm.app.saveIntentPreset(p.copy(id = newId(), name = vm.app.getString(R.string.preset_copy_name, p.name), createdAt = System.currentTimeMillis())) } },
                 onDelete = { deleting = p },
-                modifier = Modifier.padding(bottom = Space.S),
-                edge = Aurora.colors.rose,
+                modifier = Modifier.padding(bottom = Space.Card),
+                edge = Aurora.colors.textSecondary,
             )
         }
     }
@@ -95,9 +95,20 @@ fun IntentLibraryScreen(onCreate: () -> Unit, onEdit: (String) -> Unit, onOpenSe
 fun intentRows(p: IntentPreset, d: app.aurora.ui.protect.ProtectData): List<Pair<String, String>> =
     listOf(stringResource(R.string.detail_intent) to intentSummary(p.config)) + keyRows(p.keys, d)
 
-private enum class IntentStep { Name, Apps, Reflect, Time, Review }
+/** "3 apps", "2 websites", or both: what an Intent asks before. */
+@Composable
+fun intentCount(keys: List<String>): String {
+    val sites = keys.count { it.startsWith(app.aurora.protect.WebPrefix) }
+    val apps = keys.size - sites
+    return listOfNotNull(
+        pluralStringResource(R.plurals.count_apps, apps, apps).takeIf { apps > 0 || sites == 0 },
+        pluralStringResource(R.plurals.count_sites, sites, sites).takeIf { sites > 0 },
+    ).joinToString(" · ")
+}
 
-/** Create or edit an Intent: name, apps, reflection, then usage time and what happens after on one step, save. */
+private enum class IntentStep { Name, Apps, Sites, Reflect, Time, Review }
+
+/** Create or edit an Intent: name, apps, websites, reflection, then usage time and what happens after on one step, save. */
 @Composable
 fun IntentEditorScreen(id: String?, onBack: () -> Unit, onSaved: (String) -> Unit, startStep: Int = 0, onPlus: (() -> Unit)? = null) {
     val vm = auroraViewModel { ProtectModel(it) }
@@ -118,7 +129,11 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
     val colors = Aurora.colors
     val c0 = initial.config
     var name by rememberSaveable(initial.id) { mutableStateOf(initial.name) }
-    var keys by rememberSaveable(initial.id) { mutableStateOf(initial.keys) }
+    var keys by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filterNot { it.startsWith(app.aurora.protect.WebPrefix) }) }
+    // Websites ask first too, in supported browsers, with the same pause, time, reminder and cooldown as apps.
+    var sites by rememberSaveable(initial.id) { mutableStateOf(initial.keys.filter { it.startsWith(app.aurora.protect.WebPrefix) }.map { it.removePrefix(app.aurora.protect.WebPrefix) }) }
+    val all = keys + sites.map { app.aurora.protect.WebPrefix + it }
+    val webOn = app.aurora.rememberAccess(app.aurora.data.Access.Content) == app.aurora.data.AccessState.Granted
     var pause by rememberSaveable(initial.id) { mutableIntStateOf(c0.reflectionSeconds) }
     var expiry by rememberSaveable(initial.id) { mutableStateOf(c0.expiry) }
     var cooldown by rememberSaveable(initial.id) { mutableStateOf<Int?>(c0.cooldownMinutes) }
@@ -132,7 +147,8 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
     val config = IntentConfig(reflectionSeconds = pause, expiry = expiry, cooldownMinutes = cooldown ?: c0.cooldownMinutes, confirmContinue = c0.confirmContinue)
     val canNext = when (step) {
         IntentStep.Name -> name.isNotBlank()
-        IntentStep.Apps -> keys.isNotEmpty()
+        IntentStep.Apps -> true
+        IntentStep.Sites -> all.isNotEmpty()
         IntentStep.Time -> expiry == IntentExpiry.Reminder || cooldown != null
         else -> true
     }
@@ -143,14 +159,14 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
         whyDisabled = stringResource(
             when (step) {
                 IntentStep.Name -> R.string.need_name
-                IntentStep.Apps -> R.string.need_apps
+                IntentStep.Apps, IntentStep.Sites -> R.string.need_apps_or_sites
                 else -> R.string.need_time
             },
         ),
         onPrimary = {
             if (step != IntentStep.Review) step = steps[index + 1]
             else {
-                val preset = initial.copy(name = name.trim(), keys = keys, config = config)
+                val preset = initial.copy(name = name.trim(), keys = all, config = config)
                 vm.run {
                     if (vm.app.saveIntentPreset(preset) == null) onSaved(preset.id)
                 }
@@ -168,9 +184,20 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
                 appChecklist(apps, exempt, keys.toSet(), query, { query = it }, cap) { pkg ->
                     when {
                         pkg in keys -> keys = keys - pkg
-                        cap != null && keys.size >= cap -> vm.atLimit(app.aurora.plan.Allowance.IntentApps)
+                        cap != null && all.size >= cap -> vm.atLimit(app.aurora.plan.Allowance.IntentApps)
                         else -> keys = keys + pkg
                     }
+                }
+            }
+            IntentStep.Sites -> {
+                stepTitle(R.string.shield_sites_title, R.string.shield_sites_body)
+                val cap = vm.data.value?.max(app.aurora.plan.Allowance.IntentApps)
+                siteEditor(sites) { next ->
+                    if (cap != null && next.size > sites.size && all.size - sites.size + next.size > cap) vm.atLimit(app.aurora.plan.Allowance.IntentApps) else sites = next
+                }
+                // Websites are only asked about once Web & content is on: said here, never assumed.
+                if (!webOn) item(key = "sites-permission") {
+                    app.aurora.ui.protect.PermissionCard(listOf(app.aurora.data.Access.Content), Modifier.padding(top = Space.S))
                 }
             }
             IntentStep.Reflect -> {
@@ -187,18 +214,18 @@ private fun IntentEditor(vm: ProtectModel, initial: IntentPreset, onBack: () -> 
                     item(key = "length") {
                         DurationPicker(cooldown, { cooldown = it }, IntentCooldownPresets, Modifier.padding(top = Space.S), title = stringResource(R.string.intent_cooldown_title), hint = stringResource(R.string.intent_cooldown_hint), max = 12 * 60)
                     }
-                    item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.violetText, style = AuroraType.BodyStrong) }
+                    item(key = "restart") { Text(stringResource(R.string.shield_restart_note), color = colors.mutedText, style = AuroraType.BodyStrong) }
                 }
             }
             IntentStep.Review -> {
                 stepTitle(R.string.cfg_review_title, R.string.shield_review_note)
                 item(key = "review") {
                     val data by vm.data.collectAsStateWithLifecycle()
-                    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-                        Tag(pluralStringResource(R.plurals.count_apps, keys.size, keys.size), accent = true)
+                    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(horizontal = Space.Inner, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                        Tag(intentCount(all), accent = true)
                         Text(name.trim(), color = colors.textPrimary, style = AuroraType.Headline)
                         Text(intentSummary(config), color = colors.textSecondary, style = AuroraType.Secondary)
-                        app.aurora.ui.protect.IconStack(keys, data, max = 8)
+                        app.aurora.ui.protect.IconStack(all, data, max = 8)
                     }
                 }
             }

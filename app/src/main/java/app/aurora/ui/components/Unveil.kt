@@ -1,11 +1,5 @@
 package app.aurora.ui.components
 
-import android.annotation.SuppressLint
-import android.graphics.BitmapShader
-import android.graphics.RuntimeShader
-import android.graphics.Shader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,15 +15,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.imageResource
@@ -37,8 +27,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntSize
 import app.aurora.R
 import app.aurora.ui.theme.Aurora
-import app.aurora.ui.theme.Motion
-import app.aurora.ui.theme.Palette
 import kotlinx.coroutines.flow.first
 
 /** Whether the opening is on screen. Anything that performs on first show waits for it to part. */
@@ -63,6 +51,12 @@ object Opening {
 
     /** Back to a running session: no formation, just the finished logo fading off the page. */
     var brief by mutableStateOf(false)
+
+    /**
+     * How many loading surfaces are on screen under the opening. The mark holds until the real page is there, so the
+     * fade never uncovers a loading screen (whose own small logo would flash on its way out).
+     */
+    var loading by mutableIntStateOf(0)
     fun play() { brief = false; playing = true; covering = true; pageHidden = false; warming = true; leaving = false; lift = 1f }
     fun hidePage() { warming = false; pageHidden = true }
     fun showPage() { pageHidden = false }
@@ -88,10 +82,9 @@ internal fun opensWithFirstLight(recreated: Boolean, awayMs: Long?, touchExplori
 internal fun stepOpening(p: Float, dt: Float, ms: Int): Float = (p + dt * 1000f / ms).coerceAtMost(1f)
 
 /**
- * First Light: the mark settles in on the page colour, holds, and the night fades off the
- * real page as it rises into place. This is the only place the logo animates: the system splash before it is empty
- * page colour, so the mark can't appear twice. A tap hurries it. With reduced motion the finished logo fades straight
- * away. It only ever draws, so nothing else waits on it.
+ * The opening: the approved mark, off its tile and already on screen from the system splash, holds on its black. Then
+ * the black and the mark fade off the real page as it settles into place. The mark itself never moves or changes. A
+ * tap hurries it. With reduced motion it fades straight away. It only ever draws, so nothing else waits on it.
  */
 @Composable
 fun AuroraUnveil(modifier: Modifier = Modifier) {
@@ -101,7 +94,7 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         if (reduced) Opening.lift = 0f
         var last = withFrameNanos { it }
-        // Nothing has been seen yet. The clock waits for the page's heavy first frames, so the light never starts on a stutter.
+        // Nothing has been seen yet. The clock waits for the page's heavy first frames, so the fade never starts on a stutter.
         if (!reduced) {
             val first = last
             var calm = 0
@@ -112,86 +105,91 @@ fun AuroraUnveil(modifier: Modifier = Modifier) {
             }
             Opening.hidePage()
         }
-        val began = last
+        var began = last
         var shown = false
         var parted = false
+        var held = 0L
         while (p < 1f) {
             withFrameNanos { now ->
-                // A dropped frame slows the light for a moment instead of making it jump. Past that, a device that
+                // A dropped frame slows the fade for a moment instead of making it jump. Past that, a device that
                 // can't keep up runs on real time, so the opening can never hold anyone up for long.
                 val real = (now - last) / 1e9f
-                val dt = if (now - began < TotalMs * 1_400_000L) real.coerceAtMost(MaxStep) else real
-                p = stepOpening(p, dt, pace)
+                // The mark holds, still, while the page under it is still loading (at most HoldMaxNs).
+                if (p >= PartAt && Opening.loading > 0 && held < HoldMaxNs) { held += now - last; began += now - last }
+                else {
+                    val dt = if (now - began < TotalMs * 1_400_000L) real.coerceAtMost(MaxStep) else real
+                    p = stepOpening(p, dt, pace)
+                }
                 last = now
             }
             if (Opening.brief && p < PartAt) { p = PartAt; pace = ReducedMs }
             if (!shown && p >= ShowAt) { shown = true; Opening.showPage() }
             if (!parted && p >= ContentAt) { parted = true; Opening.part() }
             if (p >= LeaveAt) Opening.leave()
-            if (!reduced) Opening.lift = 1f - leaving(p)
+            if (!reduced) Opening.lift = 1f - fade(p)
         }
         Opening.finish()
     }
-    val mark = androidx.compose.ui.res.painterResource(R.drawable.ic_aurora_mark)
-    // The opening is always night, whatever the theme: the mark is lit by the dawn. No glow behind it.
-    val dawnColors = app.aurora.ui.theme.DarkColors
+    // The same art as the system splash, at the same size on the same black, so the handover is invisible.
+    val mark = ImageBitmap.imageResource(R.drawable.aurora_glyph)
     val night = colorResource(R.color.aurora_splash)
     Box(
         modifier.fillMaxSize()
             .pointerInput(Unit) { detectTapGestures { pace = minOf(pace, HurryMs) } }
             .clearAndSetSemantics { }
             .drawWithCache {
-                val markSize = Size(MarkDp * density, MarkDp * density * mark.intrinsicSize.height / mark.intrinsicSize.width)
-                val left = size.width / 2f - markSize.width / 2f
-                val top = size.height / 2f - markSize.height / 2f
-                val rise = RiseDp * density
-                val dawn = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(dawnColors.light, dawnColors.glowTop, dawnColors.glowHot, dawnColors.glowCool), startY = 0f, endY = markSize.height,
-                )
+                val side = (LogoDp * density).roundToInt()
+                val at = IntOffset(((size.width - side) / 2f).roundToInt(), ((size.height - side) / 2f).roundToInt())
                 onDrawBehind {
-                    val v = p
-                    val form = (v * TotalMs / FormMs).coerceIn(0f, 1f)
-                    val gone = leaving(v)
+                    val t = fadeT(p)
+                    val gone = fade(p)
+                    // The mark dissolves into the black first, drifting a breath closer; only then does the black lift
+                    // off the page, so the mark is never ghosted over the page's text. The drift is a float scale, not
+                    // a resize in whole pixels, so it glides instead of stepping.
+                    val markGone = smoother((t / MarkFadeBy).coerceAtMost(1f))
                     drawRect(night, alpha = 1f - gone)
-                    // The mark rises in from just below like the sun, lit by the dawn, holds, and lifts away with the night.
-                    val shown = if (reduced) 1f else smooth(form)
-                    translate(left, top + (1f - shown) * rise - gone * rise) {
-                        val layer = androidx.compose.ui.graphics.Paint().apply { alpha = shown * (1f - gone) }
-                        drawContext.canvas.saveLayer(androidx.compose.ui.geometry.Rect(Offset.Zero, markSize), layer)
-                        with(mark) { draw(markSize) }
-                        drawRect(dawn, size = markSize, blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn)
-                        drawContext.canvas.restore()
+                    if (markGone < 1f) scale(1f + MarkDrift * markGone, center) {
+                        drawImage(mark, dstOffset = at, dstSize = IntSize(side, side), alpha = 1f - markGone, filterQuality = FilterQuality.High)
                     }
                 }
             },
     )
 }
 
-private fun leaving(p: Float) = Motion.Ease.transform(((p - PartAt) / (1f - PartAt)).coerceIn(0f, 1f))
+/** How far the night has faded off the page, 0 to 1, on the one ease curve. */
+private fun fade(p: Float) = smoother(((fadeT(p) - NightFrom) / (1f - NightFrom)).coerceIn(0f, 1f))
 
-private fun smooth(v: Float): Float {
-    val k = v.coerceIn(0f, 1f)
-    return k * k * (3f - 2f * k)
-}
+private fun fadeT(p: Float) = ((p - PartAt) / (1f - PartAt)).coerceIn(0f, 1f)
 
-private const val TotalMs = 2200
-private const val FormMs = 900
-private const val HurryMs = 350
-private const val ReducedMs = 1100
+/** Smootherstep: starts and ends at rest with no jolt in speed, so a crossfade has no visible edge at either end. */
+internal fun smoother(t: Float) = t * t * t * (t * (t * 6f - 15f) + 10f)
+
+// ~1.4 s from first frame to the page: the mark registers, then one long, soft crossfade. Never feels like waiting.
+private const val TotalMs = 1400
+private const val HurryMs = 250
+private const val ReducedMs = 600
 private const val MaxStep = 1f / 30f
 private const val CalmFrames = 4
 private const val CalmFrameNs = 24_000_000L
-private const val SettleMaxNs = 700_000_000L
-/** The page draws again under the opaque night, while the logo is still, so that frame's cost is never seen. */
-private const val ShowAt = 1500f / TotalMs
-/** The finished logo has held for its moment: the night starts to fade and the page rises. */
-private const val PartAt = 1700f / TotalMs
-/** The night is nearly gone: Home's content can start its own entrance. Together they drop frames on a mid-range phone. */
-private const val ContentAt = 2050f / TotalMs
+private const val SettleMaxNs = 400_000_000L
+/** The page draws again under the opaque night, while the mark is still, so that frame's cost is never seen. */
+private const val ShowAt = 300f / TotalMs
+/** The mark has held for its moment: the night starts to fade and the page settles. */
+private const val PartAt = 450f / TotalMs
+/** The night is nearly gone: Home's content can start its own entrance. */
+private const val ContentAt = 1150f / TotalMs
 /** The night has gone: the sky over the page can start to rise. */
-private const val LeaveAt = 2150f / TotalMs
-private const val RiseDp = 14f
+private const val LeaveAt = 1300f / TotalMs
+/** The mark is gone by this share of the fade. */
+private const val MarkFadeBy = 0.6f
+/** The night starts to lift off the page from this share of the fade, as the mark's last light goes. */
+private const val NightFrom = 0.2f
+/** How much closer the mark drifts as it dissolves. */
+private const val MarkDrift = 0.04f
 private const val ReopenAfterMs = 5 * 60 * 1000L
+/** The longest the mark waits for a loading page before fading anyway. */
+private const val HoldMaxNs = 2_500_000_000L
 
-private const val MarkDp = 72f
+/** The Android 12+ splash draws an un-backed icon 288dp square; the mark fills its inner 192dp circle. */
+private const val LogoDp = 288f
 

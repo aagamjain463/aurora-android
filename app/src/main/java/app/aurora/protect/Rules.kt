@@ -70,7 +70,10 @@ data class FrictionSettings(
     val reflectionSeconds: Int = 20,
     /** For [FrictionTask.Intention]: the words, set when the Shield is made, that must be typed to end the session. */
     val phrase: String = "",
-)
+) {
+    /** Written intention can only end with words set beforehand: a Shield isn't saved without them. */
+    val ready: Boolean get() = task != FrictionTask.Intention || phrase.isNotBlank()
+}
 
 /** The written challenge is met: [typed] is [phrase], ignoring case and extra spaces. */
 fun phraseMatches(phrase: String, typed: String): Boolean {
@@ -322,6 +325,8 @@ data class Runtime(
     val authorizations: Map<String, CommitmentAuthorization> = emptyMap(),
     /** Scheduled occurrences the day's allowance couldn't cover: run id to window end. They don't start late. */
     val quotaDenied: Map<String, Long> = emptyMap(),
+    /** Unlocks used in running sessions, by run id, oldest first. */
+    val unlocks: Map<String, List<UnlockUse>> = emptyMap(),
 ) {
     /** Drops what has ended, and ledger entries older than a week. */
     fun pruned(t: DeviceTime): Runtime {
@@ -336,6 +341,8 @@ data class Runtime(
             closed = closed.filterValues { it > now },
             ledger = ledger.filter { now - it.end < 7 * 86_400_000L },
             quotaDenied = quotaDenied.filterValues { it > now },
+            // Kept a day past the last one: a session's record is written when it ends, from these.
+            unlocks = unlocks.filterValues { uses -> uses.any { now - it.end < 86_400_000L } },
         )
     }
 
@@ -429,9 +436,13 @@ fun policyState(
     val now = time.wall
     val active = list.active(plan).map { it.key }.toSet()
     val runs = liveRuns(rules, runtime, plan, time, zone)
-    val configured = intentsNow(runs, time)
+    // An unlock lifts what it opens for its time: those Intents stop asking, those Shields block again right after.
+    val openNow = runs.flatMap { r ->
+        runtime.unlocks[r.id].orEmpty().filter { now >= it.start && now < it.end }.flatMap { u -> if (u.keys.isEmpty()) r.intent?.keys.orEmpty() else u.keys }
+    }.map(::canonicalKey).toSet()
+    val configured = intentsNow(runs, time).filterKeys { canonicalKey(it) !in openNow }
     val restrictions = buildList {
-        for (run in runs) addAll(run.restrictions(time))
+        for (run in runs) runtime.unlocks[run.id].orEmpty().let { used -> run.restrictions(time).forEach { addAll(it.lifted(used)) } }
         runtime.lockdown?.takeUnless { it.isOver(time) }?.let {
             add(Restriction(ShieldReason.AlwaysBlock, rules.cover(it.groupId, active), it.startedWall(time), it.endWall(time), "lockdown-${it.startWall}", locks = true))
         }

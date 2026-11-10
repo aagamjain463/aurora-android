@@ -47,9 +47,13 @@ import kotlin.coroutines.resume
 /** One way to buy Plus: a base plan of a Plus subscription with its price as Play formats it. */
 data class Offer(val basePlan: String, val price: String, val yearly: Boolean, internal val details: ProductDetails, internal val token: String)
 
+/** Founding Lifetime as Play prices it. Play only returns it where it is sold (the US), so its absence means "not here". */
+data class LifetimeOffer(val price: String, internal val details: ProductDetails, internal val token: String?)
+
 data class BillingState(
     val connection: Connection = Connection.Connecting,
     val offers: List<Offer> = emptyList(),
+    val lifetime: LifetimeOffer? = null,
     /** A purchase is waiting for payment (for example cash or UPI collect). It doesn't grant Plus until it completes. */
     val pending: Boolean = false,
     /** Play reports a purchase and the server hasn't confirmed it yet. Plus starts when it does. */
@@ -65,11 +69,25 @@ data class BillingState(
 data class PurchaseConflict(val hint: String?, internal val token: String)
 
 /** This install's random id, in storage no backup or transfer copies: a snapshot restored from elsewhere doesn't match it. */
-fun installId(context: Context): String {
+fun installId(context: Context): String = synchronized(InstallIdLock) {
     val file = File(context.noBackupFilesDir, "install_id")
-    if (!file.exists()) file.writeText(UUID.randomUUID().toString())
-    return file.readText()
+    // The account and billing read this from different threads; a process killed mid-write left an empty file,
+    // which every account-service route refuses. Anything not shaped like an id is made again, and written whole.
+    runCatching { file.readText() }.getOrNull()?.takeIf { InstallIdShape.matches(it) }?.let { return it }
+    val id = UUID.randomUUID().toString()
+    val partial = File(file.parentFile, "install_id.partial")
+    partial.writeText(id)
+    if (!partial.renameTo(file)) {
+        file.writeText(id)
+        partial.delete()
+    }
+    id
 }
+
+private val InstallIdLock = Any()
+
+/** What the account service accepts as an install id (server/src/worker.js, isId). */
+private val InstallIdShape = Regex("[A-Za-z0-9_-]{1,64}")
 
 /**
  * Google Play Billing for aurora plus. Play sells it and reports purchases; the verification server asks
@@ -91,7 +109,10 @@ class BillingRepository(
     private val identityResolved: () -> Boolean = { true },
     private val identityChanges: Flow<*> = flowOf(Unit),
 ) {
-    private val plusProducts = BuildConfig.PLUS_PRODUCT_IDS.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    private val subscriptionProducts = BuildConfig.PLUS_PRODUCT_IDS.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    private val lifetimeProduct = BuildConfig.LIFETIME_PRODUCT_ID
+    /** Every product that can grant Plus, subscriptions and the one-time lifetime purchase alike. */
+    private val plusProducts = subscriptionProducts + lifetimeProduct
     private val install by lazy { installId(context) }
     private val _state = MutableStateFlow(BillingState())
     val state: StateFlow<BillingState> = _state
@@ -179,12 +200,13 @@ class BillingRepository(
     /** Asks Play again for purchases and prices, and the server about any purchase: "Restore purchases" and every app start. */
     suspend fun refresh() {
         // A timeout and a late answer can both call back: only the first counts.
-        val (purchasesResult, purchases) = suspendCancellableCoroutine { c ->
-            val answer = once(c)
-            client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(ProductType.SUBS).build()) { r, list -> answer(r to list) }
-        }
+        val (purchasesResult, purchases) = queryPurchases(ProductType.SUBS)
+        // The lifetime purchase is a one-time product, listed separately. Never consumed, so Play keeps listing it.
+        val (oneTimeResult, oneTime) = queryPurchases(ProductType.INAPP)
         val offers = queryOffers()
+        val lifetime = if (configured) queryLifetime() else null
         _state.value = _state.value.copy(
+            lifetime = lifetime,
             connection = if (purchasesResult.responseCode == BillingResponseCode.OK) BillingState.Connection.Ready else BillingState.Connection.Unavailable,
             offers = if (configured) offers else emptyList(),
             message = when {
@@ -193,12 +215,32 @@ class BillingRepository(
                 else -> null
             },
         )
-        if (purchasesResult.responseCode == BillingResponseCode.OK) apply(purchases, complete = true)
+        if (purchasesResult.responseCode == BillingResponseCode.OK) {
+            apply(purchases + if (oneTimeResult.responseCode == BillingResponseCode.OK) oneTime else emptyList(), complete = true)
+        }
+    }
+
+    private suspend fun queryPurchases(type: String): Pair<BillingResult, List<Purchase>> = suspendCancellableCoroutine { c ->
+        val answer = once(c)
+        client.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(type).build()) { r, list -> answer(r to list) }
+    }
+
+    private suspend fun queryLifetime(): LifetimeOffer? {
+        val params = QueryProductDetailsParams.newBuilder().setProductList(
+            listOf(QueryProductDetailsParams.Product.newBuilder().setProductId(lifetimeProduct).setProductType(ProductType.INAPP).build()),
+        ).build()
+        val product = suspendCancellableCoroutine<ProductDetails?> { c ->
+            val answer = once(c)
+            client.queryProductDetailsAsync(params) { r, result -> answer(if (r.responseCode == BillingResponseCode.OK) result.productDetailsList.firstOrNull() else null) }
+        } ?: return null
+        // The plain purchase option only: no discounts or limited-time offers.
+        val option = product.oneTimePurchaseOfferDetailsList?.firstOrNull { it.offerId == null } ?: product.oneTimePurchaseOfferDetails ?: return null
+        return LifetimeOffer(option.formattedPrice, product, option.offerToken)
     }
 
     private suspend fun queryOffers(): List<Offer> {
         val params = QueryProductDetailsParams.newBuilder().setProductList(
-            plusProducts.map { QueryProductDetailsParams.Product.newBuilder().setProductId(it).setProductType(ProductType.SUBS).build() },
+            subscriptionProducts.map { QueryProductDetailsParams.Product.newBuilder().setProductId(it).setProductType(ProductType.SUBS).build() },
         ).build()
         val details = suspendCancellableCoroutine { c ->
             val answer = once(c)
@@ -271,11 +313,6 @@ class BillingRepository(
         }
     }
 
-    /** The person chose to move this phone's purchase to this account, and the server agreed. */
-    fun clearConflict() {
-        _state.value = _state.value.copy(conflict = null)
-    }
-
     /** Settings › Delete all data: the stored answer goes, and Play is asked again. */
     suspend fun forget() {
         cache.reset()
@@ -288,6 +325,19 @@ class BillingRepository(
         val params = BillingFlowParams.newBuilder().setProductDetailsParamsList(
             listOf(BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(offer.details).setOfferToken(offer.token).build()),
         ).setObfuscatedAccountId(obfuscatedAccountId(uid)).build()
+        val result = client.launchBillingFlow(activity, params)
+        if (result.responseCode != BillingResponseCode.OK) _state.value = _state.value.copy(message = describe(result))
+        return result.responseCode == BillingResponseCode.OK
+    }
+
+    /**
+     * Opens Play's sheet for Founding Lifetime. The caller holds a slot with the account service first
+     * (AccountRepository.holdLifetime); without one, the offer isn't shown. Bought under the Aurora account id, like Plus.
+     */
+    fun buyLifetime(activity: Activity, offer: LifetimeOffer): Boolean {
+        val uid = currentUid() ?: return false
+        val product = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(offer.details).apply { offer.token?.let { setOfferToken(it) } }.build()
+        val params = BillingFlowParams.newBuilder().setProductDetailsParamsList(listOf(product)).setObfuscatedAccountId(obfuscatedAccountId(uid)).build()
         val result = client.launchBillingFlow(activity, params)
         if (result.responseCode != BillingResponseCode.OK) _state.value = _state.value.copy(message = describe(result))
         return result.responseCode == BillingResponseCode.OK

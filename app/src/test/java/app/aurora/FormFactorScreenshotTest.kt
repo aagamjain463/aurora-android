@@ -107,8 +107,30 @@ class FormFactorScreenshotTest {
     @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
     fun homeSmall() = capture("home_360") { Home() }
 
+    /** The tab headline keeps "Shield yourself from" on one line on a small phone. */
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
+    fun shieldLibrarySmall() = capture("library_shield_360") { app.aurora.ui.library.ShieldLibraryScreen({}, {}, {}) }
+
     @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
     fun onboardingSmall() = capture("onboarding_360") { OnboardingScreen(onFinish = {}) }
+
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
+    fun onboardingHowSmall() = onboardingStep(1, "onboarding_how_360")
+
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
+    fun onboardingShieldSmall() = onboardingStep(2, "onboarding_tab_shield_360")
+
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
+    fun onboardingIntentSmall() = onboardingStep(3, "onboarding_tab_intent_360")
+
+    @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
+    fun onboardingPermissionsSmall() = onboardingStep(app.aurora.ui.onboarding.ShieldPage, "onboarding_permissions_360")
+
+    private fun onboardingStep(step: Int, name: String) {
+        runBlocking { ApplicationProvider.getApplicationContext<AuroraApplication>().preferences.setOnboardingStep(step) }
+        capture(name) { OnboardingScreen(onFinish = {}) }
+    }
+
 
     @Test @Config(qualifiers = "w360dp-h740dp-xhdpi")
     fun shieldSmall() {

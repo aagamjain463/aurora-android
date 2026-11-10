@@ -1,595 +1,183 @@
 {
-  "$description": "Aurora design tokens: First Light (2026-11-02; orbit Horizon 2026-11-03). Aurora is the dawn: a night sky (dark, the default) or warm paper (light), and one colour, the light rising over the horizon. Serif for what a screen is about, Geist for everything read or tapped.",
+  "$description": "Aurora design tokens (2026-11-07): the finalized monochrome identity. Source: brand/Aurora_Brand_Guidelines.md. Dark (Obsidian) is the default, Light (Porcelain) is fully developed. Gold exists inside brand/Aurora_Final_Approved_Logo.png and, since 2026-11-08 (founder), on Aurora Plus alone (plus-gold-*). Typeface: Inter.",
   "color": {
     "palette": {
-      "night-1000": {
+      "plus-gold-pale": {
         "$type": "color",
-        "$value": "#06050A"
+        "$value": "#F3E3BE"
       },
-      "night-950": {
+      "plus-gold": {
         "$type": "color",
-        "$value": "#0A090F"
+        "$value": "#D6B57A"
       },
-      "night-900": {
+      "plus-gold-shade": {
         "$type": "color",
-        "$value": "#131119"
+        "$value": "#B8914F"
       },
-      "night-850": {
+      "plus-gold-deep": {
         "$type": "color",
-        "$value": "#1B1822"
+        "$value": "#84632A"
       },
-      "night-800": {
+      "obsidian": {
         "$type": "color",
-        "$value": "#25212D"
+        "$value": "#0B0B0D"
       },
-      "night-700": {
+      "graphite": {
         "$type": "color",
-        "$value": "#383340"
+        "$value": "#1B1C20"
       },
-      "mist-700": {
+      "slate": {
         "$type": "color",
-        "$value": "#6E6874"
+        "$value": "#34363B"
       },
-      "mist-500": {
+      "porcelain": {
         "$type": "color",
-        "$value": "#9B94A0"
+        "$value": "#F5F5F2"
       },
-      "mist-300": {
+      "silver": {
         "$type": "color",
-        "$value": "#C9C1C6"
+        "$value": "#A7A9AE"
       },
-      "ivory": {
+      "white": {
         "$type": "color",
-        "$value": "#F6F0E8"
-      },
-      "plum-700": {
-        "$type": "color",
-        "$value": "#3B1E3A"
-      },
-      "rose-500": {
-        "$type": "color",
-        "$value": "#D0607A"
-      },
-      "rose-400": {
-        "$type": "color",
-        "$value": "#E8899A"
-      },
-      "ember-400": {
-        "$type": "color",
-        "$value": "#F59164"
-      },
-      "gold-300": {
-        "$type": "color",
-        "$value": "#FFD39A"
-      },
-      "peach-200": {
-        "$type": "color",
-        "$value": "#FFD7B5"
-      },
-      "dawn-100": {
-        "$type": "color",
-        "$value": "#FFF1E0"
-      },
-      "day-25": {
-        "$type": "color",
-        "$value": "#FFFDFA"
-      },
-      "day-50": {
-        "$type": "color",
-        "$value": "#FBF7F2"
-      },
-      "day-100": {
-        "$type": "color",
-        "$value": "#F4EEE7"
-      },
-      "day-150": {
-        "$type": "color",
-        "$value": "#F1EAE2"
-      },
-      "day-200": {
-        "$type": "color",
-        "$value": "#EAE1D7"
-      },
-      "day-300": {
-        "$type": "color",
-        "$value": "#DDD2C6"
-      },
-      "umber-400": {
-        "$type": "color",
-        "$value": "#ADA196"
-      },
-      "umber-600": {
-        "$type": "color",
-        "$value": "#6F655C"
-      },
-      "umber-700": {
-        "$type": "color",
-        "$value": "#4A423B"
+        "$value": "#FFFFFF"
       },
       "ink": {
         "$type": "color",
-        "$value": "#16131A"
+        "$value": "#0B0B0D"
       },
-      "ink-800": {
+      "stone": {
         "$type": "color",
-        "$value": "#2A2430"
+        "$value": "#55565A"
       },
-      "blush-200": {
+      "rule": {
         "$type": "color",
-        "$value": "#F3D3C6"
+        "$value": "#DDDDDA"
       },
-      "clay-400": {
+      "graphite-2": {
         "$type": "color",
-        "$value": "#E59A76"
+        "$value": "#232428"
       },
-      "ember-700": {
+      "graphite-3": {
         "$type": "color",
-        "$value": "#B8532C"
+        "$value": "#2A2B30"
       },
-      "rose-700": {
+      "ash": {
         "$type": "color",
-        "$value": "#A9445A"
+        "$value": "#86888E"
       },
-      "coral-400": {
+      "paper-2": {
         "$type": "color",
-        "$value": "#F08A80"
+        "$value": "#ECECE8"
       },
-      "coral-700": {
+      "fog": {
         "$type": "color",
-        "$value": "#B3261E"
+        "$value": "#C9C9C5"
+      },
+      "smoke": {
+        "$type": "color",
+        "$value": "#6B6C70"
+      },
+      "signal-dark": {
+        "$type": "color",
+        "$value": "#F2726B"
+      },
+      "signal-light": {
+        "$type": "color",
+        "$value": "#C23A33"
       }
     },
-    "dark": {
-      "background": {
-        "$type": "color",
-        "$value": "{color.palette.night-950}"
+    "semantic": {
+      "dark": {
+        "background": "{color.palette.obsidian}",
+        "surface": "{color.palette.graphite}",
+        "elevated": "{color.palette.graphite-2}",
+        "field": "{color.palette.graphite-3}",
+        "border": "{color.palette.graphite-3}",
+        "border-strong": "{color.palette.slate}",
+        "text-primary": "{color.palette.porcelain}",
+        "text-secondary": "{color.palette.silver}",
+        "text-tertiary": "{color.palette.ash}",
+        "action": "{color.palette.porcelain}",
+        "on-action": "{color.palette.obsidian}",
+        "danger": "{color.palette.signal-dark}"
       },
-      "sky": {
-        "$type": "color",
-        "$value": "{color.palette.night-1000}"
-      },
-      "surface": {
-        "$type": "color",
-        "$value": "{color.palette.night-900}"
-      },
-      "elevated": {
-        "$type": "color",
-        "$value": "{color.palette.night-850}"
-      },
-      "hairline": {
-        "$type": "color",
-        "$value": "#0FFFFFFF"
-      },
-      "hairline-strong": {
-        "$type": "color",
-        "$value": "#1CFFFFFF"
-      },
-      "card-rim": {
-        "$type": "color",
-        "$value": "#1AFFFFFF",
-        "$description": "Top of a card's lit edge, fading to hairline."
-      },
-      "text-primary": {
-        "$type": "color",
-        "$value": "{color.palette.ivory}"
-      },
-      "text-secondary": {
-        "$type": "color",
-        "$value": "{color.palette.mist-300}"
-      },
-      "text-tertiary": {
-        "$type": "color",
-        "$value": "{color.palette.mist-500}"
-      },
-      "accent": {
-        "$type": "color",
-        "$value": "{color.palette.peach-200}"
-      },
-      "on-accent": {
-        "$type": "color",
-        "$value": "{color.palette.night-1000}"
-      },
-      "action": {
-        "$type": "gradient",
-        "$value": [
-          "{color.palette.dawn-100}",
-          "{color.palette.peach-200}"
-        ],
-        "$description": "The one filled action, top to bottom: sunlit."
-      },
-      "dawn": {
-        "$type": "gradient",
-        "$value": [
-          "{color.palette.gold-300}",
-          "{color.palette.ember-400}",
-          "{color.palette.rose-500}",
-          "{color.palette.plum-700}"
-        ],
-        "$description": "The Horizon's bloom, crest outward."
-      },
-      "horizon-rim": {
-        "$type": "color",
-        "$value": "{color.palette.dawn-100}"
-      },
-      "earth": {
-        "$type": "color",
-        "$value": "{color.palette.night-1000}"
-      },
-      "danger": {
-        "$type": "color",
-        "$value": "{color.palette.coral-400}"
-      },
-      "dock": {
-        "$type": "color",
-        "$value": "{color.palette.night-900}"
-      },
-      "dock-well": {
-        "$type": "color",
-        "$value": "{color.palette.night-700}"
-      },
-      "field": {
-        "$type": "color",
-        "$value": "{color.palette.night-850}"
+      "light": {
+        "background": "{color.palette.porcelain}",
+        "surface": "{color.palette.white}",
+        "elevated": "{color.palette.paper-2}",
+        "field": "{color.palette.paper-2}",
+        "border": "{color.palette.rule}",
+        "border-strong": "{color.palette.fog}",
+        "text-primary": "{color.palette.ink}",
+        "text-secondary": "{color.palette.stone}",
+        "text-tertiary": "{color.palette.smoke}",
+        "action": "{color.palette.ink}",
+        "on-action": "{color.palette.porcelain}",
+        "danger": "{color.palette.signal-light}"
       }
-    },
-    "light": {
-      "background": {
-        "$type": "color",
-        "$value": "{color.palette.day-50}"
-      },
-      "sky": {
-        "$type": "color",
-        "$value": "{color.palette.day-100}"
-      },
-      "surface": {
-        "$type": "color",
-        "$value": "{color.palette.day-25}"
-      },
-      "elevated": {
-        "$type": "color",
-        "$value": "{color.palette.day-200}"
-      },
-      "hairline": {
-        "$type": "color",
-        "$value": "#12000000"
-      },
-      "hairline-strong": {
-        "$type": "color",
-        "$value": "#1A000000"
-      },
-      "text-primary": {
-        "$type": "color",
-        "$value": "{color.palette.ink}"
-      },
-      "text-secondary": {
-        "$type": "color",
-        "$value": "{color.palette.umber-700}"
-      },
-      "text-tertiary": {
-        "$type": "color",
-        "$value": "{color.palette.umber-600}"
-      },
-      "accent": {
-        "$type": "color",
-        "$value": "{color.palette.ink}"
-      },
-      "on-accent": {
-        "$type": "color",
-        "$value": "{color.palette.day-50}"
-      },
-      "action": {
-        "$type": "gradient",
-        "$value": [
-          "{color.palette.ink-800}",
-          "{color.palette.ink}"
-        ]
-      },
-      "dawn": {
-        "$type": "gradient",
-        "$value": [
-          "{color.palette.gold-300}",
-          "{color.palette.clay-400}",
-          "{color.palette.rose-400}",
-          "{color.palette.blush-200}"
-        ]
-      },
-      "horizon-rim": {
-        "$type": "color",
-        "$value": "{color.palette.ember-700}"
-      },
-      "earth": {
-        "$type": "color",
-        "$value": "{color.palette.day-100}"
-      },
-      "danger": {
-        "$type": "color",
-        "$value": "{color.palette.coral-700}"
-      },
-      "dock": {
-        "$type": "color",
-        "$value": "{color.palette.day-25}"
-      },
-      "dock-well": {
-        "$type": "color",
-        "$value": "{color.palette.day-200}"
-      },
-      "field": {
-        "$type": "color",
-        "$value": "{color.palette.day-150}"
-      }
-    },
-    "mode": {
-      "$description": "Modes differ by name and glyph; tone rises from Flexible to Strict.",
-      "flexible": {
-        "$type": "color",
-        "$value": "{color.dark.text-tertiary}"
-      },
-      "friction": {
-        "$type": "color",
-        "$value": "{color.dark.text-secondary}"
-      },
-      "cooldown": {
-        "$type": "color",
-        "$value": "{color.dark.text-secondary}"
-      },
-      "always-block": {
-        "$type": "color",
-        "$value": "{color.dark.accent}"
-      }
-    }
-  },
-  "font": {
-    "display": {
-      "$type": "fontFamily",
-      "$value": "Instrument Serif",
-      "$description": "Headlines, the promise, the wordmark. SIL OFL, res/font/instrument_serif.ttf and instrument_serif_italic.ttf. One weight, never synthesised bold."
-    },
-    "family": {
-      "$type": "fontFamily",
-      "$value": "Geist",
-      "$description": "Everything read or tapped, and numbers. SIL OFL, variable font res/font/geist.ttf"
     }
   },
   "typography": {
-    "hero-timer": {
-      "$type": "typography",
-      "$value": {
-        "fontFamily": "Geist",
-        "fontSize": "72sp",
-        "lineHeight": "76sp",
-        "fontWeight": 300,
-        "letterSpacing": "-0.045em",
-        "fontFeature": "lnum tnum"
-      }
+    "family": "Inter",
+    "weights": [
+      400,
+      500,
+      600,
+      700
+    ],
+    "scale-sp": {
+      "focus-timer": 112,
+      "timer": 64,
+      "metric": 48,
+      "display": 40,
+      "title-large": 30,
+      "section": 22,
+      "card-title": 17,
+      "body": 16,
+      "secondary": 14,
+      "subtext": 13,
+      "caption": 13,
+      "eyebrow": 12
     },
-    "metric": {
-      "$type": "typography",
-      "$value": {
-        "fontFamily": "Geist",
-        "fontSize": "48sp",
-        "lineHeight": "52sp",
-        "fontWeight": 380,
-        "letterSpacing": "-0.04em",
-        "fontFeature": "lnum tnum"
-      }
-    },
-    "display-xl": {
-      "$type": "typography",
-      "$value": {
-        "fontFamily": "Instrument Serif",
-        "fontSize": "40sp",
-        "lineHeight": "44sp",
-        "fontWeight": 400,
-        "letterSpacing": "-0.015em"
-      }
-    },
-    "display": {
-      "$type": "typography",
-      "$value": {
-        "fontFamily": "Instrument Serif",
-        "fontSize": "38sp",
-        "lineHeight": "42sp",
-        "fontWeight": 400,
-        "letterSpacing": "-0.012em"
-      }
-    },
-    "display-s": {
-      "$type": "typography",
-      "$value": {
-        "fontFamily": "Instrument Serif",
-        "fontSize": "32sp",
-        "lineHeight": "36sp",
-        "fontWeight": 400,
-        "letterSpacing": "-0.01em"
-      }
-    },
-    "headline": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "20sp",
-        "lineHeight": "26sp",
-        "fontWeight": 650,
-        "letterSpacing": "-0.022em"
-      }
-    },
-    "title": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "16sp",
-        "lineHeight": "22sp",
-        "fontWeight": 600,
-        "letterSpacing": "-0.014em"
-      }
-    },
-    "body": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "15sp",
-        "lineHeight": "22sp",
-        "fontWeight": 420,
-        "letterSpacing": "-0.006em"
-      }
-    },
-    "body-strong": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "15sp",
-        "lineHeight": "20sp",
-        "fontWeight": 560,
-        "letterSpacing": "-0.008em"
-      }
-    },
-    "secondary": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "13sp",
-        "lineHeight": "18sp",
-        "fontWeight": 420,
-        "letterSpacing": "-0.002em"
-      }
-    },
-    "label": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "15sp",
-        "lineHeight": "20sp",
-        "fontWeight": 600,
-        "letterSpacing": "-0.008em"
-      }
-    },
-    "caption": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "13sp",
-        "lineHeight": "17sp",
-        "fontWeight": 500,
-        "letterSpacing": "0.0em",
-        "fontFeature": "tnum"
-      }
-    },
-    "eyebrow": {
-      "$type": "typography",
-      "$value": {
-        "fontSize": "13sp",
-        "lineHeight": "16sp",
-        "fontWeight": 560,
-        "letterSpacing": "0.01em"
-      }
-    },
-    "hero": {
-      "$type": "typography",
-      "$value": {
-        "fontFamily": "Instrument Serif",
-        "fontSize": "64sp",
-        "lineHeight": "64sp",
-        "fontWeight": 400,
-        "letterSpacing": "-0.025em"
-      }
-    },
-    "hero-lead": {
-      "$type": "typography",
-      "$value": {
-        "fontFamily": "Geist",
-        "fontSize": "19sp",
-        "lineHeight": "26sp",
-        "fontWeight": 420,
-        "letterSpacing": "-0.01em"
-      }
-    }
+    "line-height-sp": { "body": 24, "body-strong": 21, "secondary": 20, "subtext": 18, "caption": 18 },
+    "brand-line": { "use": "Take back control.", "cut": "Inter display (opsz 32)", "size-sp": 66, "weight": 600, "tracking-em": -0.015, "line-height-em": 1.02 },
+    "numerals": "tabular (tnum) for timers and statistics"
   },
-  "space": {
-    "xxs": {
-      "$type": "dimension",
-      "$value": "4dp"
-    },
-    "xs": {
-      "$type": "dimension",
-      "$value": "8dp"
-    },
-    "s": {
-      "$type": "dimension",
-      "$value": "12dp"
-    },
-    "m": {
-      "$type": "dimension",
-      "$value": "16dp"
-    },
-    "l": {
-      "$type": "dimension",
-      "$value": "24dp"
-    },
-    "xl": {
-      "$type": "dimension",
-      "$value": "32dp"
-    },
-    "xxl": {
-      "$type": "dimension",
-      "$value": "48dp"
-    },
-    "gutter": {
-      "$type": "dimension",
-      "$value": "24dp"
-    },
-    "card-inset": {
-      "$type": "dimension",
-      "$value": "16dp",
-      "$description": "Cards sit 16dp from the screen edge"
-    }
+  "radius-dp": {
+    "chip": 10,
+    "input": 14,
+    "button": 14,
+    "card": 20,
+    "dialog": 24,
+    "pill": "50%"
   },
-  "radius": {
-    "s": {
-      "$type": "dimension",
-      "$value": "12dp"
-    },
-    "m": {
-      "$type": "dimension",
-      "$value": "18dp"
-    },
-    "l": {
-      "$type": "dimension",
-      "$value": "26dp",
-      "$description": "Cards"
-    },
-    "dialog": {
-      "$type": "dimension",
-      "$value": "30dp"
-    },
-    "pill": {
-      "$type": "dimension",
-      "$value": "50%"
-    }
+  "space-dp": {
+    "grid": 4,
+    "xxs": 4,
+    "xs": 8,
+    "s": 12,
+    "inner": 20,
+    "m": 16,
+    "l": 24,
+    "xl": 32,
+    "xxl": 48,
+    "gutter": 24,
+    "card-gap": 20
   },
-  "motion": {
-    "ease": {
-      "$type": "cubicBezier",
-      "$value": [
-        0.2,
-        0,
-        0,
-        1
-      ],
-      "$description": "One curve everywhere: quick to respond, slow to settle"
-    },
-    "quick": {
-      "$type": "duration",
-      "$value": "120ms"
-    },
-    "standard": {
-      "$type": "duration",
-      "$value": "240ms"
-    },
-    "gentle": {
-      "$type": "duration",
-      "$value": "420ms"
-    },
-    "reveal": {
-      "$type": "duration",
-      "$value": "900ms",
-      "$description": "Hero art and metrics fading up on first show"
-    },
-    "breath": {
-      "$type": "duration",
-      "$value": "4200ms"
-    }
-  }
+  "motion-ms": {
+    "micro": 160,
+    "standard": 240,
+    "modal": 280,
+    "easing": "cubic-bezier(0.2, 0, 0, 1)"
+  },
+  "material": {
+    "$description": "Founder, 2026-11-07: clearly visible, Apple-like glass. 'tint' is the fill over a real backdrop blur (API 31+); 'fallback' is the fill without blur. Backdrop gets saturation 1.35 (vibrancy), then on API 33+ an AGSL lens bends it along the rim. Rim: 1dp light, bright top-left fading round, over a 1dp neutral edge. Sheen: light across the top 55%.",
+    "solid-premium": { "use": "cards, rows, fields, forms, charts, timers, Focus, the Shield", "dark": "graphite + 1dp graphite-3 edge", "light": "white + 1dp rule edge" },
+    "glass-control": { "use": "secondary buttons, segmented tracks, round icon buttons (no blur: page behind)", "dark": "porcelain 6% + rim + sheen", "light": "white 60% + rim (white top, ink 11% far edge) + sheen white 95% + shadow ink 6% 10dp y+2" },
+    "glass-subtle": { "use": "top bar once content scrolls beneath", "blur-dp": 18, "dark": { "tint": "obsidian 55%", "fallback": "obsidian 94%" }, "light": { "tint": "porcelain 60%", "fallback": "porcelain 95%" } },
+    "glass-standard": { "use": "floating dock, pinned flow action (float: shadow 28dp, y+10)", "blur-dp": 12, "lens-dp": 14, "dark": { "tint": "graphite 46%", "fallback": "graphite 92%", "rim": "porcelain 55% to 8%", "shadow": "black 55%" }, "light": { "tint": "white 42%", "fallback": "white 90%", "rim": "white 100% to ink 5%", "shadow": "black 18%" } },
+    "glass-elevated": { "use": "dialogs; window blur 34dp behind, card see-through when window blur is on", "dark": { "tint": "graphite 70%", "fallback": "graphite 97%" }, "light": { "tint": "white 74%", "fallback": "white 98%" } }
+  },
+  "touch-target-dp": 48
 }

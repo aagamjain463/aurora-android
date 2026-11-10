@@ -87,12 +87,19 @@ class NavigationTest {
      * Start session asks one thing per page: a name (and whether to save it), the Shield, when, then how long.
      * Leaves the flow on How long with 30 minutes chosen, so a test can go on to Review.
      */
-    private fun nextPages(name: String = "Test", save: Boolean = false) {
+    private fun nextPages(name: String = "Test") {
         awaitText("Name this session")
         compose.onAllNodes(androidx.compose.ui.test.hasSetTextAction())[0].performTextInput(name)
-        if (save) compose.onNodeWithText("Save this session").performClick()
         compose.onNodeWithText("Next").performClick()
         scrollTo("Test Shield").performClick()
+        compose.onNodeWithText("Next").performClick()
+        // How strict: Flexible is chosen already.
+        awaitText("How strict is this session?")
+        compose.onNodeWithText("Next").performClick()
+        awaitText("Use Flexible")
+        compose.onNodeWithText("Use Flexible").performClick()
+        // Unlocks: none needed.
+        awaitText("Passes")
         compose.onNodeWithText("Next").performClick()
         scrollTo("Start now").performClick()
         compose.onNodeWithText("Next").performClick()
@@ -103,6 +110,13 @@ class NavigationTest {
     private fun review() {
         compose.onNodeWithText("Next").performClick()
         awaitText("Review")
+    }
+
+    /** Home's Start a session, then New session (or Saved sessions) in the choice it opens. */
+    private fun startSession(saved: Boolean = false) {
+        scrollTo("Start a session").performSemanticsAction(SemanticsActions.OnClick)
+        awaitText(if (saved) "Saved sessions" else "New session")
+        compose.onNode(hasText(if (saved) "Saved sessions" else "New session") and hasAnyAncestor(isDialog())).performClick()
     }
 
     /** Home is a lazy list: bring a node into composition before looking for it. */
@@ -122,16 +136,16 @@ class NavigationTest {
     fun onboardingCompletesOnHome() {
         shieldOn()
         launch(onboarded = false)
-        // The tour picks nothing: Show me around, each tab in turn, then Shield.
-        awaitText("Show me around")
-        compose.onNodeWithText("Show me around").performClick()
-        repeat(4) {
-            awaitText("Continue")
-            compose.onNodeWithText("Continue").performClick()
+        // Onboarding picks nothing: the welcome, how Aurora works, each tab in turn, then Shield.
+        awaitText("Get started")
+        compose.onNodeWithText("Get started").performClick()
+        repeat(5) {
+            awaitText("Next")
+            compose.onNodeWithText("Next").performClick()
         }
         awaitText("Go to Home")
         compose.onNodeWithText("Go to Home").performClick()
-        scrollTo("Start session").assertIsDisplayed()
+        scrollTo("Start a session").assertIsDisplayed()
         tab("Home").assertIsSelected()
     }
 
@@ -150,7 +164,7 @@ class NavigationTest {
         tab("Track").assertIsSelected()
 
         tab("Home").performClick()
-        scrollTo("Start session").assertIsDisplayed()
+        scrollTo("Start a session").assertIsDisplayed()
     }
 
     /**
@@ -166,22 +180,26 @@ class NavigationTest {
             app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
         }
         launch(onboarded = true)
-        // The 320x470 JVM viewport can put the row centre behind the floating dock.
-        scrollTo("Start session").performSemanticsAction(SemanticsActions.OnClick)
-        // One question per page: name and save, the Shield, when and how long, then Review.
-        nextPages("Study", save = true)
+        // Saved sessions are made under Saved: Start a session, Saved sessions, New saved session.
+        startSession(saved = true)
+        awaitText("New saved session")
+        compose.onNodeWithText("New saved session").performClick()
+        // One question per page: the name, the Shield, when and how long, then Review.
+        nextPages("Study")
         review()
         compose.onNodeWithText("Start").assertIsEnabled().performClick()
         // Fetching nodes syncs with the main thread, where each step of the activation resumes.
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() && app.runtime.value?.runs?.size == 1 }
         val runId = app.runtime.value!!.runs.single().id
         org.junit.Assert.assertEquals(listOf("Study"), app.rules.value!!.configs.filter { it.custom }.map { it.name })
-        scrollTo("Turn off").performSemanticsAction(SemanticsActions.OnClick)
+        // Home's hero is the running session; a tap opens its details, which end with End session.
+        scrollTo("Details").performSemanticsAction(SemanticsActions.OnClick)
+        scrollTo("End session").performSemanticsAction(SemanticsActions.OnClick)
         compose.onNode(hasText("Turn off") and hasAnyAncestor(isDialog())).performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Turn off").fetchSemanticsNodes().isEmpty() && app.history.value?.runs?.isNotEmpty() == true }
-        org.junit.Assert.assertTrue(app.runtime.value!!.runs.isEmpty())
+        // Fetching nodes syncs with the main thread, where the turn-off resumes.
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Home").fetchSemanticsNodes().isNotEmpty() && app.runtime.value?.runs?.isEmpty() == true && app.history.value?.runs?.isNotEmpty() == true }
         org.junit.Assert.assertEquals("Study", app.history.value!!.runs.single { it.id == runId }.name)
-        scrollTo("Saved Sessions").assertIsDisplayed()
+        scrollTo("Start a session").assertIsDisplayed()
         runBlocking { app.rules.update { it.copy(configs = emptyList()) } }
     }
 
@@ -195,7 +213,7 @@ class NavigationTest {
             app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
         }
         launch(onboarded = true)
-        scrollTo("Start session").performSemanticsAction(SemanticsActions.OnClick)
+        startSession()
         nextPages()
         review()
         compose.onNodeWithText("Start").assertIsEnabled()
@@ -221,9 +239,9 @@ class NavigationTest {
             app.preferences.setReduceMotion(true)
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        awaitText("Skip the tour")
-        compose.onNodeWithText("Skip the tour").performClick()
-        awaitText("Turn on Shield.")
+        awaitText("Skip")
+        compose.onNodeWithText("Skip").performClick()
+        awaitText("Allow access.")
         org.junit.Assert.assertTrue(app.runtime.value!!.runs.isEmpty())
         awaitText("Skip for now")
     }
@@ -238,7 +256,7 @@ class NavigationTest {
             app.rules.update { it.copy(version = 1, configs = emptyList(), activations = emptyList(), shields = listOf(ShieldPreset("t", "Test Shield", listOf("com.example.social"), createdAt = 1))) }
         }
         launch(onboarded = true)
-        scrollTo("Start session").performSemanticsAction(SemanticsActions.OnClick)
+        startSession()
         nextPages()
         review()
         compose.onNodeWithText("Start").performClick()
@@ -263,14 +281,14 @@ class NavigationTest {
         awaitText("Name your habit")
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Daily learning")
         compose.onNodeWithText("Next").performClick()
-        compose.onNodeWithText("A custom session").performClick()
+        compose.onNodeWithText("A saved session").performClick()
         compose.onNodeWithText("Next").performClick()
         awaitText("Goal Study")
         compose.onNodeWithText("Goal Study").performClick()
         compose.onNodeWithText("Next").performClick()
         // The hint above the disabled button leaves the 320x470 JVM viewport less room: scroll to the choice.
-        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(hasText("Sessions per week"))
-        compose.onNodeWithText("Sessions per week").performClick()
+        compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(hasText("Sessions every week"))
+        compose.onNodeWithText("Sessions every week").performClick()
         compose.onNodeWithText("Create habit").performClick()
         awaitText("Daily learning")
         val goal = app.rules.value!!.trackGoals.single()
@@ -361,7 +379,7 @@ class NavigationTest {
         }
         launch(onboarded = true)
         // Free enforces the oldest and marks the rest where they live; Home raises no alarm about it.
-        scrollTo("Start session")
+        scrollTo("Start a session")
         org.junit.Assert.assertTrue(compose.onAllNodesWithText("Some of your setup is paused").fetchSemanticsNodes().isEmpty())
         org.junit.Assert.assertEquals(8, app.rules.value!!.shields.single().keys.size)
     }

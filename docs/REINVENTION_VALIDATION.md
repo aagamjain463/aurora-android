@@ -1,3 +1,5 @@
+> **Visual identity superseded (2026-11-07).** Brand, colour, type and art guidance in this document describes the retired First Light identity. The active spec is `brand/Aurora_Brand_Guidelines.md`; where they disagree, the guidelines win.
+
 # Aurora reinvention: validation and delivery
 
 Updated 29 October 2026. Branch: `feat/aurora-product-reinvention`. This closes the selected product-reinvention handoff; it does not certify a Play launch or every Android/OEM combination. No push or merge.

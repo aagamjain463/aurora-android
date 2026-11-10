@@ -45,7 +45,7 @@ app/src/main/java/app/aurora/
 └── ui/
     ├── AuroraNavHost.kt   Routes, tabs, transitions, floating tab bar
     ├── theme/             Palette, semantic colours, type scale, Space/Radius/Motion tokens
-    ├── components/        The design system (see docs/BRAND.md)
+    ├── components/        The design system (see brand/Aurora_Brand_Guidelines.md)
     ├── account/           AccountGate, Sign-in, Email link dialogs, Profile decision
     └── onboarding/  home/  protect/  focus/  insights/  settings/
 ```

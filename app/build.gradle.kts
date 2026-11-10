@@ -88,6 +88,9 @@ android {
         // base plans works too (docs/BILLING.md).
         val plusProducts = providers.gradleProperty("aurora.plusProductIds").getOrElse("aurora_plus_monthly,aurora_plus_annual")
         buildConfigField("String", "PLUS_PRODUCT_IDS", "\"$plusProducts\"")
+        // Founding Lifetime: a one-time product, available in the US Play store only (docs/MONETIZATION_PLAN.md, 3.4).
+        val lifetimeProduct = providers.gradleProperty("aurora.lifetimeProductId").getOrElse("aurora_plus_lifetime_us")
+        buildConfigField("String", "LIFETIME_PRODUCT_ID", "\"$lifetimeProduct\"")
         // The account service (server/). Empty: nobody can sign in to anything server-controlled on this build.
         buildConfigField("String", "SERVER_URL", JsonOutput.toJson(authConfiguration.getValue("serverUrl")))
         buildConfigField("String", "ENTITLEMENT_PUBLIC_KEY", JsonOutput.toJson(authConfiguration.getValue("entitlementPublicKey")))
@@ -166,6 +169,9 @@ android {
         // New warnings fail the build. The four Phase 1 warnings are recorded in the baseline.
         warningsAsErrors = true
         baseline = file("lint-baseline.xml")
+        // "A newer AGP/Gradle exists" turns red on every upstream release with no code change. Upgrades are
+        // deliberate commits, not lint failures.
+        disable += "AndroidGradlePluginVersion"
     }
 
     buildFeatures {

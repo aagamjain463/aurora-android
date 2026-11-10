@@ -1,6 +1,8 @@
 package app.aurora.ui
 
 import android.app.AppOpsManager
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.os.Looper
 import android.os.Process
 import androidx.lifecycle.viewModelScope
@@ -16,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowUsageStatsManager
 
 @RunWith(AndroidJUnit4::class)
 class InsightsViewModelTest {
@@ -45,6 +48,32 @@ class InsightsViewModelTest {
             assertTrue(!vm.state.value.loading)
             assertEquals(Period.Today, vm.state.value.period)
             assertEquals(1, vm.state.value.days.size)
+        } finally {
+            vm.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun todayTotalAndAppRowsUseTheSameUsageSnapshot() {
+        val app = ApplicationProvider.getApplicationContext<AuroraApplication>()
+        shadowOf(app.getSystemService(AppOpsManager::class.java)).setMode(
+            AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), app.packageName, AppOpsManager.MODE_ALLOWED,
+        )
+        val midnight = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val end = minOf(midnight + 120_000L, System.currentTimeMillis())
+        val manager = shadowOf(app.getSystemService(UsageStatsManager::class.java))
+        for ((at, type) in listOf(midnight to UsageEvents.Event.ACTIVITY_RESUMED, end to UsageEvents.Event.ACTIVITY_PAUSED)) {
+            manager.addEvent(ShadowUsageStatsManager.EventBuilder.buildEvent()
+                .setPackage("com.example.uninstalled").setTimeStamp(at).setEventType(type).build())
+        }
+        val vm = InsightsViewModel(app)
+        try {
+            vm.refresh()
+            await { !vm.state.value.loading }
+            val state = vm.state.value
+            val expected = end - midnight
+            assertEquals(expected, state.days.single().total)
+            if (expected >= 60_000L) assertEquals(state.days.single().total, state.rows.sumOf { it.ms })
         } finally {
             vm.viewModelScope.cancel()
         }

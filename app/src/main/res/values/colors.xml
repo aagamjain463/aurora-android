@@ -1,13 +1,13 @@
 <resources>
-    <color name="aurora_window">#08080C</color>
-    <!-- Night 1000: the sky behind the opening, so the splash hands over without a change of colour. -->
-    <color name="aurora_splash">#08080C</color>
-    <!-- Palette tokens (brand/tokens/aurora.tokens.json) used outside Compose: notification and widget. -->
-    <color name="aurora_accent">#F59164</color>
-    <color name="widget_top">#F215141A</color>
-    <color name="widget_bottom">#F208080C</color>
-    <color name="widget_edge">#1AFFFFFF</color>
-    <color name="widget_text">#F6F0E8</color>
-    <color name="widget_secondary">#C9C1C6</color>
-    <color name="widget_eyebrow">#FFD7B5</color>
+    <!-- Obsidian: the window behind the opening, so the splash hands over without a change of colour. -->
+    <color name="aurora_window">#0B0B0D</color>
+    <!-- The logo art's own black: the splash and the opening hold it, then fade to the page. -->
+    <color name="aurora_splash">#000000</color>
+    <!-- Palette tokens (brand/tokens/aurora.tokens.json) used outside Compose: notification and widget. Silver, never gold. -->
+    <color name="aurora_accent">#A7A9AE</color>
+    <color name="widget_surface">#F21B1C20</color>
+    <color name="widget_edge">#FF2A2B30</color>
+    <color name="widget_text">#F5F5F2</color>
+    <color name="widget_secondary">#A7A9AE</color>
+    <color name="widget_eyebrow">#A7A9AE</color>
 </resources>

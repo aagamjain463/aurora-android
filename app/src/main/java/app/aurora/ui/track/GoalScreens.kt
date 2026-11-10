@@ -33,6 +33,7 @@ import app.aurora.protect.activeGoalIds
 import app.aurora.setGoalStatus
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.protect.Rules
+import app.aurora.protect.partNames
 import app.aurora.protect.UsageConfig
 import app.aurora.protect.intentOf
 import app.aurora.protect.shieldOf
@@ -55,7 +56,7 @@ import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
 
 private enum class GoalStep { Name, Link, Session, Track, What, Apps, Limit }
-private enum class SessionTrack { Daily, Days, Weekly, PerWeek }
+private enum class SessionTrack { Daily, Days, Weekly, SessionDaily, SessionDays, PerWeek }
 
 private val DayPresets = listOf(30, 60, 120, 180)
 private val WeekPresets = listOf(120, 300, 600, 1200)
@@ -121,7 +122,13 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
         GoalStep.Name -> name.isNotBlank()
         GoalStep.Link -> kind != null
         GoalStep.Session -> configs.any { it.id == configId }
-        GoalStep.Track -> track == SessionTrack.PerWeek || (track != null && minutes != null && (track != SessionTrack.Days || days.isNotEmpty()))
+        GoalStep.Track -> when (track) {
+            null -> false
+            SessionTrack.PerWeek, SessionTrack.SessionDaily -> true
+            SessionTrack.SessionDays -> days.isNotEmpty()
+            SessionTrack.Days -> minutes != null && days.isNotEmpty()
+            else -> minutes != null
+        }
         GoalStep.What -> whole != null
         GoalStep.Apps -> keys.isNotEmpty()
         GoalStep.Limit -> minutes != null
@@ -145,12 +152,14 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
                 val goal = if (kind == GoalKind.Limit) {
                     Goal(newId(), name.trim(), GoalKind.Limit, period, minutes ?: 0, apps = if (whole == true) emptySet() else keys.toSet(), createdAt = System.currentTimeMillis())
                 } else {
+                    // A session on a day: at least one finished that day, counted like sessions in a week.
+                    val bySessions = track == SessionTrack.PerWeek || track == SessionTrack.SessionDaily || track == SessionTrack.SessionDays
                     Goal(
                         newId(), name.trim(), GoalKind.Session,
-                        if (track == SessionTrack.Daily || track == SessionTrack.Days) GoalPeriod.Daily else GoalPeriod.Weekly,
-                        if (track == SessionTrack.PerWeek) 0 else minutes ?: 0,
-                        configId = configId, sessions = perWeek.takeIf { track == SessionTrack.PerWeek }, createdAt = System.currentTimeMillis(),
-                        days = if (track == SessionTrack.Days) days else emptySet(),
+                        if (track == SessionTrack.Weekly || track == SessionTrack.PerWeek) GoalPeriod.Weekly else GoalPeriod.Daily,
+                        if (bySessions) 0 else minutes ?: 0,
+                        configId = configId, sessions = if (track == SessionTrack.PerWeek) perWeek else if (bySessions) 1 else null, createdAt = System.currentTimeMillis(),
+                        days = if (track == SessionTrack.Days || track == SessionTrack.SessionDays) days else emptySet(),
                     )
                 }
                 vm.run {
@@ -167,13 +176,13 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
             }
             GoalStep.Link -> {
                 stepTitle(R.string.goal_link_title, null)
-                item(key = "session") { ChoiceCard(stringResource(R.string.goal_link_session), stringResource(R.string.goal_link_session_desc), kind == GoalKind.Session, { kind = GoalKind.Session; minutes = null }) }
-                item(key = "limit") { ChoiceCard(stringResource(R.string.goal_link_limit), stringResource(R.string.goal_link_limit_desc), kind == GoalKind.Limit, { kind = GoalKind.Limit; minutes = null }) }
+                item(key = "session") { ChoiceCard(stringResource(R.string.goal_link_session), "", kind == GoalKind.Session, { kind = GoalKind.Session; minutes = null }) }
+                item(key = "limit") { ChoiceCard(stringResource(R.string.goal_link_limit), "", kind == GoalKind.Limit, { kind = GoalKind.Limit; minutes = null }) }
             }
             GoalStep.Session -> {
                 stepTitle(R.string.goal_session_title, null)
                 if (configs.isEmpty()) item(key = "none") { Text(stringResource(R.string.goal_session_none), color = colors.textSecondary, style = AuroraType.Body) }
-                items(configs, key = { "c-" + it.id }) { c -> PickRow(c.name, sessionSummary(d.rules, c), configId == c.id, { configId = c.id }) }
+                items(configs, key = { "c-" + it.id }) { c -> PickRow(c.name, sessionSummary(d.rules, c), configId == c.id, { configId = c.id }, Modifier.padding(bottom = Space.S)) }
                 item(key = "create") { AuroraButton(stringResource(R.string.goal_session_create), onCreateConfig, Modifier.fillMaxWidth().padding(top = Space.S), kind = ButtonKind.Secondary) }
             }
             GoalStep.Track -> {
@@ -190,12 +199,21 @@ fun GoalEditorScreen(createdConfig: String?, onBack: () -> Unit, onSaved: () -> 
                 }
                 item(key = "weekly") { ChoiceCard(stringResource(R.string.goal_track_weekly), stringResource(R.string.goal_track_weekly_desc), track == SessionTrack.Weekly, { track = SessionTrack.Weekly; minutes = null }) }
                 if (track == SessionTrack.Weekly) item(key = "weekly-pick") { key(track) { DurationPicker(minutes, { minutes = it }, WeekPresets, title = stringResource(R.string.goal_time_week), max = MaxWeekMinutes) } }
+                item(key = "session-daily") { ChoiceCard(stringResource(R.string.goal_track_session_daily), stringResource(R.string.goal_track_session_daily_desc), track == SessionTrack.SessionDaily, { track = SessionTrack.SessionDaily }) }
+                item(key = "session-days") { ChoiceCard(stringResource(R.string.goal_track_session_days), stringResource(R.string.goal_track_session_days_desc), track == SessionTrack.SessionDays, { track = SessionTrack.SessionDays }) }
+                if (track == SessionTrack.SessionDays) item(key = "session-days-pick") {
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
+                        Text(stringResource(R.string.goal_days_pick), color = colors.textPrimary, style = AuroraType.Title)
+                        ChipFlow((1..7).toList(), days, { day -> days = if (day in days) days - day else days + day }, { app.aurora.ui.protect.dayShort(it) })
+                    }
+                }
                 item(key = "per-week") { ChoiceCard(stringResource(R.string.goal_track_sessions), stringResource(R.string.goal_track_sessions_desc), track == SessionTrack.PerWeek, { track = SessionTrack.PerWeek }) }
                 if (track == SessionTrack.PerWeek) item(key = "per-week-pick") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                         (1..14).forEach { n -> Chip("$n", perWeek == n) { perWeek = n } }
                     }
                 }
+                item(key = "finished-note") { Text(stringResource(R.string.goal_track_finished_note), Modifier.padding(horizontal = Space.XXS, vertical = Space.XS), color = colors.textTertiary, style = AuroraType.Caption) }
             }
             GoalStep.What -> {
                 stepTitle(R.string.goal_what_title, null)
@@ -232,6 +250,7 @@ fun GoalLimitDialog(current: Goal?, onPlus: () -> Unit, onDismiss: () -> Unit, o
         stringResource(R.string.goal_plan_title), onDismiss, stringResource(R.string.plus_see), { onDismiss(); onPlus() },
         if (current != null) stringResource(R.string.goal_plan_current, current.name) else stringResource(R.string.goal_plan_body),
         stringResource(R.string.action_cancel),
+        plus = true,
     ) {
         if (current != null) Column(verticalArrangement = Arrangement.spacedBy(Space.XS)) {
             AuroraButton(stringResource(R.string.goal_pause_current), { onFree(current, GoalStatus.Paused) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, compact = true)
@@ -241,6 +260,7 @@ fun GoalLimitDialog(current: Goal?, onPlus: () -> Unit, onDismiss: () -> Unit, o
     }
 }
 
+/** A saved session in one line: its Shields and Intents by name. */
 @Composable
 private fun sessionSummary(rules: Rules, c: UsageConfig): String =
-    listOfNotNull(rules.shieldOf(c)?.name, rules.intentOf(c)?.name, c.focus?.goal?.takeIf { it.isNotBlank() }).joinToString(" · ")
+    rules.partNames(c).values.filter { it.isNotBlank() }.joinToString(" · ")

@@ -1,5 +1,6 @@
 package app.aurora.ui.protect
 
+import app.aurora.ui.components.glassCard
 import app.aurora.protect.partOf
 import app.aurora.ui.components.Eyebrow
 import app.aurora.ui.components.glass
@@ -139,7 +140,7 @@ fun ItemIcon(key: String, data: ProtectData?, modifier: Modifier = Modifier, siz
     }
     val bitmap = icon
     if (bitmap != null) Image(bitmap, null, modifier.size(size).clip(shape))
-    else Box(modifier.size(size).clip(shape).background(colors.elevated))
+    else Box(modifier.size(size).glassCard(colors, shape))
 }
 
 /** Overlapping icons for a set of items, at most [max] shown. */
@@ -171,7 +172,7 @@ fun SessionCard(session: ProtectionSession, data: ProtectData, onTurnOff: () -> 
             .padding(horizontal = Space.Gutter)
             .fillMaxWidth()
             .glass(colors, Radius.L)
-            .padding(Space.L),
+            .padding(horizontal = Space.Inner, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
@@ -190,12 +191,12 @@ fun SessionCard(session: ProtectionSession, data: ProtectData, onTurnOff: () -> 
             AuroraButton(stringResource(R.string.session_turn_off), onTurnOff, Modifier.fillMaxWidth().padding(top = Space.XS), kind = ButtonKind.Secondary)
         } else {
             Row(
-                Modifier.padding(top = Space.XS).fillMaxWidth().clip(Radius.Pill).background(colors.violetSoft).padding(horizontal = Space.M, vertical = 12.dp),
+                Modifier.padding(top = Space.XS).fillMaxWidth().glassCard(colors, Radius.Pill).padding(horizontal = Space.M, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Space.XS),
             ) {
-                Icon(AuroraIcons.Lock, null, tint = colors.violetText, modifier = Modifier.size(18.dp))
-                Text(stringResource(R.string.session_ends_automatically), color = colors.violetText, style = AuroraType.Label)
+                Icon(AuroraIcons.Lock, null, tint = colors.mutedText, modifier = Modifier.size(18.dp))
+                Text(stringResource(R.string.session_ends_automatically), color = colors.mutedText, style = AuroraType.Label)
             }
         }
     }

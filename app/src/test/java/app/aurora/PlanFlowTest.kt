@@ -21,6 +21,8 @@ import app.aurora.protect.IntentPreset
 import app.aurora.protect.Mode
 import app.aurora.protect.ShieldPreset
 import app.aurora.protect.Timing
+import app.aurora.protect.SessionUnlock
+import app.aurora.protect.ConflictKind
 import app.aurora.protect.UsageConfig
 import app.aurora.protect.quotaToday
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -112,21 +114,43 @@ class PlanFlowTest {
     fun oneSessionRunsAtATime() = flow {
         loaded()
         assertNull(app.activate(session(apps(1)), Timing.Now(30)))
-        // A second session, or Focus, waits: nothing is stored and the first is untouched.
-        assertEquals(ActivationProblem.SessionRunning, app.activate(session(apps(2)), Timing.Now(30))?.problem)
-        assertFalse(app.startFocus(25, "focus", null, "write"))
+        // A second session is refused while it runs, whatever its apps, and nothing is stored.
+        val again = app.activate(session(apps(2), id = "y"), Timing.Now(30))
+        assertEquals(ActivationProblem.Conflict, again?.problem)
+        assertEquals(ConflictKind.Sessions, again?.conflict?.kind)
         assertEquals(1, app.runtime.value!!.runs.size)
-        // Scheduling for later is still fine.
-        assertNull(app.activate(session(apps(2)), Timing.Later(app.now().wall + 3_600_000L, 30)))
-        // Once the first is turned off, the next one starts.
-        assertTrue(app.turnOffRun(app.runtime.value!!.runs.single().id))
-        assertNull(app.activate(session(apps(2)), Timing.Now(30)))
+        // Later, once it is over, another is fine.
+        assertNull(app.activate(session(apps(2), id = "z"), Timing.Later(app.now().wall + 3_600_000L, 30)))
+        // Legacy Focus still waits for sessions.
+        assertFalse(app.startFocus(25, "focus", null, "write"))
+    }
+
+    @Test
+    fun aSessionWithManyShieldsUsesItsUnlocks() = flow {
+        loaded()
+        app.rules.update { it.copy(shields = it.shields + ShieldPreset("sa", "A", apps(1), Mode.Flexible, createdAt = 1) + ShieldPreset("sb", "B", apps(2), Mode.Flexible, createdAt = 1)) }
+        val brk = SessionUnlock("u", "Break", minutes = 10, times = 1)
+        val c = UsageConfig("many", "Study", shieldIds = listOf("sa", "sb"), unlocks = listOf(brk), createdAt = 1)
+        assertNull(app.activate(c, Timing.Now(60)))
+        val run = app.runtime.value!!.runs.single()
+        assertEquals(apps(1) + apps(2), run.shield?.keys)
+        // A break: allowed once, then no more.
+        assertTrue(app.useUnlock(run.id, "u"))
+        assertFalse(app.useUnlock(run.id, "u"))
+        app.endUnlock(run.id)
+        assertFalse(app.useUnlock(run.id, "u"))
+        // Two Shields that share an app can't be saved together.
+        val clash = c.copy(id = "clash", shieldIds = listOf("sa", "sa2"))
+        app.rules.update { it.copy(shields = it.shields + ShieldPreset("sa2", "A2", apps(1), Mode.Flexible, createdAt = 1)) }
+        assertEquals(ConflictKind.Plan, app.saveConfig(clash)?.conflict?.kind)
+        assertTrue(app.rules.value!!.configs.none { it.id == "clash" })
     }
 
     @Test
     fun anAlreadyProtectedTargetCanBeUsedAgain() = flow {
         loaded()
-        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Always))
+        // Switched on for later (an app is in one session at a time, so not now): it holds its slots already.
+        assertNull(app.activate(session(apps(1, 2, 3, 4, 5)), Timing.Later(app.now().wall + 3_600_000L, 30)))
         assertNull(app.activate(session(apps(1, 5)), Timing.Now(30)))
     }
 
@@ -141,15 +165,19 @@ class PlanFlowTest {
     fun aScheduleCountsWhileEnabledAndFreesItsSlotWhenPaused() = flow {
         loaded()
         val five = session(apps(1, 2, 3, 4, 5), id = "five").copy(custom = true)
-        assertNull(app.activate(five, Timing.Recurring(setOf(1, 2, 3, 4, 5, 6, 7), 60, 30)))
-        assertEquals(ActivationProblem.OverItems, app.activate(session(apps(6)), Timing.Now(10))?.problem)
-        val id = app.rules.value!!.activations.single().id
+        // Limits count what is on at the same time: a sixth app beside the schedule's window is refused.
+        val at = app.now().wall + 3_600_000L
+        assertNull(app.activate(five, Timing.Later(at, 60)))
+        assertEquals(ActivationProblem.OverItems, app.activate(session(apps(6)), Timing.Later(at + 600_000L, 10))?.problem)
+        // Outside its window it's fine.
+        assertNull(app.activate(session(apps(6), id = "early"), Timing.Now(10)))
+        val id = app.rules.value!!.activations.single { it.configId == five.id }.id
         assertNull(app.setActivationEnabled(id, false))
-        assertNull(app.activate(session(apps(6)), Timing.Now(10)))
+        assertNull(app.activate(session(apps(6)), Timing.Later(at + 600_000L, 10)))
         // Resuming is activating: the slot has gone, so it's refused.
         val resume = app.setActivationEnabled(id, true)
         assertEquals(ActivationProblem.OverItems, resume?.problem)
-        assertFalse(app.rules.value!!.activations.single().enabled)
+        assertFalse(app.rules.value!!.activations.single { it.id == id }.enabled)
     }
 
     @Test
@@ -158,17 +186,16 @@ class PlanFlowTest {
         val preset = ShieldPreset("p", "P", apps(1, 2, 3, 4, 5), Mode.Flexible, createdAt = 1)
         assertNull(app.saveShield(preset))
         val config = UsageConfig("c", "C", shieldId = "p", createdAt = 1)
-        assertNull(app.activate(config, Timing.Recurring(setOf(1, 2, 3, 4, 5, 6, 7), 60, 30)))
+        // An edit is judged on what is on now.
+        assertNull(app.activate(config, Timing.Always))
         assertEquals(ActivationProblem.OverItems, app.saveShield(preset.copy(keys = apps(1, 2, 3, 4, 5, 6)))?.problem)
         assertEquals(apps(1, 2, 3, 4, 5), app.rules.value!!.shields.single().keys)
-        // Replacing one stays within five.
-        assertNull(app.saveShield(preset.copy(keys = apps(1, 2, 3, 4, 6))))
     }
 
     @Test
     fun theSameSiteWrittenTwoWaysIsOneTarget() = flow {
         loaded()
-        assertNull(app.activate(session(apps(1, 2, 3, 4) + "web:www.Example.com"), Timing.Always))
+        assertNull(app.activate(session(apps(1, 2, 3, 4) + "web:www.Example.com"), Timing.Later(app.now().wall + 3_600_000L, 30)))
         assertNull(app.activate(session(listOf("web:example.com")), Timing.Now(10)))
     }
 
@@ -188,7 +215,7 @@ class PlanFlowTest {
     @Test
     fun manySchedulesAndProfilesNeedNoPlus() = flow {
         loaded()
-        repeat(4) { assertNull(app.activate(session(apps(1), id = "s$it").copy(custom = true), Timing.Recurring(setOf(1, 2, 3, 4, 5, 6, 7), 100 + it, 10))) }
+        repeat(4) { assertNull(app.activate(session(apps(1), id = "s$it").copy(custom = true), Timing.Recurring(setOf(1, 2, 3, 4, 5, 6, 7), 100 + it * 15, 10))) }
         assertEquals(4, app.rules.value!!.activations.size)
     }
 
@@ -199,8 +226,10 @@ class PlanFlowTest {
         loaded()
         assertNull(app.activate(intent(apps(1, 2, 3)), Timing.Always))
         assertEquals(ActivationProblem.OverIntentApps, app.activate(intent(apps(4)), Timing.Now(10))?.problem)
+        // A schedule meets Always at its time too.
         assertEquals(ActivationProblem.OverIntentApps, app.activate(intent(apps(4)), Timing.Recurring(setOf(1), 60, 30))?.problem)
-        assertNull(app.activate(intent(apps(1, 2)), Timing.Now(10)))
+        // The same apps again fit the limit, but an app is in one session at a time.
+        assertEquals(ActivationProblem.Conflict, app.activate(intent(apps(1, 2)), Timing.Now(10))?.problem)
     }
 
     @Test
@@ -214,6 +243,18 @@ class PlanFlowTest {
         assertTrue((app.runtime.value!!.intentCooldowns["com.example.app2"] ?: 0) > app.now().wall)
         // And it took none of the ledger.
         assertEquals(1, app.runtime.value!!.ledger.size)
+    }
+
+    @Test
+    fun aWebsiteIntentLastsWhileItsBrowserIsInFront() = flow {
+        loaded()
+        assertTrue(app.startIntent("web:reddit.com", 10, IntentConfig()))
+        // The browser coming back to the front after the Shield is the site, not leaving it.
+        app.foregroundChanged("com.android.chrome")
+        assertTrue("web:reddit.com" in app.runtime.value!!.intentUses)
+        // Any other app ends it, as leaving an app does.
+        app.foregroundChanged("com.example.app1")
+        assertFalse("web:reddit.com" in app.runtime.value!!.intentUses)
     }
 
     // Goals
@@ -294,15 +335,15 @@ class PlanFlowTest {
     @Test
     fun simultaneousStartsCannotOversubscribe() = flow {
         loaded()
-        // Started together, in whatever order they run: one session wins, only if it fits, and only it is stored.
+        // Started together, in whatever order they run: one session runs at a time, so one that fits starts and the rest
+        // are refused (another is running, or the day's minutes don't cover it). The day never passes 120.
         val lengths = listOf(100, 110, 119, 121, 130, 140)
         val results = lengths.mapIndexed { i, minutes ->
             app.scope.async { app.activate(session(apps(i), Mode.AlwaysBlock, "$i"), Timing.Now(minutes)) }
         }.awaitAll()
         assertEquals(1, results.count { it == null })
-        assertTrue(results.filterNotNull().all { it.problem == ActivationProblem.SessionRunning || it.problem == ActivationProblem.OverCommittedAllowance })
-        assertEquals(1, app.runtime.value!!.ledger.size)
-        assertEquals(1, app.runtime.value!!.runs.size)
+        assertTrue(results.filterNotNull().all { it.problem == ActivationProblem.OverCommittedAllowance || it.problem == ActivationProblem.Conflict })
+        assertEquals(results.count { it == null }, app.runtime.value!!.runs.size)
         assertTrue(usedToday() <= 120)
     }
 
@@ -313,9 +354,9 @@ class PlanFlowTest {
         // Today's 120 minutes were spent earlier, in a stretch this run won't overlap.
         val (dayStart, _) = dayWindow(app.now().wall, z)
         app.runtime.update { it.copy(ledger = listOf(LedgerEntry(start = dayStart, end = dayStart + 120 * 60_000L, zone = z.id))) }
-        // Friction is free and strict: it holds the clock steady while the test moves it.
-        assertNull(app.activate(session(apps(9), Mode.Friction, "f"), Timing.Now(24 * 60)))
         val start = maxOf(app.now().wall + 5 * 60_000L, dayStart + 125 * 60_000L)
+        // Friction is free and strict: it holds the clock steady until the schedule (one session runs at a time).
+        assertNull(app.activate(session(apps(9), Mode.Friction, "f"), Timing.Now(((start - app.now().wall) / 60_000L - 1).toInt())))
         val config = UsageConfig("sched", "Evening", shield = ShieldPreset("sp", "SP", apps(1), Mode.AlwaysBlock, createdAt = 1), createdAt = 1)
         // Creating it is allowed: schedules are unlimited, and one window fits an empty day.
         assertNull(app.activate(config, Timing.Later(start, 10)))
@@ -340,8 +381,8 @@ class PlanFlowTest {
         // Delete all data is no way back to a fresh allowance.
         app.deleteAllData()
         assertEquals(0, app.committedMinutesLeft())
-        // The commitment is still running, so nothing else starts.
-        assertEquals(ActivationProblem.SessionRunning, app.activate(session(apps(2), Mode.AlwaysBlock, "b"), Timing.Now(1))?.problem)
+        // Nothing else starts beside it: one session runs at a time.
+        assertEquals(ActivationProblem.Conflict, app.activate(session(apps(2), Mode.AlwaysBlock, "b"), Timing.Now(1))?.problem)
         // Once it has ended, the spent minutes still count.
         ShadowSystemClock.advanceBy(Duration.ofMinutes(121))
         assertEquals(ActivationProblem.OverCommittedAllowance, app.activate(session(apps(2), Mode.AlwaysBlock, "c"), Timing.Now(1))?.problem)

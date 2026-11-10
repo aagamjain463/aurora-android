@@ -31,7 +31,7 @@ class ProgressTest {
 
     @Test
     fun levelsGrowGently() {
-        assertEquals(Level(1, "First glow", 0, 100), levelFor(0))
+        assertEquals(Level(1, "Starting out", 0, 100), levelFor(0))
         assertEquals(2, levelFor(100).number)
         assertEquals(3, levelFor(250).number)
         assertEquals(0.5f, levelFor(175).progress)

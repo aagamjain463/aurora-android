@@ -17,7 +17,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateSetOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,11 +45,14 @@ import app.aurora.ui.plus.LimitPromptDialog
 import app.aurora.R
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraNavBar
+import app.aurora.ui.components.backdropSource
+import app.aurora.ui.components.rememberBackdrop
 import app.aurora.ui.components.NavItem
-import app.aurora.ui.components.TabArrival
 import app.aurora.ui.focus.FocusScreen
 import app.aurora.ui.guide.GuideScreen
 import app.aurora.ui.home.HomeScreen
+import app.aurora.ui.home.SavedSessionsScreen
+import app.aurora.ui.session.RunDetailScreen
 import app.aurora.ui.onboarding.OnboardingScreen
 import android.net.Uri
 import app.aurora.ui.plus.PlusScreen
@@ -59,6 +71,8 @@ import app.aurora.ui.strict.StrictModeScreen
 import app.aurora.ui.track.GoalEditorScreen
 import app.aurora.ui.track.SessionHistoryScreen
 import app.aurora.ui.track.HabitHistoryScreen
+import app.aurora.ui.insights.AppUsageScreen
+import app.aurora.ui.insights.Period
 import app.aurora.ui.track.TrackScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.ui.protect.WebScreen
@@ -84,7 +98,10 @@ object Routes {
     const val Account = "account"
     const val History = "history"
     const val HabitHistory = "habit-history"
+    const val AppUsage = "app-usage"
     const val Guide = "guide"
+    const val Saved = "saved"
+    const val Run = "run"
 }
 
 /** Four pillars: activate (Home), create (Shield), configure (Intent), improve (Track). */
@@ -98,7 +115,6 @@ private val TabRoutes = Tabs.map { it.route }.toSet()
 
 /** Tabs keep their own scroll and state; Home is always the root of the back stack. */
 private fun NavHostController.selectTab(route: String) {
-    TabArrival.fresh = currentDestination?.route != route
     navigate(route) {
         popUpTo(Routes.Home) { saveState = true }
         launchSingleTop = true
@@ -124,43 +140,78 @@ fun AuroraNavHost(startOnboarded: Boolean) {
     fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch() =
         initialState.destination.route in TabRoutes && targetState.destination.route in TabRoutes
 
-    val push = tween<Float>(Motion.Gentle, easing = Motion.Ease)
-    val slide = tween<androidx.compose.ui.unit.IntOffset>(Motion.Gentle, easing = Motion.Ease)
+    val push = tween<Float>(Motion.Standard, easing = Motion.Ease)
+    val slide = tween<androidx.compose.ui.unit.IntOffset>(Motion.Standard, easing = Motion.Ease)
+    val back: () -> Unit = { nav.popBackStack() }
+    val plus: () -> Unit = { nav.navigate(ProtectRoutes.Plus) }
+    val settings: () -> Unit = { nav.navigate(Routes.Settings) }
+    val guide: () -> Unit = { nav.navigate(Routes.Guide) }
+    val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
+    // The tabs whose slots are composed: on screen, or beneath a screen sliding in or out over them.
+    val slots = remember { mutableStateSetOf<String>() }
+    // Everything the dock floats over: its glass blurs this, never itself.
+    val backdrop = rememberBackdrop()
     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) {
+        Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
+        TabPages(route, slots) { tab ->
+            when (tab) {
+                Routes.Home -> HomeScreen(
+                    onStart = { nav.navigate("${Routes.Configure}?custom=false") },
+                    onOpenFocus = { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") },
+                    onOpenLegacyFocus = { nav.navigate(Routes.Focus) },
+                    onOpenSettings = settings,
+                    // Saved without starting: the goal flow is Configure's edit-and-save path.
+                    onEditSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&goal=true") },
+                    // Start on a saved session asks when, like Start session: now, later or on a schedule.
+                    onStartSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&saved=true") },
+                    onOpenSaved = { nav.navigate(Routes.Saved) },
+                    onOpenRun = { id -> nav.navigate("${Routes.Run}/${Uri.encode(id)}") },
+                    onOpenPlus = plus,
+                )
+                Routes.Shield -> ShieldLibraryScreen(
+                    onCreate = { nav.navigate(Routes.ShieldEdit) },
+                    onEdit = { id -> nav.navigate("${Routes.ShieldEdit}?id=$id") },
+                    onOpenSettings = settings,
+                )
+                Routes.Intent -> IntentLibraryScreen(onCreate = { nav.navigate(Routes.IntentEdit) }, onEdit = { id -> nav.navigate("${Routes.IntentEdit}?id=$id") }, onOpenSettings = settings)
+                Routes.Track -> TrackScreen(onPlus = plus, onOpenSettings = settings, onCreateGoal = { nav.navigate(Routes.GoalEdit) }, onOpenHistory = { nav.navigate(Routes.History) }, onOpenHabitHistory = { nav.navigate(Routes.HabitHistory) }, onOpenAppUsage = { nav.navigate("${Routes.AppUsage}/${it.name}") })
+            }
+        }
         NavHost(
             navController = nav,
             startDestination = if (startOnboarded) Routes.Home else Routes.Onboarding,
             modifier = Modifier.fillMaxSize(),
-            // Tabs share one sky: the new one fades in over the old, so the light never dips, while the
-            // new page's blocks climb in over it ([rise]).
-            // Screens pushed on top slide in from the right while the one below sinks back, so depth
-            // reads at a glance. Reduced motion keeps only the fades.
+            // Tabs switch at once, as a tab bar does: no frame of two pages fading over each other, and the tab
+            // answers the finger the moment it is touched. Its blocks still climb in on the first visit ([rise]).
+            // Screens pushed on top slide in over the one below, which sinks back, so depth reads at a glance.
+            // Only transforms, never page-wide fades: a fading page is redrawn offscreen every frame, and that is
+            // what made pushes stutter on mid-range GPUs. Reduced motion keeps only the fades.
             enterTransition = {
                 when {
                     reduced -> fadeIn(tween(Motion.Standard))
-                    isTabSwitch() -> fadeIn(tween(Motion.Standard, easing = Motion.Ease))
-                    else -> fadeIn(tween(Motion.Standard)) + slideInHorizontally(slide) { it / 2 }
+                    isTabSwitch() -> EnterTransition.None
+                    else -> slideInHorizontally(slide) { it }
                 }
             },
             exitTransition = {
                 when {
                     reduced -> fadeOut(tween(Motion.Quick))
-                    isTabSwitch() -> ExitTransition.KeepUntilTransitionsFinished
-                    else -> fadeOut(push) + scaleOut(push, targetScale = SunkScale) + slideOutHorizontally(slide) { -it / 8 }
+                    isTabSwitch() -> ExitTransition.None
+                    else -> scaleOut(push, targetScale = SunkScale) + slideOutHorizontally(slide) { -it / 8 }
                 }
             },
             popEnterTransition = {
                 when {
                     reduced -> fadeIn(tween(Motion.Standard))
-                    isTabSwitch() -> fadeIn(tween(Motion.Standard, easing = Motion.Ease))
-                    else -> fadeIn(push) + scaleIn(push, initialScale = SunkScale) + slideInHorizontally(slide) { -it / 8 }
+                    isTabSwitch() -> EnterTransition.None
+                    else -> scaleIn(push, initialScale = SunkScale) + slideInHorizontally(slide) { -it / 8 }
                 }
             },
             popExitTransition = {
                 when {
                     reduced -> fadeOut(tween(Motion.Quick))
-                    isTabSwitch() -> ExitTransition.KeepUntilTransitionsFinished
-                    else -> fadeOut(tween(Motion.Standard)) + slideOutHorizontally(slide) { it / 2 }
+                    isTabSwitch() -> ExitTransition.None
+                    else -> slideOutHorizontally(slide) { it }
                 }
             },
         ) {
@@ -173,38 +224,23 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     nav.navigate(Routes.Home) { popUpTo(Routes.Onboarding) { inclusive = true } }
                 })
             }
-            val back: () -> Unit = { nav.popBackStack() }
-            val plus: () -> Unit = { nav.navigate(ProtectRoutes.Plus) }
-            val settings: () -> Unit = { nav.navigate(Routes.Settings) }
-            val guide: () -> Unit = { nav.navigate(Routes.Guide) }
-            val openItem: (String) -> Unit = { key -> nav.navigate("${ProtectRoutes.Item}/${Uri.encode(key)}") }
-            composable(Routes.Home) {
-                HomeScreen(
-                    onStart = { nav.navigate("${Routes.Configure}?custom=false") },
-                    onOpenFocus = { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") },
-                    onOpenLegacyFocus = { nav.navigate(Routes.Focus) },
-                    onOpenSettings = settings,
-                    // Saved without starting: the goal flow is Configure's edit-and-save path.
-                    onEditSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&goal=true") },
-                    // Start on a saved session asks when, like Start session: now, later or on a schedule.
-                    onStartSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&saved=true") },
-                    onOpenGuide = guide,
+            composable(Routes.Home) { TabSlot(Routes.Home, slots) }
+            composable(Routes.Saved) {
+                SavedSessionsScreen(
+                    back,
+                    onEdit = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&goal=true") },
+                    onStart = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&saved=true") },
+                    onNew = { nav.navigate("${Routes.Configure}?custom=true") },
                 )
             }
-            composable(Routes.Shield) {
-                ShieldLibraryScreen(
-                    onCreate = { nav.navigate(Routes.ShieldEdit) },
-                    onEdit = { id -> nav.navigate("${Routes.ShieldEdit}?id=$id") },
-                    onOpenSettings = settings,
-                    onOpenGuide = guide,
-                )
+            composable("${Routes.Run}/{id}") { e ->
+                RunDetailScreen(Uri.decode(e.arguments?.getString("id").orEmpty()), back) { id -> nav.navigate("${Routes.FocusRun}/${Uri.encode(id)}") }
             }
+            composable(Routes.Shield) { TabSlot(Routes.Shield, slots) }
             composable("${Routes.ShieldEdit}?id={id}") { e ->
                 ShieldEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdShield", id) }, onPlus = plus, onOpenWeb = { nav.navigate(ProtectRoutes.Web) })
             }
-            composable(Routes.Intent) {
-                IntentLibraryScreen(onCreate = { nav.navigate(Routes.IntentEdit) }, onEdit = { id -> nav.navigate("${Routes.IntentEdit}?id=$id") }, onOpenSettings = settings, onOpenGuide = guide)
-            }
+            composable(Routes.Intent) { TabSlot(Routes.Intent, slots) }
             composable("${Routes.IntentEdit}?id={id}") { e ->
                 IntentEditorScreen(e.arguments?.getString("id"), back, onSaved = { id -> nav.returnWith("createdIntent", id) }, onPlus = plus)
             }
@@ -229,9 +265,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     startSaved = e.arguments?.getString("saved") == "true",
                 )
             }
-            composable(Routes.Track) {
-                TrackScreen(onPlus = plus, onOpenSettings = settings, onCreateGoal = { nav.navigate(Routes.GoalEdit) }, onOpenHistory = { nav.navigate(Routes.History) }, onOpenHabitHistory = { nav.navigate(Routes.HabitHistory) }, onOpenGuide = guide)
-            }
+            composable(Routes.Track) { TabSlot(Routes.Track, slots) }
             composable(Routes.GoalEdit) { e ->
                 val createdConfig by e.savedStateHandle.getStateFlow<String?>("createdConfig", null).collectAsStateWithLifecycle()
                 GoalEditorScreen(createdConfig, back, onSaved = back, onCreateConfig = { nav.navigate("${Routes.Configure}?custom=true&goal=true") }, onPlus = plus)
@@ -247,6 +281,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             composable(Routes.Account) { AccountScreen(back, plus) }
             composable(Routes.History) { SessionHistoryScreen(back) }
             composable(Routes.HabitHistory) { HabitHistoryScreen(back, plus) }
+            composable("${Routes.AppUsage}/{period}") { e -> AppUsageScreen(Period.valueOf(e.arguments?.getString("period") ?: "Today"), back) }
             composable(Routes.Guide) { GuideScreen(back) }
             composable(Routes.Settings) {
                 SettingsScreen(
@@ -271,6 +306,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                 FocusScreen(onClose = { if (nav.currentDestination?.route == Routes.Focus) nav.popBackStack() }, onPlus = plus)
             }
         }
+        }
 
         val prompt by app.limitPrompt.collectAsStateWithLifecycle()
         prompt?.let { LimitPromptDialog(it, { app.limitPrompt.value = null }) { nav.navigate(ProtectRoutes.Plus) } }
@@ -291,7 +327,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
             enter = fadeIn(tween(Motion.Standard)) + if (reduced) EnterTransition.None else slideInVertically(tween(Motion.Gentle, easing = Motion.Ease)) { it },
             exit = fadeOut(tween(Motion.Quick)) + if (reduced) ExitTransition.None else slideOutVertically(tween(Motion.Standard, easing = Motion.Ease)) { it },
         ) {
-            AuroraNavBar(Tabs, route) { nav.selectTab(it) }
+            AuroraNavBar(Tabs, route, backdrop) { nav.selectTab(it) }
         }
     }
 }
@@ -306,3 +342,74 @@ private fun focusEnter(reduced: Boolean): EnterTransition =
 private fun focusExit(reduced: Boolean): ExitTransition =
     if (reduced) fadeOut(tween(Motion.Quick))
     else fadeOut(tween(Motion.Standard)) + scaleOut(tween(Motion.Standard, easing = Motion.Ease), targetScale = 0.92f)
+
+/**
+ * A tab's place in the navigation graph. Its page lives in [TabPages], built once and kept, so choosing a tab never
+ * composes its page again (that one frame was the stutter on every tab change). While the slot is composed, its tab
+ * is in view: chosen, or beneath a screen sliding over it.
+ */
+@Composable
+private fun TabSlot(route: String, slots: MutableSet<String>) {
+    DisposableEffect(route) {
+        slots += route
+        onDispose { slots -= route }
+    }
+}
+
+/**
+ * Every tab visited so far, kept composed: scroll, state and layout caches survive. Only the tab in view is measured,
+ * placed and drawn; the others are skipped by layout, hidden from accessibility, and run a lifecycle held at CREATED,
+ * so their flows pause, their back handlers are off, and resume effects run again when they return.
+ */
+@Composable
+private fun TabPages(route: String?, slots: Set<String>, page: @Composable (String) -> Unit) {
+    val shown: Set<String> = if (route in TabRoutes) setOf(route!!) else slots.toSet()
+    // Plain set: it only grows when [shown] changes, which recomposes this anyway.
+    val visited = remember { LinkedHashSet<String>() }
+    visited += shown
+    val order = visited.toList()
+    val parent = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.ui.layout.Layout(
+        content = {
+            order.forEach { tab ->
+                androidx.compose.runtime.key(tab) {
+                    val owner = remember { TabLifecycle() }
+                    owner.cap = when {
+                        tab == route -> Lifecycle.State.RESUMED
+                        tab in shown -> Lifecycle.State.STARTED
+                        else -> Lifecycle.State.CREATED
+                    }
+                    androidx.compose.runtime.SideEffect { owner.follow(parent.lifecycle.currentState) }
+                    DisposableEffect(parent) {
+                        val observer = LifecycleEventObserver { _, _ -> owner.follow(parent.lifecycle.currentState) }
+                        parent.lifecycle.addObserver(observer)
+                        onDispose {
+                            parent.lifecycle.removeObserver(observer)
+                            if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.CREATED)) owner.registry.currentState = Lifecycle.State.DESTROYED
+                        }
+                    }
+                    Box(if (tab in shown) Modifier else Modifier.clearAndSetSemantics { }) {
+                        CompositionLocalProvider(androidx.lifecycle.compose.LocalLifecycleOwner provides owner) { page(tab) }
+                    }
+                }
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) { measurables, constraints ->
+        val placeables = measurables.mapIndexedNotNull { i, m -> if (order.getOrNull(i) in shown) m.measure(constraints) else null }
+        layout(constraints.maxWidth, constraints.maxHeight) { placeables.forEach { it.place(0, 0) } }
+    }
+}
+
+/** A kept tab's lifecycle: the activity's, never above [cap]. */
+private class TabLifecycle : LifecycleOwner {
+    val registry = LifecycleRegistry(this)
+    override val lifecycle: Lifecycle get() = registry
+    var cap = Lifecycle.State.CREATED
+
+    fun follow(activity: Lifecycle.State) {
+        val target = minOf(activity, cap)
+        // Below CREATED the activity is going away, and this composition with it.
+        if (target.isAtLeast(Lifecycle.State.CREATED)) registry.currentState = target
+    }
+}

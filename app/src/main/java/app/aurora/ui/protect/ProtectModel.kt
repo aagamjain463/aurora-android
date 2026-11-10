@@ -6,6 +6,7 @@ import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.data.InstalledApp
 import app.aurora.data.clockTicks
+import app.aurora.data.minuteTicks
 import app.aurora.plan.Allowance
 import app.aurora.plan.Plan
 import app.aurora.progress.History
@@ -31,6 +32,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -99,14 +103,16 @@ class ProtectModel(val app: AuroraApplication) : ViewModel() {
     /** Names by key: apps as they load; parts of apps are known up front. */
     private val labels = MutableStateFlow(AppParts.associate { it.key to app.getString(it.name) })
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val data: StateFlow<ProtectData?> = combine(
         combine(app.protectedList, app.rules.state, app.runtime.state) { list, rules, runtime -> Triple(list, rules, runtime) },
         combine(app.billing.plan, labels, app.history.state) { plan, names, history -> Triple(plan, names, history) },
-        installed,
-        clockTicks(1_000),
+        installed.map { apps -> apps.orEmpty().associateBy { it.packageName } },
+        // Every screen that reads this data recomposes on each tick: by the second only while something counts down.
+        app.runtime.state.map { it?.value?.counting() == true }.distinctUntilChanged().flatMapLatest { if (it) clockTicks(1_000) else minuteTicks() },
     ) { (list, rules, runtime), (plan, names, history), apps, _ ->
         if (list == null || rules == null || runtime == null) null
-        else ProtectData(list, rules.value, rules.readable, runtime.value, plan, apps.orEmpty().associateBy { it.packageName }, app.now(), names, history?.value ?: History())
+        else ProtectData(list, rules.value, rules.readable, runtime.value, plan, apps, app.now(), names, history?.value ?: History())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
@@ -205,3 +211,10 @@ fun Rules.summary(key: String, plan: Plan, website: Boolean, modeName: (Mode) ->
     }
     return extras.joinToString(" · ")
 }
+
+/**
+ * Anything on screen that may show a running clock: sessions, grants, waits, reflections, Intent time and
+ * cooldowns, configuration runs, Focus. Long-lived bookkeeping (quiet periods, closed runs, the ledger) isn't.
+ */
+private fun Runtime.counting() = sessions.isNotEmpty() || access.isNotEmpty() || cooldownWaits.isNotEmpty() ||
+    reflections.isNotEmpty() || intentUses.isNotEmpty() || intentCooldowns.isNotEmpty() || runs.isNotEmpty() || focus != null

@@ -53,7 +53,7 @@ class JsonValue<T>(
     val value: T? get() = _state.value?.takeIf { it.readable }?.value
 
     init {
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             val loaded = try {
                 decode(store.data.first()[key])
             } catch (_: IOException) {

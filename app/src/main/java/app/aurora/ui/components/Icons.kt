@@ -10,20 +10,15 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 /**
- * aurora's own line icons: 24dp grid, 1.75 stroke, round caps and joins, no fills.
+ * Aurora's own line icons: 24dp grid, 1.75 stroke, round caps and joins, no fills.
  * Drawn here rather than pulled from an icon library so the set stays small and consistent.
  */
 object AuroraIcons {
-    /** Today: the mark itself, a horizon arc with a rising point. */
-    val Today = icon("today") {
-        moveTo(5.5f, 18f); arcTo(6.5f, 6.5f, 0f, false, true, 18.5f, 18f)
-        circle(12f, 6.5f, 1.1f)
-    }
-    /** Home: the horizon under a roof line, so it still reads as Aurora. */
+    /** Home: a roof line over walls and a door. */
     val Home = icon("home") {
         moveTo(4.5f, 11f); lineTo(12f, 4.5f); lineTo(19.5f, 11f)
         moveTo(6.5f, 9.5f); verticalLineTo(19.5f); horizontalLineTo(17.5f); verticalLineTo(9.5f)
-        moveTo(9.5f, 19.5f); arcTo(2.5f, 2.5f, 0f, false, true, 14.5f, 19.5f)
+        moveTo(10f, 19.5f); verticalLineTo(14.5f); horizontalLineTo(14f); verticalLineTo(19.5f)
     }
     /** Intent: a door held open, with the decision crossing it. */
     val Intent = icon("intent") {
@@ -87,6 +82,17 @@ object AuroraIcons {
         moveTo(8.75f, 10.5f); verticalLineTo(7.75f)
         arcTo(3.25f, 3.25f, 0f, false, true, 15.25f, 7.75f); verticalLineTo(10.5f)
     }
+    /** An open padlock: a task's unlock. */
+    val Unlock = icon("unlock") {
+        moveTo(6.5f, 10.5f); horizontalLineTo(17.5f); verticalLineTo(19.5f); horizontalLineTo(6.5f); close()
+        moveTo(8.75f, 10.5f); verticalLineTo(7.75f)
+        arcTo(3.25f, 3.25f, 0f, false, true, 15f, 6.25f)
+    }
+    val Briefcase = icon("briefcase") {
+        moveTo(4.5f, 8.5f); horizontalLineTo(19.5f); verticalLineTo(18.5f); horizontalLineTo(4.5f); close()
+        moveTo(9f, 8.5f); verticalLineTo(6f); horizontalLineTo(15f); verticalLineTo(8.5f)
+        moveTo(4.5f, 13f); horizontalLineTo(19.5f)
+    }
     val Pause = icon("pause") {
         circle(12f, 12f, 8f)
         moveTo(10f, 9.5f); verticalLineTo(14.5f)
@@ -103,6 +109,29 @@ object AuroraIcons {
         moveTo(4f, 12f); horizontalLineTo(20f)
         moveTo(12f, 4f); curveTo(9.5f, 6.5f, 9.5f, 17.5f, 12f, 20f)
         moveTo(12f, 4f); curveTo(14.5f, 6.5f, 14.5f, 17.5f, 12f, 20f)
+    }
+    /** Apps: four tiles, as on a home screen. */
+    val Apps = icon("apps") {
+        moveTo(5f, 5f); horizontalLineTo(10.5f); verticalLineTo(10.5f); horizontalLineTo(5f); close()
+        moveTo(13.5f, 5f); horizontalLineTo(19f); verticalLineTo(10.5f); horizontalLineTo(13.5f); close()
+        moveTo(5f, 13.5f); horizontalLineTo(10.5f); verticalLineTo(19f); horizontalLineTo(5f); close()
+        moveTo(13.5f, 13.5f); horizontalLineTo(19f); verticalLineTo(19f); horizontalLineTo(13.5f); close()
+    }
+    /** Reels: a clapper frame over a play mark. Generic, never a brand's logo. */
+    val Reels = icon("reels") {
+        moveTo(4.5f, 4.5f); horizontalLineTo(19.5f); verticalLineTo(19.5f); horizontalLineTo(4.5f); close()
+        moveTo(4.5f, 9f); horizontalLineTo(19.5f)
+        moveTo(8.5f, 4.5f); lineTo(10.5f, 9f)
+        moveTo(13.5f, 4.5f); lineTo(15.5f, 9f)
+        moveTo(10.5f, 12f); lineTo(15f, 14.5f); lineTo(10.5f, 17f); close()
+    }
+    /** Shorts: a tall screen with a play mark. Generic, never a brand's logo. */
+    val Shorts = icon("shorts") {
+        moveTo(7f, 3.5f); horizontalLineTo(17f); verticalLineTo(20.5f); horizontalLineTo(7f); close()
+        moveTo(10.5f, 9.5f); lineTo(14.5f, 12f); lineTo(10.5f, 14.5f); close()
+    }
+    val Minus = icon("minus") {
+        moveTo(5.5f, 12f); horizontalLineTo(18.5f)
     }
     val Plus = icon("plus") {
         moveTo(12f, 5.5f); verticalLineTo(18.5f)
@@ -136,12 +165,10 @@ object AuroraIcons {
     val Quote = icon("quote") {
         moveTo(5f, 6f); horizontalLineTo(19f); verticalLineTo(16f); horizontalLineTo(11f); lineTo(7f, 19.5f); verticalLineTo(16f); horizontalLineTo(5f); close()
     }
-    /** Level and XP: a small four-point star of light. */
+    /** Friction: a bolt, the effort it takes to get through. (Not a star: Aurora uses no celestial imagery.) */
     val Spark = icon("spark") {
-        moveTo(12f, 4f); curveTo(12.6f, 9.4f, 14.6f, 11.4f, 20f, 12f)
-        curveTo(14.6f, 12.6f, 12.6f, 14.6f, 12f, 20f)
-        curveTo(11.4f, 14.6f, 9.4f, 12.6f, 4f, 12f)
-        curveTo(9.4f, 11.4f, 11.4f, 9.4f, 12f, 4f); close()
+        moveTo(13f, 3.5f); lineTo(5.5f, 13.5f); horizontalLineTo(11.5f); lineTo(11f, 20.5f)
+        lineTo(18.5f, 10.5f); horizontalLineTo(12.5f); close()
     }
     val Bell = icon("bell") {
         moveTo(6f, 16.5f); verticalLineTo(11f)

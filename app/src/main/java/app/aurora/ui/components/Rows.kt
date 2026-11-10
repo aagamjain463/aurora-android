@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import app.aurora.data.InstalledApp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
@@ -44,9 +45,9 @@ import app.aurora.ui.theme.Space
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.uppercase(),
+        text,
         modifier
-            .padding(start = Space.Gutter + 4.dp, end = Space.Gutter, top = Space.L, bottom = 10.dp)
+            .padding(start = Space.Gutter + 4.dp, end = Space.Gutter, top = 40.dp, bottom = 14.dp)
             .clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
         color = Aurora.colors.textTertiary,
         style = AuroraType.Eyebrow,
@@ -62,7 +63,7 @@ fun Eyebrow(
     textAlign: androidx.compose.ui.text.style.TextAlign? = null,
 ) {
     Text(
-        text.uppercase(),
+        text,
         modifier.semantics { contentDescription = text },
         color = color,
         style = AuroraType.Eyebrow,
@@ -94,7 +95,8 @@ fun RowDivider(inset: Dp = 0.dp) {
 }
 
 /**
- * The workhorse row: optional leading icon, title, optional subtitle, optional trailing slot.
+ * The workhorse row: optional leading content (an app's icon), title, optional subtitle, optional trailing slot.
+ * [icon] is kept for callers and not drawn: rows read as text.
  * Clickable when [onClick] is set; otherwise purely informative.
  */
 @Composable
@@ -113,24 +115,23 @@ fun AuroraRow(
             .fillMaxWidth()
             .heightIn(min = 62.dp)
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(horizontal = 18.dp, vertical = Space.S),
+            .padding(horizontal = Space.Inner, vertical = Space.S),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         when {
             leading != null -> leading()
-            icon != null -> Icon(icon, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong)
-            if (subtitle != null) Text(subtitle, color = colors.textTertiary, style = AuroraType.Secondary.copy(fontSize = 12.5.sp, lineHeight = 17.sp))
+            if (subtitle != null) Text(subtitle, color = colors.textTertiary, style = AuroraType.Subtext)
         }
         trailing?.invoke(this)
     }
 }
 
 /**
- * How Aurora explains one thing: a tinted round icon, a short title and at most one quiet line, with an
+ * How Aurora explains one thing: a short title and at most one quiet line ([icon] isn't drawn), with an
  * optional value on the right. No padding of its own, so it sits in a [RowGroup] or a dialog alike.
  */
 @Composable
@@ -148,10 +149,9 @@ fun FactRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        IconBadge(icon, tint = tint, size = 36)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong)
-            if (body != null) Text(body, color = colors.textTertiary, style = AuroraType.Secondary.copy(fontSize = 12.5.sp, lineHeight = 17.sp))
+            if (body != null) Text(body, color = colors.textTertiary, style = AuroraType.Subtext)
         }
         trailing?.invoke(this)
     }
@@ -172,10 +172,15 @@ fun ToggleRow(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     AuroraRow(
         title = title,
         subtitle = subtitle,
-        modifier = modifier.toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange),
+        // The switch answers with a click under the finger, firmer turning on than off.
+        modifier = modifier.toggleable(checked, enabled = enabled, role = Role.Switch) {
+            haptics.performHapticFeedback(if (it) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+            onCheckedChange(it)
+        },
         trailing = { AuroraSwitch(checked, enabled = enabled) },
     )
 }
@@ -199,9 +204,9 @@ fun ComingSoonRow(title: String, subtitle: String, icon: ImageVector) {
             Text(
                 "soon",
                 Modifier
-                    .glass(colors, Radius.Pill, tint = colors.violet)
+                    .glass(colors, Radius.Pill, tint = colors.muted)
                     .padding(horizontal = 10.dp, vertical = 4.dp),
-                color = colors.violetText,
+                color = colors.mutedText,
                 style = AuroraType.Caption,
             )
         },

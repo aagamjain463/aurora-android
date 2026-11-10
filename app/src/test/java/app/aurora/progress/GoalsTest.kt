@@ -35,6 +35,18 @@ class GoalsTest {
 
     private fun days(vararg back: Pair<Long, Long>) = back.associate { (b, ms) -> today.minusDays(b).toString() to ms }
 
+    @Test fun aSessionHabitCountsOnlyTheTimeItReallyRan() {
+        // 08:00 to 11:00, with a 20-minute break that stopped the timer (a work unlock that kept it running isn't listed).
+        val morning = run(at(today, 8), at(today, 11)).copy(stopped = listOf(at(today, 9) to at(today, 9) + 20 * m))
+        assertEquals(3 * h - 20 * m, progress(session(), listOf(morning)).value)
+        // Ended early at 10:00 (a challenge done, a wait sat out): only what ran counts.
+        val ended = run(at(today, 8), at(today, 10)).copy(id = "early", plannedEnd = at(today, 11), turnedOff = true)
+        assertEquals(2 * h, progress(session(), listOf(ended)).value)
+        // Still running since 11:00, a break on now since 11:50: 50 minutes so far.
+        val live = listOf(LiveRun("c", at(today, 11), at(today, 14), true, listOf(at(today, 11) + 50 * m to noon)))
+        assertEquals(50 * m, progress(session(), live = live).value)
+    }
+
     @Test fun aGoalOnCertainDaysOnlyCountsThoseDays() {
         // Wednesdays only: today (Wed) is pending, Tuesday is a rest day, last Wednesday with nothing done is missed.
         val p = progress(session(minutes = 60).copy(days = setOf(3)))

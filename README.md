@@ -12,10 +12,8 @@ service is listed in [`docs/ACCOUNT_SYSTEM.md`](docs/ACCOUNT_SYSTEM.md).
 | --- | --- | --- | --- | --- |
 | ![Home](app/src/test/screenshots/home_navigation_Dark.png) | ![Home, reduced motion](app/src/test/screenshots/home_navigation_ReducedMotion.png) | ![Shield](app/src/test/screenshots/library_shield_Dark.png) | ![Intent](app/src/test/screenshots/intent_library_Dark.png) | ![Track](app/src/test/screenshots/track_Dark.png) |
 
-[View the design preview](docs/design-studio/evidence/editorial-refinement/aurora-design-preview.png) ·
-[Brand specimen](docs/design-studio/brand-specimen.html)
-
-- Brand and design system: [`Aurora Brand Bible`](docs/design-studio/AURORA_BRAND_BIBLE.md)
+- Brand identity (the only active spec): [`brand/Aurora_Brand_Guidelines.md`](brand/Aurora_Brand_Guidelines.md),
+  the approved logo `brand/Aurora_Final_Approved_Logo.png` and tokens `brand/tokens/aurora.tokens.json`
 - Architecture and decisions: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Configurations, four-tab navigation and Goals: [`docs/CONFIGURATIONS.md`](docs/CONFIGURATIONS.md)
 - Roadmap to 1.0 and beyond: [`docs/ROADMAP.md`](docs/ROADMAP.md)
@@ -33,15 +31,13 @@ starting now, later, on recurring schedules or Always, with optional Focus. Alwa
 its commitment rules. Existing billing, data controls and optional Web & content protection remain.
 
 What is verified, what isn't, rule precedence, and what still needs phones, Play Console and policy
-review: [`docs/PRODUCT.md`](docs/PRODUCT.md). Emulator screenshots: `docs/screenshots/emulator-2026-10-29/`.
+review: [`docs/PRODUCT.md`](docs/PRODUCT.md). Approved screenshots: `app/src/test/screenshots/`.
 
-## Design pass (29 October 2026)
+## Brand identity (7 November 2026)
 
-One First Light painting for night and day, three-step setup, a Track that leads with one verified
-number, a recomposed Aurora Plus, and Aurora outside the app: an ongoing session notification (Android
-16 progress style), a home-screen widget, a Quick Settings tile and an animated splash. What changed and
-what still needs people or devices: [`docs/design-studio/08-ten-out-of-ten.md`](docs/design-studio/08-ten-out-of-ten.md).
-Store art: `brand/tools/store.sh` renders `brand/store/out/`.
+Aurora uses the finalized monochrome identity: Quiet Authority, Obsidian and Porcelain themes, Inter, and the
+approved logo as the only place gold appears. The retired First Light identity is backed up in
+`backups/branding/first-light-2026-11-07/`. Store icon: `brand/exports/play-icon-512.png`.
 
 ## Requirements
 
@@ -104,9 +100,9 @@ app/src/main/java/app/aurora/
   ui/<screen>/     onboarding, home, protect, focus, insights, settings
 app/src/test/       unit tests, screenshot tests and their baselines (screenshots/)
 app/src/sharedTest/ UI tests that run under Robolectric and on a device
-docs/              BRAND.md, ARCHITECTURE.md, ROADMAP.md, BUSINESS_MODEL.md, ENFORCEMENT_FEASIBILITY.md,
-                   screenshots, font licence
+brand/            brand guidelines, approved logo, design reference, tokens, exports
+docs/              ARCHITECTURE.md, ROADMAP.md, BUSINESS_MODEL.md, ENFORCEMENT_FEASIBILITY.md,
+                   font licence
 ```
 
-Instrument Serif and Geist are bundled under the SIL Open Font License (`docs/instrument-serif-OFL.txt` and
-`docs/geist-OFL.txt`).
+Inter is bundled under the SIL Open Font License (`docs/inter-OFL.txt`).

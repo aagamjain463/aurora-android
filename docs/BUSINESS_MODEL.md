@@ -61,32 +61,25 @@ the entitlement system enforces them. [`ROADMAP.md`](ROADMAP.md) says when each 
 | Insights | Advanced, with 30-day history |
 | Cloud sync | Planned for the future. Not sold until it exists (section 6). |
 
-Unlimited means no subscription quota, not unlimited device resources or guaranteed OS-level enforcement. Monthly
-and annual unlock the same things. There is no lifetime plan.
+Unlimited means no subscription quota, not unlimited device resources or guaranteed OS-level enforcement. Monthly,
+annual, Founding Lifetime and the 14-day trial unlock the same things (docs/MONETIZATION_PLAN.md).
 
 Everything in Free is also in Plus.
 
 ### 2.3 Pricing
 
-| Market | Monthly | Yearly | Yearly saving |
+Set in the store consoles (founder, 2026-11-10). The apps only ever show the price the store returns.
+
+| Market | Monthly | Yearly | Founding Lifetime |
 | --- | --- | --- | --- |
-| India | ₹149 | ₹1,199 | About 33% against 12 × ₹149 (₹1,788) |
-| Other markets | To be decided | To be decided | — |
+| United States | US$14.99 | US$99.99 | US$89.99 once, first 1,000 verified purchases across both stores |
+| India | ₹199 | ₹999 | Not offered |
+| Other markets | Not set. Each needs an explicit price in the console before it is sold there. | | Not offered |
 
-To be decided before Phase 11:
+**Trial:** 14 days of Plus for a new verified account, once per account, address and device, granted by Aurora's
+server. No payment details, no store subscription, nothing renews, Free afterwards.
 
-- Whether there is a free trial, and its length.
-- Prices for other markets (Play price templates or manual prices).
-- Whether ₹149 and ₹1,199 are the prices the buyer sees, including tax. This plan assumes they
-  are (gate G13 in the roadmap).
-
-**Illustrative net revenue per subscriber in India.** This is unverified. It assumes the listed
-price includes 18% GST and that Play's service fee on subscriptions is 15%. Confirm both under G13.
-
-| Plan | Listed price | Without GST | After a 15% fee | Per month |
-| --- | --- | --- | --- | --- |
-| Monthly | ₹149 | ₹126.27 | ₹107.33 | ₹107.33 |
-| Yearly | ₹1,199 | ₹1,016.10 | ₹863.69 | ₹71.97 |
+Still open: whether the listed prices include tax in each market (gate G13).
 
 ## 3. Definitions
 
@@ -248,7 +241,7 @@ Each question has a proposed answer that the roadmap uses until it is confirmed.
 | Q2 | Do apps in a daily limit rule count toward the 5 protected items? | No |
 | Q3 | When a daily limit runs out, is the app shielded with Friction, or blocked until midnight? | Friction. Lockdown stays the only state with no way through, and it is metered. |
 | Q4 | Is Lockdown reserved at start (as in 3.4), or charged minute by minute? | Reserved at start, refunded on early ends outside Aurora's control |
-| Q5 | Is there a free trial for Aurora Plus, and how long? | 7 days on the yearly plan |
+| Q5 | Is there a free trial for Aurora Plus, and how long? | Decided 2026-11-10: 14 days, no card, server-granted |
 | Q6 | Prices outside India | Decide before Phase 11 |
 | Q7 | Do Focus profiles cover only protected items, or any app? | Protected items only |
 | Q8 | Are gentle streaks (3.7) acceptable as the "streaks" in Free? | Yes |

@@ -178,7 +178,7 @@ data class Level(val number: Int, val name: String, val intoLevel: Int, val leve
     val progress: Float get() = intoLevel.toFloat() / levelSize
 }
 
-private val LevelNames = listOf("First glow", "Faint arc", "Rising band", "Curtains", "Corona", "Wide sky", "Full aurora", "Great storm")
+private val LevelNames = listOf("Starting out", "Steady", "Practised", "Deliberate", "Focused", "Composed", "In control", "Mastery")
 
 fun levelFor(xp: Int): Level {
     var n = 1

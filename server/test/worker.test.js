@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { entitlementFrom, housekeeping } from '../src/worker.js'
-import { IDS, PAST, FUTURE, PROJECT, activeSub, idToken, otherKey, sha256Hex, verifySignature, world } from './fixture.js'
+import { IDS, PAST, FUTURE, PROJECT, activeSub, idToken, insideOneWindow, otherKey, sha256Hex, verifySignature, world } from './fixture.js'
 
 const UTC = 'UTC'
 const sync = (w, uid, installId = 'i1', over = {}) => w.call('/v1/account/sync', idToken(uid), { installId, zone: UTC, ...over })
@@ -176,21 +176,19 @@ test('a purchase made under another account\'s id isn\'t bound here', async () =
   assert.equal(snapshot(await buy(w, 'alice')).tier, 'plus')
 })
 
-test('a purchase conflict resolves only by an explicit transfer with a recent sign-in, and rarely', async () => {
+test('purchase-token possession and fresh sign-in never authorize ownership transfer', async () => {
   const w = world()
   w.state.subs.set('tok', activeSub())
-  await buy(w, 'alice')
-  const old = Math.floor(Date.now() / 1000) - 3600
-  const stale = await w.call('/v1/purchases/transfer', idToken('bob', { auth_time: old }), { purchaseToken: 'tok', installId: 'i1' })
-  assert.equal(stale.status, 401)
-  assert.equal(stale.body.error, 'reauth_required')
-  const moved = await w.call('/v1/purchases/transfer', idToken('bob'), { purchaseToken: 'tok', installId: 'i1' })
-  assert.equal(snapshot(moved).tier, 'plus')
-  assert.equal(snapshot(await sync(w, 'alice')).tier, 'free')
-  const back = await w.call('/v1/purchases/transfer', idToken('alice'), { purchaseToken: 'tok', installId: 'i1' })
-  assert.equal(back.status, 429)
-  assert.equal(back.body.error, 'transfer_limit')
-  assert.equal((await w.call('/v1/purchases/transfer', idToken('bob'), { purchaseToken: 'unknown', installId: 'i1' })).status, 404)
+  await w.call('/v1/verify', idToken('alice'), { purchaseToken: 'tok', productId: IDS[0], installId: 'i1', packageName: 'app.aurora' })
+  const before = w.DB.rows('SELECT * FROM purchases')
+  for (const claims of [idToken('bob'), idToken('bob', { auth_time: Math.floor(Date.now() / 1000) - 3600 })]) {
+    const answer = await w.call('/v1/purchases/transfer', claims, { purchaseToken: 'tok', installId: 'i1' })
+    assert.equal(answer.status, 403)
+    assert.equal(answer.body.error, 'transfer_disabled')
+  }
+  assert.deepEqual(w.DB.rows('SELECT * FROM purchases'), before)
+  assert.equal(snapshot(await sync(w, 'alice')).tier, 'plus')
+  assert.equal(snapshot(await sync(w, 'bob')).tier, 'free')
 })
 
 test('Plus seats: the sixth device is told, and removing an old one frees a seat', async () => {
@@ -367,6 +365,7 @@ test('import adds an existing phone\'s time once, and only adds', async () => {
 test('rate limit answers 429', async () => {
   const w = world()
   let last
+  await insideOneWindow()
   for (let i = 0; i < 31; i++) last = await reserve(w, 'alice', 121)
   assert.equal(last.status, 429)
 })

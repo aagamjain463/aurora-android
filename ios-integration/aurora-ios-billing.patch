@@ -1,0 +1,739 @@
+diff --git a/Aurora/Aurora/Account/Account.swift b/Aurora/Aurora/Account/Account.swift
+index ba3b5657e05cb2b480db2d5a93e1fc1fea931651..f7358e43feacd53350ee7ba3c47fb87d8da3232d 100644
+--- a/Aurora/Aurora/Account/Account.swift
++++ b/Aurora/Aurora/Account/Account.swift
+@@ -149,6 +149,7 @@ final class Account: NSObject, ObservableObject {
+         state = .signedIn(user)
+         bindProfile(user)
+         await syncIfStale(force: true)
++        await Billing.shared.recheck()
+         return nil
+     }
+ 
+@@ -401,7 +402,7 @@ final class Account: NSObject, ObservableObject {
+     }
+ 
+     func verifyApplePurchase(_ signedTransaction: String, productId: String) async -> ApiResult<SignedEntitlement> {
+-        await call("/v1/verify/apple", ["signedTransaction": signedTransaction, "productId": productId, "installId": SharedIdentity.installId, "packageName": ServicePackageName], SignedEntitlement.self)
++        await call("/v1/verify/apple", ["signedTransaction": signedTransaction, "productId": productId, "installId": SharedIdentity.installId, "bundleId": AuroraConfig.appBundleId], SignedEntitlement.self)
+     }
+ 
+     func removeDevice(_ id: String) async -> Bool {
+diff --git a/Aurora/Aurora/AuroraApp.swift b/Aurora/Aurora/AuroraApp.swift
+index cf7cd1b3f97e8dd8ecfa0e4365b032eeb4203193..16e805b4fdc7bfdf162ad095717504674d458ad2 100644
+--- a/Aurora/Aurora/AuroraApp.swift
++++ b/Aurora/Aurora/AuroraApp.swift
+@@ -40,6 +40,8 @@ struct AuroraApp: App {
+                 .environmentObject(router)
+                 .modifier(AuroraTheme(mode: model.preferences.themeMode, reduceMotion: model.preferences.reduceMotion))
+                 .task {
++                guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
++                      ProcessInfo.processInfo.environment["XCTestBundlePath"] == nil else { return }
+                     // Extensions read the entitlement key from the shared container: their own Info.plist doesn't carry it.
+                     AppGroup.defaults.set(AuroraConfig.entitlementPublicKey, forKey: "entitlement.key")
+                     #if DEBUG
+diff --git a/Aurora/Aurora/Plus/Billing.swift b/Aurora/Aurora/Plus/Billing.swift
+index fe9a772a9f476a746f21caebeb0be073ee1537db..a2fdd011f595b28aeff7a25a1ad3d812e82995d7 100644
+--- a/Aurora/Aurora/Plus/Billing.swift
++++ b/Aurora/Aurora/Plus/Billing.swift
+@@ -38,6 +38,10 @@ final class Billing: ObservableObject {
+         }
+         await load()
+         // Never AppStore.sync() here: it asks for the Apple Account password. Only Restore purchases does.
++        await recheck()
++    }
++
++    func recheck() async {
+         for await result in Transaction.currentEntitlements { await handle(result) }
+     }
+ 
+@@ -54,9 +58,10 @@ final class Billing: ObservableObject {
+     func buy(_ offer: Offer) async {
+         message = nil
+         do {
+-            var options: Set<Product.PurchaseOption> = []
+-            if let uid = SharedIdentity.uid, let token = UUID(uuidString: Billing.accountToken(uid)) { options.insert(.appAccountToken(token)) }
+-            switch try await offer.product.purchase(options: options) {
++            guard let uid = SharedIdentity.uid, let token = UUID(uuidString: Billing.accountToken(uid)) else {
++                message = S.t("ios_plus_sign_in_to_buy"); return
++            }
++            switch try await offer.product.purchase(options: [.appAccountToken(token)]) {
+             case .success(let result): await handle(result)
+             case .pending: pending = true
+             case .userCancelled: break
+@@ -70,7 +75,7 @@ final class Billing: ObservableObject {
+     /// Restore purchases: ask the App Store again and send every current Plus transaction to the account service.
+     func refresh() async {
+         try? await AppStore.sync() // The person tapped Restore purchases: the one place this prompt is expected.
+-        for await result in Transaction.currentEntitlements { await handle(result) }
++        await recheck()
+         await Account.shared.syncIfStale(force: true)
+         refreshSnapshot()
+     }
+@@ -82,10 +87,10 @@ final class Billing: ObservableObject {
+         defer { verifying = false }
+         switch await verifier(result.jwsRepresentation, t.productID) {
+         case .ok(let signed):
+-            if signed.conflict { message = S.t("plus_conflict_body") }
++            if signed.conflict { message = S.t("ios_plus_ownership_help") }
+             else {
+                 _ = try? AuroraStore.shared.entitlement.update { _ in signed }
+-                await t.finish()
++                if verifiedSnapshot(signed, AuroraConfig.entitlementPublicKey)?.purchaseValid != false { await t.finish() }
+             }
+         case .refused: message = S.t("plus_unavailable")
+         case .unreachable: break // The stored state stands; the next start asks again.
+diff --git a/Aurora/Aurora/Plus/PlusScreen.swift b/Aurora/Aurora/Plus/PlusScreen.swift
+index 96eac9c36840b53064df9db9bfa0a4a754af5895..a11162d64c5706fec40b004a8142bb9be4ea80df 100644
+--- a/Aurora/Aurora/Plus/PlusScreen.swift
++++ b/Aurora/Aurora/Plus/PlusScreen.swift
+@@ -41,7 +41,11 @@ struct PlusScreen: View {
+             SectionLabel(S.t(plus ? "plus_free_and_plus" : "plus_choose_a_plan"))
+             PlusCard(rows: compare.filter { $0.1 != $0.2 }, current: plus) {
+                 if plus || billing.subscription?.state == "on_hold" {
+-                    AuroraButton(S.t("plus_manage_in_google_play"), kind: .secondary) { openURL(URL(string: "https://apps.apple.com/account/subscriptions")!) }
++                    if billing.subscription?.store == "google_play" {
++                            Text(S.t("ios_plus_managed_on_google_play")).aurora(AuroraType.secondary, colors.textSecondary)
++                        } else {
++                            AuroraButton(S.t("plus_manage_in_google_play"), kind: .secondary) { openURL(URL(string: "https://apps.apple.com/account/subscriptions")!) }
++                        }
+                 } else if billing.loading {
+                     Text(S.t("plus_checking_google_play")).aurora(AuroraType.secondary, colors.textSecondary)
+                 } else if billing.offers.isEmpty {
+@@ -66,7 +70,8 @@ struct PlusScreen: View {
+                     else if s.state == "on_hold" { Notice(eyebrow: S.t("plus_hold_title"), body: S.t("plus_hold_body")) }
+                     else if s.state == "too_many_devices" { Notice(eyebrow: S.t("plus_devices_title"), body: S.t("plus_devices_body")) }
+                 }
+-                if billing.verifying { Notice(eyebrow: S.t("plus_verifying_title"), body: S.t("plus_verifying_body")) }
++                if billing.subscription?.iosSandbox != nil { Notice(eyebrow: S.t("ios_plus_sandbox_title"), body: S.t("ios_plus_sandbox_body")) }
++            if billing.verifying { Notice(eyebrow: S.t("plus_verifying_title"), body: S.t("plus_verifying_body")) }
+                 if billing.pending { Notice(eyebrow: S.t("plus_payment_pending"), body: S.t("plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp")) }
+                 if let m = billing.message { Notice(eyebrow: S.t("plus_google_play"), body: m) }
+                 AuroraButton(S.t("plus_restore_purchases"), kind: .quiet) { Task { await billing.refresh() } }.frame(maxWidth: .infinity)
+diff --git a/Aurora/AuroraTests/ScenarioTests.swift b/Aurora/AuroraTests/ScenarioTests.swift
+index ce9ef02176c9bd7301b935e5b24f8bf37e29dc93..442ca7d67cc00e1bb73187360ff2d820ac3b6173 100644
+--- a/Aurora/AuroraTests/ScenarioTests.swift
++++ b/Aurora/AuroraTests/ScenarioTests.swift
+@@ -237,6 +237,19 @@ final class SubscriptionScenarios: XCTestCase {
+     }
+     private func plan(_ s: EntitlementSnapshot?, uid: String? = "u", now: Millis = at(11)) -> Plan { planFrom(s, uid: uid, installId: "i", packageName: "p", now: now) }
+ 
++    func testSandboxReviewIsScopedAndExpiresWithoutOfflineGrace() {
++        var s = snap { $0.tier = "free"; $0.autoRenewing = false }
++        s.iosSandbox = SandboxReview(scope: "ios_sandbox", productId: "aurora_plus_monthly", expiresAt: at(10, 15))
++        XCTAssertEqual(plan(s, now: at(10, 1)), .plus)
++        XCTAssertEqual(plan(s, now: at(10, 15)), .free)
++        XCTAssertEqual(planFrom(s, uid: "other", installId: "i", packageName: "p", now: at(10, 1)), .free)
++        s.iosSandbox?.scope = "production"
++        XCTAssertEqual(plan(s, now: at(10, 1)), .free)
++        s.iosSandbox?.scope = "ios_sandbox"
++        s.iosSandbox?.expiresAt = at(11)
++        XCTAssertEqual(plan(s, now: at(10, 1)), .free)
++    }
++
+     func testOnlyASnapshotForThisAccountInstallAndAppGrantsPlus() {
+         XCTAssertEqual(plan(snap()), .plus)
+         XCTAssertEqual(plan(nil), .free)
+@@ -484,6 +497,8 @@ final class BillingScenarios: XCTestCase {
+         session.resetToDefaultState()
+         session.clearTransactions()
+         session.disableDialogs = true
++        SharedIdentity.uid = "billing-test-user"
++        _ = try? AuroraStore.shared.entitlement.update { _ in SignedEntitlement() }
+         // The simulator's StoreKit test service answers empty for a few seconds after a fresh install. Wait for it.
+         for _ in 0..<40 {
+             if (try? await Product.products(for: PlusProductIds))?.count == PlusProductIds.count { return }
+@@ -491,6 +506,13 @@ final class BillingScenarios: XCTestCase {
+         }
+     }
+ 
++    override func tearDown() async throws {
++        SharedIdentity.uid = nil
++        session.clearTransactions()
++        session = nil
++        _ = try? AuroraStore.shared.entitlement.update { _ in SignedEntitlement() }
++    }
++
+     private func offer(_ id: String) async throws -> Billing.Offer {
+         let products = try await Product.products(for: [id])
+         return try XCTUnwrap(products.first.map(Billing.Offer.init))
+@@ -513,7 +535,7 @@ final class BillingScenarios: XCTestCase {
+     }
+ 
+     func testAPurchaseAloneGrantsNothingUntilTheServerSigns() async throws {
+-        let billing = Billing.shared
++        let billing = Billing()
+         var calls = 0
+         billing.verifier = { _, _ in calls += 1; return .unreachable }
+         await billing.buy(try await offer("aurora_plus_monthly"))
+@@ -523,18 +545,34 @@ final class BillingScenarios: XCTestCase {
+     }
+ 
+     func testASignedAnswerIsStoredAndTheTransactionFinished() async throws {
+-        let billing = Billing.shared
++        let billing = Billing()
+         let signed = SignedEntitlement(payload: "signed", signature: "by-server")
+-        billing.verifier = { _, _ in .ok(signed) }
++        var transactionID: UInt64?
++        billing.verifier = { jws, _ in
++            let part = String(jws.split(separator: ".")[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
++            let padded = part + String(repeating: "=", count: (4 - part.count % 4) % 4)
++            let json = try? JSONSerialization.jsonObject(with: Data(base64Encoded: padded)!) as? [String: Any]
++            transactionID = (json?["transactionId"] as? String).flatMap(UInt64.init)
++            return .ok(signed)
++        }
+         await billing.buy(try await offer("aurora_plus_annual"))
+         XCTAssertEqual(AuroraStore.shared.entitlement.value, signed)
+-        let stillOpen = await hasUnfinished("aurora_plus_annual")
+-        XCTAssertFalse(stillOpen, "the signed answer finishes the transaction")
+-        _ = try? AuroraStore.shared.entitlement.update { _ in SignedEntitlement() }
++        let id = try XCTUnwrap(transactionID)
++        // StoreKit's unfinished sequence can lag finish(); check the purchased ID, not a cached latest transaction.
++        var stillOpen = true
++        for _ in 0..<100 {
++            stillOpen = false
++            for await result in Transaction.unfinished {
++                if case .verified(let t) = result, t.id == id { stillOpen = true }
++            }
++            if !stillOpen { break }
++            try await Task.sleep(for: .milliseconds(20))
++        }
++        XCTAssertFalse(stillOpen, "the purchased transaction finishes")
+     }
+ 
+     func testAnUnreachableServerLeavesTheTransactionToRetry() async throws {
+-        let billing = Billing.shared
++        let billing = Billing()
+         billing.verifier = { _, _ in .unreachable }
+         await billing.buy(try await offer("aurora_plus_monthly"))
+         let stillOpen = await hasUnfinished("aurora_plus_monthly")
+@@ -542,24 +580,24 @@ final class BillingScenarios: XCTestCase {
+     }
+ 
+     func testARefusalSaysSomethingHumanNotAServerCode() async throws {
+-        let billing = Billing.shared
++        let billing = Billing()
+         billing.verifier = { _, _ in .refused(400, "wrong_package") }
+         await billing.buy(try await offer("aurora_plus_annual"))
+         XCTAssertEqual(billing.message, S.t("plus_unavailable"))
+     }
+ 
+     func testAConflictStoresNothing() async throws {
+-        let billing = Billing.shared
++        let billing = Billing()
+         _ = try? AuroraStore.shared.entitlement.update { _ in SignedEntitlement() }
+         var conflict = SignedEntitlement(payload: "p", signature: "s"); conflict.conflict = true
+         billing.verifier = { _, _ in .ok(conflict) }
+         await billing.buy(try await offer("aurora_plus_monthly"))
+-        XCTAssertEqual(billing.message, S.t("plus_conflict_body"))
++        XCTAssertEqual(billing.message, S.t("ios_plus_ownership_help"))
+         XCTAssertEqual(AuroraStore.shared.entitlement.value.payload, "")
+     }
+ 
+     func testAFailedPurchaseShowsAMessageAndGrantsNothing() async throws {
+-        let billing = Billing.shared
++        let billing = Billing()
+         var calls = 0
+         billing.verifier = { _, _ in calls += 1; return .unreachable }
+         session.failTransactionsEnabled = true
+@@ -570,7 +608,7 @@ final class BillingScenarios: XCTestCase {
+     }
+ }
+ 
+-/// Values computed by the server's own code (server/src/device.js, server-patches/apple-verify.js), so both sides agree.
++/// Values computed by the server's own code (server/src/device.js, aurora-backend-staging/server/src/apple.js), so both sides agree.
+ final class ServerContractScenarios: XCTestCase {
+     func testDeviceProofMessageMatchesTheServer() {
+         XCTAssertEqual(DeviceCredential.message(path: "/v1/account/sync", token: "tok", body: Data(#"{"a":1}"#.utf8)),
+diff --git a/Aurora/Shared/Copy/IOSCopy.swift b/Aurora/Shared/Copy/IOSCopy.swift
+index 54678e93e7881c4cdd07fa1925700755b4876d14..58c5ac4a6c4f984e890de658cabdeff4a846f110 100644
+--- a/Aurora/Shared/Copy/IOSCopy.swift
++++ b/Aurora/Shared/Copy/IOSCopy.swift
+@@ -8,7 +8,7 @@ import Foundation
+ enum IOSCopy {
+     static let overrides: [String: String] = [
+         // Second pass (2026-11-04): more Android-only claims the first pass missed, and Strict's claims hedged to what Screen Time is asked to do.
+-        "account_delete_body": "Your account, its devices and its allowance history are deleted from our servers 7 days from now. Sign in before then to change your mind.\n\nThis phone's Goals, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn't cancel Aurora Plus. The App Store keeps billing until you cancel there.",
++        "account_delete_body": "Your account, its devices and its allowance history are deleted from our servers 7 days from now. Sign in before then to change your mind.\n\nThis phone's Goals, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn't cancel Aurora Plus. Your subscription store keeps billing until you cancel there.",
+         "start_commit_limits": "Screen Time is asked to stop apps being deleted and keep the date and time automatic until it ends. Turning off Screen Time for Aurora in Settings ends all blocking. Calls and emergency services always work.",
+         "onb_shield_body": "Shield is what blocks apps. It needs Screen Time permission, which only you can turn on.",
+         "onb_shield_permission": "Screen Time permission",
+@@ -43,21 +43,26 @@ enum IOSCopy {
+         "diag_service": "Protection last updated",
+         "diag_events": "Apps and sites shielded now",
+         // Purchases go through the App Store on iPhone.
+-        "account_play_note": "Your subscription is managed by the App Store.",
++        "account_play_note": "Your subscription is managed by the store where you bought it. Plus belongs to your verified Aurora account.",
+         "plus_unavailable": "Plans load from the App Store. They aren't available on this device right now.",
+         "plus_manage_in_google_play": "Manage in the App Store",
+         "plus_checking_google_play": "Checking the App Store…",
+         "plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp": "The App Store is waiting for your payment. Plus starts once it completes; nothing is charged twice.",
+         "plus_google_play": "App Store",
+-        "plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p": "Subscriptions renew until you cancel. Cancel any time in Settings › Apple Account › Subscriptions; Plus stays until the end of the period you paid for.",
+-        "plus_grace_body": "The App Store couldn't take your payment and is trying again. Plus continues for now. Update your payment method in your Apple Account.",
+-        "plus_hold_body": "The App Store couldn't take your payment, so Plus has paused. Fix your payment method in your Apple Account to get it back.",
++        "plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p": "Subscriptions renew until you cancel in the store where you subscribed. Plus stays until the end of the period you paid for.",
++        "plus_grace_body": "Your subscription store could not take your payment and is trying again. Plus continues for now. Update your payment method in the store where you subscribed.",
++        "plus_hold_body": "Your subscription store could not take your payment, so Plus has paused. Update your payment method in the store where you subscribed.",
+         "account_restore_done": "Checked with the App Store and your account.",
+-        "plus_play_note": "The App Store bills the Apple Account this iPhone uses, which can differ from the one you sign in to Aurora with. Plus belongs to your Aurora account.",
++        "plus_play_note": "Your subscription is managed by the store where you bought it. Plus belongs to your verified Aurora account.",
+     ]
+ 
+     /// New on iOS: no Android string exists for these.
+     static let additions: [String: String] = [
++        "ios_plus_sign_in_to_buy": "Sign in to Aurora first so your purchase belongs to your account.",
++        "ios_plus_ownership_help": "This purchase is linked to another Aurora account, or its original account could not be verified. Sign in to the original account or contact support. Purchases cannot be moved automatically.",
++        "ios_plus_managed_on_google_play": "Your subscription is managed through Google Play on your Android device.",
++        "ios_plus_sandbox_title": "Sandbox review access",
++        "ios_plus_sandbox_body": "Temporary iOS testing access. This is not a production subscription and does not unlock Plus on Android.",
+         "ios_continue_apple": "Continue with Apple",
+         "ios_choose_apps": "Choose apps",
+         "ios_selected_targets": "%1$d chosen",
+diff --git a/Aurora/Shared/Domain/Entitlement.swift b/Aurora/Shared/Domain/Entitlement.swift
+index 91ae45d3fc57205546fca5dedeccb75466818d2c..4f7b5608c0e97a872ce973d6249d533e8f3a4304 100644
+--- a/Aurora/Shared/Domain/Entitlement.swift
++++ b/Aurora/Shared/Domain/Entitlement.swift
+@@ -20,10 +20,18 @@ struct SignedEntitlement: Codable, Equatable {
+     }
+ }
+ 
++struct SandboxReview: Codable, Equatable {
++    var scope: String
++    var productId: String
++    var expiresAt: Millis
++}
++
+ struct EntitlementSnapshot: Codable, Equatable {
+     var tier = "free"
+     var state = ""
+     var productId: String? = nil
++    var store: String? = nil
++    var iosSandbox: SandboxReview? = nil
+     var paidThrough: Millis = 0
+     var autoRenewing = false
+     var issuedAt: Millis = 0
+@@ -35,12 +43,14 @@ struct EntitlementSnapshot: Codable, Equatable {
+     init() {}
+     init(from decoder: Decoder) throws {
+         let c = try decoder.container(keyedBy: AnyKey.self)
+-        tier = c.get("tier", "free"); state = c.get("state", ""); productId = c.get("productId", nil); paidThrough = c.get("paidThrough", 0)
++        tier = c.get("tier", "free"); state = c.get("state", ""); productId = c.get("productId", nil); store = c.get("store", nil); iosSandbox = c.get("iosSandbox", nil); paidThrough = c.get("paidThrough", 0)
+         autoRenewing = c.get("autoRenewing", false); issuedAt = c.get("issuedAt", 0); installId = c.get("installId", ""); packageName = c.get("packageName", "")
+         uid = c.get("uid", ""); purchaseValid = c.get("purchaseValid", false)
+     }
+ }
+ 
++private let PlusReviewProductIds = ["aurora_plus_monthly", "aurora_plus_annual"]
++
+ let OfflineGraceMs: Millis = 7 * DayMs
+ private let ClockSkewMs: Millis = 5 * MinuteMs
+ 
+@@ -85,9 +95,15 @@ private func rsaKey(fromSPKI spki: Data) -> SecKey? {
+ 
+ /// The plan Aurora enforces now (planFrom in plan/Entitlement.kt).
+ func planFrom(_ snapshot: EntitlementSnapshot?, uid: String?, installId: String, packageName: String, now: Millis) -> Plan {
+-    guard let s = snapshot, s.tier == "plus" else { return .free }
++    guard let s = snapshot else { return .free }
+     guard let uid, s.uid == uid else { return .free }
+     guard s.installId == installId, s.packageName == packageName else { return .free }
++    // Sandbox review access never sets the cross-platform production tier and expires without offline grace.
++    if s.tier != "plus" {
++        guard let review = s.iosSandbox, review.scope == "ios_sandbox", PlusReviewProductIds.contains(review.productId),
++              now >= s.issuedAt - ClockSkewMs, now < review.expiresAt, review.expiresAt <= s.issuedAt + 15 * MinuteMs else { return .free }
++        return .plus
++    }
+     if now < s.issuedAt - ClockSkewMs || now - s.issuedAt > OfflineGraceMs { return .free }
+     if !s.autoRenewing && now >= s.paidThrough { return .free }
+     return .plus
+diff --git a/server-patches/README.md b/server-patches/README.md
+index 4789229c285cde400ff43739f8873c8e9bd24153..3c686266de4514130d3b40952b7d852252548b89 100644
+--- a/server-patches/README.md
++++ b/server-patches/README.md
+@@ -1,40 +1,5 @@
+-# Server changes iOS needs (not applied, not deployed)
++# Retired Apple verifier
+ 
+-The iOS app reuses the account service (`aurora-android/server`, Cloudflare Worker + D1, Firebase project `aurora-24aa9`) unchanged for
+-sign-in, sync, devices, the Free allowance and deletion, including the per-phone allowance and device proof from `fe78039`.
++The former apple-verify.js patch is insecure and must not be deployed. Its executable entry point and tests have been removed.
+ 
+-## Test it
+-
+-`server-patches/run-tests.sh` copies the server to a temp folder, adds the patch and the route, and runs the server's own tests plus
+-`test/apple.test.js`. Nothing in the Android repository changes and nothing is deployed. It covers: Apple-confirmed purchase, the API token,
+-forged transactions, ownership, `appAccountToken`, idempotency, every status, refunds, sandbox rules, Apple down or unreadable, wrong app or
+-product, bad input, sign-in, cross-platform Plus and seats. Apple itself is faked at the fetch boundary, so **this doesn't prove Apple's real responses**.
+-
+-## Apply it, when you approve
+-
+-1. **`/v1/verify/apple`**: paste `apple-verify.js` into `server/src/worker.js` above `ROUTES` and add `'/v1/verify/apple': verifyApple,`.
+-   Secrets with `wrangler secret put`: `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` (base64 PKCS#8 of the .p8 key), `APPLE_BUNDLE_ID`
+-   (`com.aagamjain.Aurora`). No D1 migration: purchases go in `purchases`, keyed by `sha256("apple:" + originalTransactionId)`.
+-2. **`APPLE_ALLOW_SANDBOX=1`** while App Review and TestFlight use the sandbox. With it on, sandbox purchases grant Plus on production accounts.
+-   Your decision when to turn it off.
+-3. **Universal link for email sign-in**: put this in `auth-hosting/.well-known/apple-app-site-association`, say "your phone" instead of "your
+-   Android phone" in `index.html`, and add Associated Domains (`applinks:aurora-24aa9.firebaseapp.com`). Until then iOS users paste the link.
+-
+-```json
+-{ "applinks": { "details": [ { "appIDs": ["BZZV9Z8W24.com.aagamjain.Aurora"], "components": [ { "/": "/finish-sign-in*" }, { "/": "/__/auth/links*" } ] } ] } }
+-```
+-
+-4. **Firebase console**: enable Apple sign-in; add an iOS app and put its OAuth client ID in `Config/Secrets.xcconfig` as `AURORA_GOOGLE_CLIENT_ID`,
+-   with the reversed form as a URL scheme.
+-
+-## What the review changed
+-
+-The earlier patch took the first transaction Apple returned rather than the one asked about, never checked the bundle or the account stamp, let sandbox
+-purchases through always, could crash on an unreadable answer, and passed non-numeric ids to Apple. All fixed and tested.
+-
+-## Still open
+-
+-- **App Store Server Notifications V2** (renewals, refunds): not written. State refreshes on app start and Restore, as Android before RTDN. A refund only takes effect at the next check.
+-- **Moving a subscription between accounts**: no App Store route. iOS says "sign in to that account" instead.
+-- **Sign in with Apple token revocation on account deletion** (App Store Guideline 5.1.1(v)): not implemented. Needs a server route and the Apple key.
+-- `privacy-policy.html` describes Google Play and Play Integrity only. It needs an App Store and Screen Time section before release.
++Use server/src/apple.js and the /v1/verify/apple and /v1/apple/notifications handlers from aurora-backend-staging, branch feat/app-store-backend. Apply its migration and configuration only through the documented integration process. Apple transfers are disabled; sandbox review access cannot grant production account Plus. See docs/APP_STORE_BILLING.md in that repository.
+diff --git a/server-patches/apple-verify.js b/server-patches/apple-verify.js
+deleted file mode 100644
+index 33eb298658bae65d4bdf3d99ce54865d09477437..0000000000000000000000000000000000000000
+--- a/server-patches/apple-verify.js
++++ /dev/null
+@@ -1,95 +0,0 @@
+-// PATCH for aurora-android/server/src/worker.js (NOT applied, NOT deployed). See server-patches/README.md.
+-// Tested against the real worker in a scratch copy: server-patches/run-tests.sh.
+-//
+-// POST /v1/verify/apple — Aurora Plus bought through the App Store. The app sends the StoreKit 2 signed transaction.
+-// The server trusts nothing in it: it only reads which subscription to ask about, asks Apple's App Store Server API
+-// itself (over TLS, authenticated with an App Store Connect API key), and stores what Apple says, exactly as /v1/verify
+-// does with Google. The answer is the same signed snapshot, so Plus is one account entitlement across Android and iOS.
+-//
+-// New secrets: APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY (the .p8 key, PKCS#8 base64), APPLE_BUNDLE_ID.
+-// APPLE_ALLOW_SANDBOX=1 also accepts sandbox purchases. App Review and TestFlight buy in the sandbox, so it has to be on
+-// for them; leave it off once they are done if sandbox Plus must never reach a production account.
+-
+-const APPLE_PRODUCTION = 'https://api.storekit.itunes.apple.com'
+-const APPLE_SANDBOX = 'https://api.storekit-sandbox.itunes.apple.com'
+-
+-const b64urlJson = (o) => b64url(utf8(JSON.stringify(o)))
+-const jwsPayload = (jws) => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(jws).split('.')[1].replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))))
+-
+-async function appleToken(env) {
+-  const key = await crypto.subtle.importKey('pkcs8', Uint8Array.from(atob(env.APPLE_PRIVATE_KEY), (c) => c.charCodeAt(0)), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+-  const now = Math.floor(Date.now() / 1000)
+-  const head = b64urlJson({ alg: 'ES256', kid: env.APPLE_KEY_ID, typ: 'JWT' })
+-  const claims = b64urlJson({ iss: env.APPLE_ISSUER_ID, iat: now, exp: now + 1800, aud: 'appstoreconnect-v1', bid: env.APPLE_BUNDLE_ID })
+-  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, utf8(`${head}.${claims}`))
+-  return `${head}.${claims}.${b64url(sig)}`
+-}
+-
+-/** Apple's current state of the subscription holding [originalTransactionId]: production, then the sandbox if allowed. */
+-async function appleSubscription(env, originalTransactionId, fetcher) {
+-  const token = await appleToken(env)
+-  for (const base of env.APPLE_ALLOW_SANDBOX === '1' ? [APPLE_PRODUCTION, APPLE_SANDBOX] : [APPLE_PRODUCTION]) {
+-    const r = await fetcher(`${base}/inApps/v1/subscriptions/${encodeURIComponent(originalTransactionId)}`, { headers: { Authorization: `Bearer ${token}` } })
+-    if (r.status === 404) continue
+-    if (!r.ok) throw new Error(`apple ${r.status}`)
+-    return r.json()
+-  }
+-  return null
+-}
+-
+-/** Apple's answer for this one subscription, as Aurora's entitlement (the shape entitlementFrom gives for Google). */
+-function appleEntitlement(status, originalTransactionId, env, now) {
+-  const last = status?.data?.flatMap((g) => g.lastTransactions ?? []).find((t) => t.originalTransactionId === originalTransactionId)
+-  if (!last || status.bundleId !== env.APPLE_BUNDLE_ID) return { known: false }
+-  const tx = jwsPayload(last.signedTransactionInfo)
+-  const renewal = last.signedRenewalInfo ? jwsPayload(last.signedRenewalInfo) : {}
+-  if (tx.bundleId !== env.APPLE_BUNDLE_ID || !productIdsOf(env).includes(tx.productId)) return { known: false }
+-  // App Store status: 1 active, 2 expired, 3 billing retry, 4 grace period, 5 revoked.
+-  const state = { 1: 'active', 2: 'expired', 3: 'on_hold', 4: 'in_grace_period', 5: 'revoked' }[last.status] ?? 'unknown'
+-  const paidThrough = last.status === 4 && renewal.gracePeriodExpiresDate ? renewal.gracePeriodExpiresDate : tx.expiresDate ?? 0
+-  const plus = (last.status === 1 || last.status === 4) && paidThrough > now && !tx.revocationDate
+-  return { known: true, productId: tx.productId, tier: plus ? 'plus' : 'free', state, paidThrough, autoRenewing: renewal.autoRenewStatus === 1, appAccountToken: tx.appAccountToken }
+-}
+-
+-/** The UUID the app stamps on a purchase for this account (Billing.accountToken): sha-256 of the uid, as a v5 UUID. */
+-async function appleAccountToken(uid) {
+-  const b = new Uint8Array(await sha256(uid)).slice(0, 16)
+-  b[6] = (b[6] & 0x0f) | 0x50
+-  b[8] = (b[8] & 0x3f) | 0x80
+-  const h = hex(b)
+-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+-}
+-
+-async function verifyApple(request, env, fetcher) {
+-  const claims = await authenticate(request, env, fetcher, { revocation: true })
+-  const { signedTransaction, productId, installId, packageName } = await body(request)
+-  if (![productId, packageName].every((v) => text(v)) || !isId(installId) || !text(signedTransaction, 16384)) return json(400, { error: 'bad_request' })
+-  if (packageName !== env.PACKAGE_NAME) return json(400, { error: 'wrong_package' })
+-  if (!(await allowed(env, `verify:${claims.sub}`, 30, 60))) return json(429, { error: 'slow_down' })
+-  let originalTransactionId
+-  try { originalTransactionId = String(jwsPayload(signedTransaction).originalTransactionId) } catch { return json(400, { error: 'bad_request' }) }
+-  if (!/^\d{1,32}$/.test(originalTransactionId)) return json(400, { error: 'bad_request' })
+-  const now = Date.now()
+-  const account = await ensureAccount(env, claims, now)
+-  if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
+-  let entitlement
+-  try {
+-    entitlement = appleEntitlement(await appleSubscription(env, originalTransactionId, fetcher), originalTransactionId, env, now)
+-  } catch {
+-    // Apple is unreachable, or said something that can't be read. The app keeps what it has and tries again. We never guess.
+-    return json(503, { error: 'try_again' })
+-  }
+-  if (!entitlement.known) return json(200, await accountSnapshot(env, account, claims.sub, installId, now, { purchaseValid: false }))
+-  const key = await tokenKey(`apple:${originalTransactionId}`)
+-  const row = await env.DB.prepare('SELECT account_id FROM purchases WHERE token_hash = ?').bind(key).first()
+-  // Whoever holds it keeps it. A purchase stamped for another account is theirs even if this is the first we hear of it.
+-  const foreign = entitlement.appAccountToken && entitlement.appAccountToken.toLowerCase() !== (await appleAccountToken(claims.sub))
+-  const owner = row?.account_id && row.account_id !== account.id ? row.account_id : (!row?.account_id && foreign ? 'unknown' : null)
+-  if (owner !== null || !(await storePurchase(env, account, key, entitlement, now))) {
+-    const holder = owner && owner !== 'unknown' ? await env.DB.prepare('SELECT email FROM accounts WHERE id = ?').bind(owner).first() : null
+-    return json(200, { ...(await accountSnapshot(env, account, claims.sub, installId, now, { purchaseValid: true })), conflict: true, conflictHint: maskEmail(holder?.email) })
+-  }
+-  return json(200, await accountSnapshot(env, account, claims.sub, installId, now, { purchaseValid: true }))
+-}
+-
+-// In ROUTES add:  '/v1/verify/apple': verifyApple,
+diff --git a/server-patches/run-tests.sh b/server-patches/run-tests.sh
+deleted file mode 100755
+index 0f12d1194c908652bb8fff049d887eebdc9df0e5..0000000000000000000000000000000000000000
+--- a/server-patches/run-tests.sh
++++ /dev/null
+@@ -1,18 +0,0 @@
+-#!/bin/zsh
+-# Runs the account service's own tests plus the App Store route, against a scratch copy of aurora-android/server with
+-# apple-verify.js added. Nothing in the Android repository changes and nothing is deployed.
+-# usage: server-patches/run-tests.sh [path-to-aurora-android]
+-set -e
+-here=${0:A:h}; android=${1:-$here/../../aurora-android}
+-tmp=$(mktemp -d); trap 'rm -rf $tmp' EXIT
+-cp -R $android/server/{src,test,migrations,package.json} $tmp/
+-python3 -I - "$here/apple-verify.js" "$tmp/src/worker.js" <<'PY'
+-import sys
+-patch, worker = open(sys.argv[1]).read(), open(sys.argv[2]).read()
+-marker = 'const ROUTES = {'
+-assert marker in worker
+-worker = worker.replace(marker, patch + '\n' + marker + "\n  '/v1/verify/apple': verifyApple,", 1)
+-open(sys.argv[2], 'w').write(worker)
+-PY
+-cp $here/test/*.test.js $tmp/test/
+-cd $tmp && node --test test/
+diff --git a/server-patches/test/apple.test.js b/server-patches/test/apple.test.js
+deleted file mode 100644
+index 657089dd5012b9aa60b68e15f21bb9afafe63e36..0000000000000000000000000000000000000000
+--- a/server-patches/test/apple.test.js
++++ /dev/null
+@@ -1,212 +0,0 @@
+-import test from 'node:test'
+-import assert from 'node:assert/strict'
+-import { generateKeyPairSync, createVerify } from 'node:crypto'
+-import worker from '../src/worker.js'
+-import { IDS, idToken, verifySignature, world } from './fixture.js'
+-
+-const BUNDLE = 'com.aagamjain.Aurora'
+-const key = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+-const b64u = (v) => Buffer.from(v).toString('base64url')
+-const jws = (o) => `${b64u('{"alg":"ES256"}')}.${b64u(JSON.stringify(o))}.sig`
+-const FUTURE = () => Date.now() + 30 * 86_400_000
+-const GOLDEN_TOKEN = '4a49acf8-a6bd-5277-a849-5d1e541a8408'
+-
+-function apple(over = {}) {
+-  const w = world()
+-  Object.assign(w.env, {
+-    APPLE_ISSUER_ID: 'issuer', APPLE_KEY_ID: 'kid', APPLE_BUNDLE_ID: BUNDLE,
+-    APPLE_PRIVATE_KEY: key.privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64'), ...over,
+-  })
+-  const state = { production: new Map(), sandbox: new Map(), down: false, auth: [] }
+-  const fetcher = async (url, init) => {
+-    const u = String(url)
+-    if (!u.includes('storekit')) return w.fetcher(url, init)
+-    state.auth.push(init.headers.Authorization)
+-    if (state.down) return new Response('{}', { status: 500 })
+-    const id = decodeURIComponent(u.split('/subscriptions/')[1])
+-    const body = (u.includes('sandbox') ? state.sandbox : state.production).get(id)
+-    return body ? new Response(JSON.stringify(body)) : new Response('{}', { status: 404 })
+-  }
+-  const call = async (uid, signedTransaction, extra = {}, path = '/v1/verify/apple') => {
+-    const res = await worker.fetch(new Request(`https://x${path}`, {
+-      method: 'POST', headers: { authorization: `Bearer ${idToken(uid)}` },
+-      body: JSON.stringify({ signedTransaction, productId: IDS[0], installId: 'i1', packageName: 'app.aurora', ...extra }),
+-    }), w.env, null, fetcher)
+-    const text = await res.text()
+-    return { status: res.status, body: text ? JSON.parse(text) : null }
+-  }
+-  return { w, state, call }
+-}
+-
+-const subscription = (id, { status = 1, tx = {}, renewal = { autoRenewStatus: 1 }, bundleId = BUNDLE } = {}) => ({
+-  bundleId,
+-  data: [{ subscriptionGroupIdentifier: 'g', lastTransactions: [{
+-    originalTransactionId: id, status,
+-    signedTransactionInfo: jws({ originalTransactionId: id, productId: IDS[0], bundleId: BUNDLE, expiresDate: FUTURE(), ...tx }),
+-    signedRenewalInfo: jws(renewal),
+-  }] }],
+-})
+-const payload = (r) => JSON.parse(r.body.payload)
+-const claim = (id) => jws({ originalTransactionId: id, productId: IDS[0] })
+-
+-test('an App Store purchase Apple confirms becomes a signed Plus snapshot', async () => {
+-  const { state, call } = apple()
+-  state.production.set('1001', subscription('1001'))
+-  const r = await call('u', claim('1001'))
+-  assert.equal(r.status, 200)
+-  assert.ok(verifySignature(r.body))
+-  const s = payload(r)
+-  assert.equal(s.tier, 'plus')
+-  assert.equal(s.uid, 'u')
+-  assert.equal(s.installId, 'i1')
+-  assert.equal(s.packageName, 'app.aurora')
+-  assert.equal(s.purchaseValid, true)
+-  assert.equal(s.autoRenewing, true)
+-})
+-
+-test('the App Store Server API call is signed with our key, for our app', async () => {
+-  const { state, call } = apple()
+-  state.production.set('1001', subscription('1001'))
+-  await call('u', claim('1001'))
+-  const [head, claims, sig] = state.auth[0].replace('Bearer ', '').split('.')
+-  const c = JSON.parse(Buffer.from(claims, 'base64url'))
+-  assert.equal(c.aud, 'appstoreconnect-v1')
+-  assert.equal(c.bid, BUNDLE)
+-  assert.equal(JSON.parse(Buffer.from(head, 'base64url')).kid, 'kid')
+-  assert.ok(createVerify('SHA256').update(`${head}.${claims}`).verify({ key: key.publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url')))
+-})
+-
+-test('nothing in the signed transaction the app sent is believed', async () => {
+-  const { state, call } = apple()
+-  // The app's JWS claims an active Plus forever; Apple has never heard of it.
+-  const r = await call('u', jws({ originalTransactionId: '9999', productId: IDS[0], expiresDate: FUTURE() * 2, status: 1 }))
+-  assert.equal(r.status, 200)
+-  assert.equal(payload(r).tier, 'free')
+-  assert.equal(payload(r).purchaseValid, false)
+-  assert.equal(state.auth.length, 1)
+-})
+-
+-test('one subscription, one account: the second account gets a conflict and nothing', async () => {
+-  const { w, state, call } = apple()
+-  state.production.set('1001', subscription('1001'))
+-  assert.equal(payload(await call('first', claim('1001'))).tier, 'plus')
+-  const r = await call('second', claim('1001'), { installId: 'i2' })
+-  assert.equal(r.body.conflict, true)
+-  assert.match(r.body.conflictHint, /^f•••@/)
+-  assert.equal(payload(r).tier, 'free')
+-  assert.equal(w.DB.rows('SELECT COUNT(*) AS n FROM purchases')[0].n, 1)
+-  assert.equal(payload(await call('first', claim('1001'))).tier, 'plus', 'the owner keeps it')
+-})
+-
+-test('a purchase stamped for another account is refused even when first seen here', async () => {
+-  const { w, state, call } = apple()
+-  state.production.set('1001', subscription('1001', { tx: { appAccountToken: '00000000-0000-5000-8000-000000000000' } }))
+-  const r = await call('u', claim('1001'))
+-  assert.equal(r.body.conflict, true)
+-  assert.equal(payload(r).tier, 'free')
+-  assert.equal(w.DB.rows('SELECT COUNT(*) AS n FROM purchases')[0].n, 0)
+-})
+-
+-test('a purchase stamped for this account is accepted', async () => {
+-  const { state, call } = apple()
+-  // The value Billing.accountToken("uid-1") gives on iOS (AuroraTests holds the same golden value).
+-  state.production.set('1001', subscription('1001', { tx: { appAccountToken: GOLDEN_TOKEN.toUpperCase() } }))
+-  const r = await call('uid-1', claim('1001'))
+-  assert.equal(r.body.conflict, undefined)
+-  assert.equal(payload(r).tier, 'plus')
+-})
+-
+-test('verifying again changes nothing (idempotent)', async () => {
+-  const { w, state, call } = apple()
+-  state.production.set('1001', subscription('1001'))
+-  for (let i = 0; i < 3; i++) assert.equal(payload(await call('u', claim('1001'))).tier, 'plus')
+-  assert.equal(w.DB.rows('SELECT COUNT(*) AS n FROM purchases')[0].n, 1)
+-})
+-
+-test('every App Store status maps to the right entitlement', async () => {
+-  const past = Date.now() - 86_400_000
+-  const cases = [
+-    [{ status: 1 }, 'plus', 'active'],
+-    [{ status: 2, tx: { expiresDate: past } }, 'free', 'expired'],
+-    [{ status: 3, tx: { expiresDate: past } }, 'free', 'on_hold'],
+-    [{ status: 4, tx: { expiresDate: past }, renewal: { gracePeriodExpiresDate: FUTURE() } }, 'plus', 'in_grace_period'],
+-    [{ status: 5, tx: { revocationDate: past } }, 'free', 'revoked'],
+-    [{ status: 1, tx: { expiresDate: past } }, 'free', 'active'], // Apple says active but the paid time is over: not trusted past its date.
+-  ]
+-  for (const [apple_, tier, state_] of cases) {
+-    const { state, call } = apple()
+-    state.production.set('1001', subscription('1001', apple_))
+-    const s = payload(await call('u', claim('1001')))
+-    assert.equal(s.tier, tier, JSON.stringify(apple_))
+-    assert.equal(s.state, state_)
+-  }
+-})
+-
+-test('a refund takes Plus away at the next check', async () => {
+-  const { state, call } = apple()
+-  state.production.set('1001', subscription('1001'))
+-  assert.equal(payload(await call('u', claim('1001'))).tier, 'plus')
+-  state.production.set('1001', subscription('1001', { status: 5, tx: { revocationDate: Date.now() } }))
+-  assert.equal(payload(await call('u', claim('1001'))).tier, 'free')
+-})
+-
+-test('the sandbox counts only when allowed', async () => {
+-  const off = apple()
+-  off.state.sandbox.set('1001', subscription('1001'))
+-  assert.equal(payload(await off.call('u', claim('1001'))).tier, 'free')
+-  const on = apple({ APPLE_ALLOW_SANDBOX: '1' })
+-  on.state.sandbox.set('1001', subscription('1001'))
+-  assert.equal(payload(await on.call('u', claim('1001'))).tier, 'plus')
+-})
+-
+-test('Apple down or unreadable: try again, nothing stored, nothing guessed', async () => {
+-  const down = apple()
+-  down.state.down = true
+-  assert.equal((await down.call('u', claim('1001'))).status, 503)
+-  assert.equal(down.w.DB.rows('SELECT COUNT(*) AS n FROM purchases')[0].n, 0)
+-  const odd = apple()
+-  odd.state.production.set('1001', { bundleId: BUNDLE, data: [{ lastTransactions: [{ originalTransactionId: '1001', status: 1, signedTransactionInfo: 'not a jws' }] }] })
+-  assert.equal((await odd.call('u', claim('1001'))).status, 503)
+-})
+-
+-test('another app, or a product that is not Plus, grants nothing', async () => {
+-  for (const sub of [subscription('1001', { bundleId: 'com.other.app' }), subscription('1001', { tx: { bundleId: 'com.other.app' } }), subscription('1001', { tx: { productId: 'coins' } })]) {
+-    const { state, call } = apple()
+-    state.production.set('1001', sub)
+-    const s = payload(await call('u', claim('1001')))
+-    assert.equal(s.tier, 'free')
+-    assert.equal(s.purchaseValid, false)
+-  }
+-})
+-
+-test('a status naming other subscriptions is not read as this one', async () => {
+-  const { state, call } = apple()
+-  state.production.set('1001', subscription('2002'))
+-  assert.equal(payload(await call('u', claim('1001'))).tier, 'free')
+-})
+-
+-test('bad requests are refused before anyone is asked', async () => {
+-  const { state, call } = apple()
+-  for (const [tx, extra] of [['garbage', {}], [jws({ originalTransactionId: '../../evil' }), {}], [jws({}), {}], [claim('1'), { packageName: 'other' }], [claim('1'), { installId: 'bad id!' }], ['', {}]]) {
+-    const r = await call('u', tx, extra)
+-    assert.equal(r.status, 400, JSON.stringify(extra) + tx)
+-  }
+-  assert.equal(state.auth.length, 0)
+-})
+-
+-test('the route needs a real sign-in', async () => {
+-  const { w } = apple()
+-  const res = await worker.fetch(new Request('https://x/v1/verify/apple', { method: 'POST', body: '{}' }), w.env, null, w.fetcher)
+-  assert.equal(res.status, 401)
+-})
+-
+-test('Plus from the App Store shows on the same account everywhere, within its seats', async () => {
+-  const { w, state, call } = apple()
+-  state.production.set('1001', subscription('1001'))
+-  await call('u', claim('1001'))
+-  const elsewhere = await w.call('/v1/account/sync', idToken('u'), { installId: 'android1', zone: 'UTC' })
+-  assert.equal(JSON.parse(elsewhere.body.entitlement.payload).tier, 'plus')
+-  for (const id of ['d3', 'd4', 'd5']) await w.call('/v1/account/sync', idToken('u'), { installId: id, zone: 'UTC' })
+-  const sixth = await w.call('/v1/account/sync', idToken('u'), { installId: 'd6', zone: 'UTC' })
+-  assert.equal(JSON.parse(sixth.body.entitlement.payload).state, 'too_many_devices')
+-})

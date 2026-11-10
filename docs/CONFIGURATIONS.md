@@ -15,7 +15,7 @@ external launch gates remain in [REINVENTION_VALIDATION.md](REINVENTION_VALIDATI
   contains app keys and reflection, usage-time and expiry settings.
 - **Track:** Habits, configuration performance, screen time and existing progress.
 
-The builders reuse First Light components and tokens. Settings, configuration,
+The builders reuse the shared Aurora components and tokens. Settings, configuration,
 preset, Habit, Focus and capability screens are pushed from these tabs.
 
 ## Setup flows

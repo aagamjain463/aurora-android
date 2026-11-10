@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The widget: the mark, what is protecting you, and a countdown when it has an end. -->
+<!-- The widget: the logo, what is protecting you, and a countdown when it has an end. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/widget_root"
@@ -31,15 +31,15 @@
                 android:layout_width="18dp"
                 android:layout_height="18dp"
                 android:importantForAccessibility="no"
-                android:src="@drawable/ic_aurora_mark" />
+                android:src="@drawable/aurora_logo" />
 
             <TextView
                 android:id="@+id/widget_eyebrow"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:fontFamily="@font/geist"
-                android:letterSpacing="0.04"
+                android:fontFamily="@font/inter"
+                android:letterSpacing="0"
                 android:maxLines="1"
                 android:textColor="@color/widget_eyebrow"
                 android:textSize="13sp"
@@ -52,8 +52,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:ellipsize="end"
-            android:fontFamily="@font/geist"
-            android:fontVariationSettings="'wght' 700"
+            android:fontFamily="@font/inter"
+            android:fontVariationSettings="'wght' 600"
             android:maxLines="1"
             android:textColor="@color/widget_text"
             android:textSize="20sp" />
@@ -62,7 +62,7 @@
             android:id="@+id/widget_body"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:fontFamily="@font/geist"
+            android:fontFamily="@font/inter"
             android:maxLines="1"
             android:textColor="@color/widget_secondary"
             android:textSize="13sp" />
@@ -73,7 +73,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
-        android:fontFamily="@font/geist"
+        android:fontFamily="@font/inter"
         android:fontFeatureSettings="tnum"
         android:textColor="@color/widget_text"
         android:textSize="30sp"

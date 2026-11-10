@@ -1,0 +1,13 @@
+{
+  "Aurora/Aurora/Account/Account.swift": "69b47c6d074153e1717a404679f70945fec55ab0e30bce636590b331c99e3922",
+  "Aurora/Aurora/AuroraApp.swift": "27f35d1975d75460b4080160147860767cbbd641ffe78b96af296690658eacb3",
+  "Aurora/Aurora/Plus/Billing.swift": "80a8aef25a2a40c433469f54dba0c26fc06dc0607ad910000d1846f2f33dd518",
+  "Aurora/Aurora/Plus/PlusScreen.swift": "c5ec2052ce099775cf657dba8bef2ef693a9939ec4fb936576f9098f7ec6f35b",
+  "Aurora/AuroraTests/ScenarioTests.swift": "f999e07d235bd2c44a5431dd84718da7047a02bbaf07cdcf0d45dc188572ff6a",
+  "Aurora/Shared/Copy/IOSCopy.swift": "e5fdd169b84cfed657ee008afceacde1f5d231eaba69448b76da367b3e27e9ff",
+  "Aurora/Shared/Domain/Entitlement.swift": "e71fb86087b4178141ea1b509a6fb7a3bac006a89dd848a0a0816f176df9ee04",
+  "server-patches/README.md": "58b0970ad62b7733b6219a56ad7c045821f64feefec30544016f8225eefc07d2",
+  "server-patches/apple-verify.js": "23b501566e28263b83cb2e6c0b47cf2a426a834c623ac4edf25768c29d9c18d6",
+  "server-patches/run-tests.sh": "cbcf3938a5e210f7327f438a2b8c9add3c4e241d38b28e2c006b1210c29b220a",
+  "server-patches/test/apple.test.js": "119c201c8071339e08c06e64c2973410291f6fdfcc1b3ecb72805ead62361294"
+}

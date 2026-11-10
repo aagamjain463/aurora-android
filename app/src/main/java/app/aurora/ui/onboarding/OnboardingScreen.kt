@@ -1,72 +1,70 @@
 package app.aurora.ui.onboarding
 
+import app.aurora.ui.plus.offered
+import app.aurora.ui.plus.rememberTrialClaim
+import app.aurora.ui.plus.TrialOfferPage
+import app.aurora.plan.Plan
+import app.aurora.ui.components.glassShine
+import app.aurora.ui.components.glassFill
+import app.aurora.ui.components.glassCard
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import app.aurora.protect.Mode
+import app.aurora.ui.components.ChoicePills
+import androidx.compose.foundation.layout.aspectRatio
+import app.aurora.ui.protect.modeName
+import app.aurora.ui.components.minutesText
+import app.aurora.ui.components.glass
+import app.aurora.ui.home.IntentChip
+import app.aurora.ui.protect.ModeChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -78,395 +76,391 @@ import app.aurora.AuroraApplication
 import app.aurora.R
 import app.aurora.data.Access
 import app.aurora.data.AccessState
-import app.aurora.data.openAccessSettings
-import app.aurora.protect.Mode
-import app.aurora.protect.ShieldService
 import app.aurora.rememberAccess
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.ButtonKind
-import app.aurora.ui.components.Chip
 import app.aurora.ui.components.ContentMaxWidth
-import app.aurora.ui.components.Eyebrow
 import app.aurora.ui.components.HeroHeadline
 import app.aurora.ui.components.LitBadge
-import app.aurora.ui.components.LockupMark
-import app.aurora.ui.components.SelectionMark
 import app.aurora.ui.components.Wordmark
 import app.aurora.ui.components.auroraSurface
-import app.aurora.ui.components.glass
-import app.aurora.ui.components.minutesText
-import app.aurora.ui.components.sunlit
-import app.aurora.ui.home.IntentChip
-import app.aurora.ui.protect.ModeChip
-import app.aurora.ui.protect.ShieldDisclosure
-import app.aurora.ui.protect.isXiaomi
-import app.aurora.ui.protect.openAppInfo
-import app.aurora.ui.protect.openAutostart
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Motion
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private const val PageCount = 6
-internal const val ShieldPage = PageCount - 1
-
-/** The four tabs, toured in the order they are used: make a Shield and an Intent, start them from Home, see it in Track. */
-private enum class Tour(val icon: ImageVector, val tab: Int, val title: Int, val body: Int, val points: List<Int>) {
-    Shield(AuroraIcons.Protect, R.string.tab_shield, R.string.onb_tour_shield_title, R.string.onb_tour_shield_body,
-        listOf(R.string.onb_tour_shield_point_1, R.string.onb_tour_shield_point_2, R.string.onb_tour_shield_point_3)),
-    Intent(AuroraIcons.Intent, R.string.tab_intent, R.string.onb_tour_intent_title, R.string.onb_tour_intent_body,
-        listOf(R.string.onb_tour_intent_point_1, R.string.onb_tour_intent_point_2, R.string.onb_tour_intent_point_3)),
-    Home(AuroraIcons.Home, R.string.tab_home, R.string.onb_tour_home_title, R.string.onb_tour_home_body,
-        listOf(R.string.onb_tour_home_point_1, R.string.onb_tour_home_point_2, R.string.onb_tour_home_point_3)),
-    Track(AuroraIcons.Track, R.string.tab_track, R.string.onb_tour_track_title, R.string.onb_tour_track_body,
-        listOf(R.string.onb_tour_track_point_1, R.string.onb_tour_track_point_2, R.string.onb_tour_track_point_3)),
+/** The four tabs in the order they are used: make a Shield and an Intent, start them from Home, see it in Track. */
+private enum class Tab(val icon: ImageVector, val label: Int, val title: Int, val body: Int) {
+    Shield(AuroraIcons.Protect, R.string.tab_shield, R.string.onb_tour_shield_title, R.string.onb_tour_shield_body),
+    Intent(AuroraIcons.Intent, R.string.tab_intent, R.string.onb_tour_intent_title, R.string.onb_tour_intent_body),
+    Home(AuroraIcons.Home, R.string.tab_home, R.string.onb_tour_home_title, R.string.onb_tour_home_body),
+    Track(AuroraIcons.Track, R.string.tab_track, R.string.onb_tour_track_title, R.string.onb_tour_track_body),
 }
 
+private const val HowPage = 1
+private const val FirstTabPage = 2
+private val PageCount = FirstTabPage + Tab.entries.size + 1
+internal val ShieldPage = PageCount - 1
+// After the tour, only when the server offers this account a trial. Outside the dots: an offer, not a step.
+private val TrialPage = PageCount
+
 /**
- * A short tour, no setup: the promise, then Shield, Intent, Home and Track in plain words with a small moving
- * picture of each, then turning Shield on. Nothing is picked or started here. The person can leave and come back;
- * onboarding resumes where they were.
+ * Still pages: the promise, how Aurora works (its four tabs on one card), a page for each tab (a picture of it, its
+ * name, one serif line and one plain line), then turning Shield on. Everything is centred, nothing moves but a plain
+ * fade between pages, and each page has one filled action. Nothing is picked or started here. The person can leave and come back; onboarding resumes where they were.
  */
 @Composable
 fun OnboardingScreen(onFinish: () -> Unit) {
     val app = LocalContext.current.applicationContext as AuroraApplication
     val colors = Aurora.colors
-    val reduced = Aurora.reducedMotion
     val prefs by app.preferences.preferences.collectAsStateWithLifecycle(initialValue = null)
     var page by rememberSaveable { mutableIntStateOf(-1) }
     LaunchedEffect(prefs != null) { if (page < 0 && prefs != null) page = prefs!!.onboardingStep.coerceIn(0, PageCount - 1) }
     LaunchedEffect(page) { if (page >= 0) runCatching { app.preferences.setOnboardingStep(page) } }
     BackHandler(enabled = page > 0) { page-- }
     val p = page.coerceAtLeast(0)
-    val shieldOn = rememberAccess(Access.Accessibility) == AccessState.Granted
-    val finish = {
+    val granted = Needed.associateWith { rememberAccess(it) == AccessState.Granted }
+    val shieldOn = granted[Access.Accessibility] == true
+    val missing = Needed.filter { granted[it] != true }
+    val remote by app.account.remote.collectAsStateWithLifecycle()
+    val done = {
         app.scope.launch { runCatching { app.preferences.setOnboardingStep(0) } }
         onFinish()
     }
+    val trialClaim = rememberTrialClaim(onGranted = done)
+    val finish = { if (remote?.trial.offered(onPlus = app.plan == Plan.Plus)) page = TrialPage else done() }
 
     Box(Modifier.fillMaxSize().background(if (p == 0) colors.sky else colors.background)) {
         Column(Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            // The welcome is the mark itself, set large; the pages after it carry the lockup and where you are.
-            if (p != 0) Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
-                AuroraMark(LockupMark)
-                Spacer(Modifier.width(Space.S))
-                Wordmark(Modifier.weight(1f))
-                PageDots(p)
+            // No name at the top: the pages speak for themselves. Only the way past the tour, on the right.
+            Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = Space.Gutter), verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.weight(1f))
+                if (p in 1 until ShieldPage) AuroraButton(stringResource(R.string.onb_skip_tour), { page = ShieldPage }, kind = ButtonKind.Quiet, compact = true)
             }
-            AnimatedContent(
-                targetState = p,
-                modifier = Modifier.weight(1f),
-                transitionSpec = {
-                    val forward = targetState > initialState
-                    if (reduced) fadeIn(tween(Motion.Standard)) togetherWith fadeOut(tween(Motion.Quick))
-                    else (fadeIn(tween(Motion.Gentle)) + slideInHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (forward) it / 4 else -it / 4 }) togetherWith
-                        (fadeOut(tween(Motion.Standard)) + slideOutHorizontally(tween(Motion.Gentle, easing = Motion.Ease)) { if (forward) -it / 6 else it / 6 })
-                },
-                label = "page",
-            ) { step ->
+            Crossfade(p, Modifier.weight(1f), animationSpec = tween(Motion.Standard), label = "page") { step ->
                 when (step) {
                     0 -> Welcome()
-                    ShieldPage -> TurnOnShield()
-                    else -> TourPage(Tour.entries[step - 1])
+                    HowPage -> HowItWorks()
+                    ShieldPage -> Permissions(missing)
+                    TrialPage -> Page { TrialOfferPage(trialClaim.message) }
+                    else -> TabPage(Tab.entries[step - FirstTabPage])
                 }
             }
             val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             Column(
-                Modifier.padding(horizontal = Space.Gutter).padding(top = if (p == 0) 34.dp else Space.M, bottom = if (p == 0) (58.dp - navInset).coerceAtLeast(Space.M) else Space.M).animateContentSize(),
+                Modifier.padding(horizontal = Space.Gutter).padding(top = Space.M, bottom = Space.L - navInset.coerceAtMost(Space.M)),
                 verticalArrangement = Arrangement.spacedBy(Space.XS),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when {
-                    p == 0 -> AuroraButton(stringResource(R.string.onb_begin), { page = 1 }, Modifier.fillMaxWidth())
-                    p < ShieldPage -> {
-                        AuroraButton(stringResource(R.string.action_continue), { page = p + 1 }, Modifier.fillMaxWidth())
-                        AuroraButton(stringResource(R.string.onb_skip_tour), { page = ShieldPage }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                    p == TrialPage -> {
+                        AuroraButton(stringResource(R.string.trial_start), trialClaim.claim, Modifier.fillMaxWidth(), kind = ButtonKind.Plus, enabled = !trialClaim.busy)
+                        AuroraButton(stringResource(R.string.action_not_now), done, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
                     }
-                    // One filled action per page: until Shield is on, "Turn on Shield" is it, and skipping stays quiet.
-                    !shieldOn -> AuroraButton(stringResource(R.string.onb_skip), finish, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
-                    else -> AuroraButton(stringResource(R.string.onb_finish), finish, Modifier.fillMaxWidth())
+                    p == 0 -> {
+                        AuroraButton(stringResource(R.string.onb_begin), { page = HowPage }, Modifier.fillMaxWidth())
+                        Privacy(Modifier.padding(top = Space.S))
+                    }
+                    p < ShieldPage -> {
+                        PageDots(p, Modifier.padding(bottom = Space.M))
+                        BackNext({ page = p - 1 }, stringResource(R.string.action_next), { page = p + 1 })
+                    }
+                    // Each permission still off has its own Allow above; any of them can be skipped for now.
+                    missing.isNotEmpty() -> {
+                        PageDots(p, Modifier.padding(bottom = Space.M))
+                        BackNext({ page = p - 1 }, stringResource(if (shieldOn) R.string.onb_finish else R.string.onb_skip), finish, quiet = true)
+                    }
+                    else -> {
+                        PageDots(p, Modifier.padding(bottom = Space.M))
+                        BackNext({ page = p - 1 }, stringResource(R.string.onb_finish), finish)
+                    }
                 }
-                if (p == 0) Text(
-                    stringResource(R.string.onb_welcome_privacy), Modifier.fillMaxWidth().padding(top = 8.dp),
-                    color = colors.textPrimary, style = AuroraType.Caption, textAlign = TextAlign.Center,
-                )
             }
         }
     }
 }
 
-/** Where you are: a lit dash for this page, points for the rest. */
+/** The way back and the way on, side by side and equal. [quiet] when the page's filled action sits above them. */
 @Composable
-private fun PageDots(page: Int) {
+private fun BackNext(onBack: () -> Unit, label: String, onNext: () -> Unit, quiet: Boolean = false) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+        AuroraButton(stringResource(R.string.action_back), onBack, Modifier.weight(1f), kind = if (quiet) ButtonKind.Quiet else ButtonKind.Secondary)
+        AuroraButton(label, onNext, Modifier.weight(1f), kind = if (quiet) ButtonKind.Quiet else ButtonKind.Primary)
+    }
+}
+
+/** Where you are, after the welcome: a lit dash for this step, points for the rest. Still. */
+@Composable
+private fun PageDots(page: Int, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
     val spoken = stringResource(R.string.onb_step, page, PageCount - 1)
-    Row(Modifier.semantics { contentDescription = spoken }, horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.semantics { contentDescription = spoken }, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(PageCount - 1) { i ->
-            val width by animateDpAsState(if (i + 1 == page) 18.dp else 6.dp, tween(Motion.Gentle, easing = Motion.Ease), label = "dot")
-            Box(Modifier.height(4.dp).width(width).clip(Radius.Pill).background(if (i + 1 <= page) colors.accent else colors.hairline))
+            val here = i + 1 == page
+            Box(Modifier.height(4.dp).width(if (here) 22.dp else 6.dp).clip(Radius.Pill).background(if (here) colors.accent else colors.hairline))
         }
     }
 }
 
-/** Fades up into place [order] beats after the page arrives. Still when motion is reduced. */
-private fun Modifier.enter(order: Int): Modifier = composed {
-    val reduced = Aurora.reducedMotion
-    val shown = remember { Animatable(if (reduced) 1f else 0f) }
-    LaunchedEffect(Unit) {
-        if (!reduced) {
-            delay(80L + order * 90L)
-            shown.animateTo(1f, tween(Motion.Reveal, easing = Motion.Ease))
-        }
-    }
-    graphicsLayer {
-        alpha = shown.value
-        translationY = (1f - shown.value) * 22.dp.toPx()
-    }
-}
-
-/** A loop from 0 to 1 every [ms], for the tour's pictures. Reduced motion holds it at [still]. */
+/** The promise under the first action: a lock and one quiet line. */
 @Composable
-private fun loop(ms: Int, still: Float): Float =
-    if (Aurora.reducedMotion) still
-    else rememberInfiniteTransition(label = "tour").animateFloat(0f, 1f, infiniteRepeatable(tween(ms, easing = LinearEasing), RepeatMode.Restart), label = "tour").value
-
-/** 0 before [from], 1 once [from] + [span] has passed, eased between; falls back to 0 over the loop's last moment. */
-private fun ramp(t: Float, from: Float, span: Float = 0.1f): Float {
-    val up = Motion.Ease.transform(((t - from) / span).coerceIn(0f, 1f))
-    val down = ((1f - t) / 0.06f).coerceIn(0f, 1f)
-    return up * down
+private fun Privacy(modifier: Modifier = Modifier) {
+    val colors = Aurora.colors
+    Row(modifier.semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(AuroraIcons.Lock, null, Modifier.size(13.dp), tint = colors.textTertiary)
+        Text(stringResource(R.string.onb_welcome_privacy), color = colors.textTertiary, style = AuroraType.Caption)
+    }
 }
 
-/**
- * The welcome: the mark and the name, set large in the middle of the sky; the promise rests low, by the action.
- * Each part settles in a beat after the last. The column fills the screen, and scrolls when text is large.
- */
+/** A centred page that fills the screen and scrolls when text is large. */
+@Composable
+private fun Page(content: @Composable ColumnScope.() -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(1f).heightIn(min = Space.M))
+            content()
+            Spacer(Modifier.weight(1.2f).heightIn(min = Space.M))
+        }
+    }
+}
+
+/** The welcome: the lit mark, the promise with its last word lit, and one plain line saying what Aurora does. */
 @Composable
 internal fun Welcome() {
     val colors = Aurora.colors
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(horizontal = Space.Gutter)) {
-            Box(Modifier.weight(1f).fillMaxWidth().heightIn(min = 200.dp), contentAlignment = Alignment.Center) {
-                Column(
-                    Modifier.padding(bottom = 40.dp).semantics(mergeDescendants = true) { },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
+    Page {
+        // The mark held in the seal: the bezel draws itself round once, like a watch being set.
+        app.aurora.ui.components.Seal(196.dp) { AuroraMark(88.dp) }
+        Spacer(Modifier.height(36.dp))
+        HeroHeadline(
+            stringResource(R.string.today_headline),
+            style = AuroraType.BrandLine.copy(fontSize = 52.sp, lineHeight = 54.sp, textAlign = TextAlign.Center),
+        )
+        Text(
+            stringResource(R.string.today_description), Modifier.padding(top = Space.M).widthIn(max = 300.dp),
+            color = colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** How Aurora works: its four tabs on one card, each a lit badge, its name and one line. */
+@Composable
+private fun HowItWorks() {
+    val colors = Aurora.colors
+    Page {
+        Text(
+            stringResource(R.string.onb_how_title), Modifier.semantics { heading() },
+            color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center,
+        )
+        Text(
+            stringResource(R.string.onb_how_body), Modifier.padding(top = Space.S).widthIn(max = 300.dp),
+            color = colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+        )
+        Column(Modifier.padding(top = 36.dp).fillMaxWidth().auroraSurface(colors).padding(vertical = Space.XS)) {
+            Tab.entries.forEachIndexed { i, tab ->
+                if (i > 0) Box(Modifier.padding(start = 82.dp).fillMaxWidth().height(1.dp).background(colors.hairline))
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp).semantics(mergeDescendants = true) { },
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AuroraMark(54.dp, Modifier.enter(0), lit = true)
-                    Text(stringResource(R.string.app_name), Modifier.enter(1), color = colors.textPrimary, style = AuroraType.HeroBold.copy(fontSize = 56.sp, lineHeight = 58.sp))
+                    LitBadge(tab.icon, size = 44)
+                    Spacer(Modifier.width(Space.M))
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(tab.label), color = colors.textPrimary, style = AuroraType.Title)
+                        Text(stringResource(tab.title), color = colors.textSecondary, style = AuroraType.Body)
+                    }
                 }
             }
-            HeroHeadline(stringResource(R.string.today_headline), Modifier.enter(3))
-            Spacer(Modifier.height(14.dp))
-            Text(stringResource(R.string.today_description), Modifier.enter(4), color = colors.textSecondary, style = AuroraType.Body)
         }
     }
 }
 
-/** One tab in plain words: its picture, its name, one line, and three short points. */
+/** One tab: a still picture of it, its name, one headline and one plain line, centred. */
 @Composable
-private fun TourPage(tour: Tour) {
+private fun TabPage(tab: Tab) {
     val colors = Aurora.colors
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.Gutter)) {
-        Spacer(Modifier.height(Space.M))
-        // Decorative: the words below say everything the picture shows.
-        Box(Modifier.fillMaxWidth().enter(0).clearAndSetSemantics { }) {
-            when (tour) {
-                Tour.Shield -> ShieldArt()
-                Tour.Intent -> IntentArt()
-                Tour.Home -> HomeArt()
-                Tour.Track -> TrackArt()
-            }
-        }
-        Spacer(Modifier.height(30.dp))
-        Row(Modifier.enter(1), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LitBadge(tour.icon, size = 30)
-            Eyebrow(stringResource(tour.tab), color = colors.accent)
-        }
-        Text(stringResource(tour.title), Modifier.padding(top = Space.S).enter(2).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-        Text(stringResource(tour.body), Modifier.padding(top = Space.XS).enter(3), color = colors.textSecondary, style = AuroraType.Body)
-        Column(Modifier.padding(top = Space.L, bottom = Space.M), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            tour.points.forEachIndexed { i, point ->
-                Row(Modifier.enter(4 + i), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-                    Box(Modifier.padding(top = 8.dp).size(6.dp).clip(Radius.Pill).background(colors.accent))
-                    Text(stringResource(point), color = colors.textPrimary, style = AuroraType.Body)
+    Page {
+        // Decorative previews keep their proportions; page text follows system text size.
+        CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1f)) {
+            Box(Modifier.fillMaxWidth().clearAndSetSemantics { }) {
+                when (tab) {
+                    Tab.Shield -> ShieldArt()
+                    Tab.Intent -> IntentArt()
+                    Tab.Home -> HomeArt()
+                    Tab.Track -> TrackArt()
                 }
             }
         }
+        Spacer(Modifier.height(44.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(tab.icon, null, Modifier.size(15.dp), tint = colors.accent)
+            Text(stringResource(tab.label), color = colors.accent, style = AuroraType.Label)
+        }
+        Text(
+            stringResource(tab.title), Modifier.padding(top = Space.S).semantics { heading() },
+            color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center,
+            // Shield's line is one line, whatever the width.
+            maxLines = if (tab == Tab.Shield) 1 else Int.MAX_VALUE,
+            autoSize = if (tab == Tab.Shield) androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 18.sp, maxFontSize = AuroraType.Display.fontSize) else null,
+        )
+        Text(
+            stringResource(tab.body), Modifier.padding(top = Space.S).widthIn(max = 300.dp),
+            color = colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+        )
     }
 }
 
 private val TileShape = RoundedCornerShape(16.dp)
 
-/** Shield: four apps, locked one after another, and the four ways it can hold them, lit in turn. */
-@OptIn(ExperimentalLayoutApi::class)
+/** Shield: four apps, each held, over one track of the four ways it can hold them, none favoured. */
 @Composable
 private fun ShieldArt() {
     val colors = Aurora.colors
-    val t = loop(5200, still = 0.8f)
-    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(22.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf(AuroraIcons.Globe, AuroraIcons.Play, AuroraIcons.Quote, AuroraIcons.Spark).forEachIndexed { i, icon ->
-                val on = ramp(t, 0.08f + i * 0.12f)
-                Box(Modifier.size(58.dp)) {
+    val modeLabels = Mode.entries.associateWith { modeName(it) }
+    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(22.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            // What a Shield holds: apps, websites, Reels and Shorts.
+            listOf(AuroraIcons.Apps, AuroraIcons.Globe, AuroraIcons.Reels, AuroraIcons.Shorts).forEach { icon ->
+                Box(Modifier.weight(1f).aspectRatio(1f).glassCard(colors, TileShape, fill = colors.glassFill(field = true))) {
+                    Icon(icon, null, Modifier.align(Alignment.Center).size(24.dp), tint = colors.textTertiary)
                     Box(
-                        Modifier.fillMaxSize().clip(TileShape).background(colors.field).border(1.dp, colors.hairline, TileShape),
+                        Modifier.align(Alignment.BottomEnd).padding(6.dp).size(20.dp).clip(Radius.Pill).background(colors.accent).glassShine(colors, Radius.Pill),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(icon, null, Modifier.size(24.dp).graphicsLayer { alpha = 1f - 0.55f * on }, tint = colors.textSecondary) }
-                    Box(
-                        Modifier.align(Alignment.BottomEnd).offset(6.dp, 6.dp).size(26.dp)
-                            .graphicsLayer { scaleX = on; scaleY = on; alpha = on }
-                            .clip(Radius.Pill).sunlit(colors),
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(AuroraIcons.Lock, null, Modifier.size(13.dp), tint = colors.onAccent) }
+                    ) { Icon(AuroraIcons.Lock, null, Modifier.size(11.dp), tint = colors.onAccent) }
                 }
             }
         }
-        val current = (t * Mode.entries.size).toInt().coerceIn(0, Mode.entries.lastIndex)
-        val still = Aurora.reducedMotion
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-            Mode.entries.forEachIndexed { i, m -> ModeChip(m, Modifier.graphicsLayer { alpha = if (still || i == current) 1f else 0.4f }) }
-        }
+        // All four on one line, equal widths. Nothing is chosen: no way of holding is the right one.
+        ChoicePills<Mode?>(Mode.entries, null, onSelect = { }, label = { modeLabels.getValue(it!!) }, fill = true, segmented = true)
     }
 }
 
-/** Intent: the question, a pause that closes, then a time chosen. */
+/** Intent: the question with its pause beside it, then three times of one size, one chosen. */
 @Composable
 private fun IntentArt() {
     val colors = Aurora.colors
-    val t = loop(5600, still = 0.9f)
-    val pause = (t / 0.5f).coerceIn(0f, 1f)
-    val chosen = ramp(t, 0.58f) > 0.5f
-    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(colors.field).border(1.dp, colors.hairline, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Box(Modifier.size(44.dp).glassCard(colors, RoundedCornerShape(13.dp), fill = colors.glassFill(field = true)), contentAlignment = Alignment.Center) {
                 Icon(AuroraIcons.Spark, null, Modifier.size(20.dp), tint = colors.textSecondary)
             }
-            Spacer(Modifier.weight(1f))
-            Box(Modifier.size(34.dp).clip(Radius.Pill).background(colors.elevated), contentAlignment = Alignment.Center) {
-                Icon(AuroraIcons.Close, null, Modifier.size(14.dp), tint = colors.textPrimary)
+            Box(Modifier.size(44.dp).border(2.5.dp, colors.accent, Radius.Pill), contentAlignment = Alignment.Center) {
+                Text("5s", color = colors.textPrimary, style = AuroraType.Caption)
             }
         }
-        Text(stringResource(R.string.onb_tour_mock_question), color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 24.sp, lineHeight = 28.sp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.M)) {
-            Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.fillMaxSize()) {
-                    val stroke = 3.dp.toPx()
-                    val inset = stroke / 2 + 1.dp.toPx()
-                    val box = Size(size.width - 2 * inset, size.height - 2 * inset)
-                    drawArc(colors.hairline, 0f, 360f, false, Offset(inset, inset), box, style = Stroke(stroke))
-                    drawArc(colors.accent, -90f, 360f * (1f - pause), false, Offset(inset, inset), box, style = Stroke(stroke, cap = StrokeCap.Round))
-                }
-                val left = (5 * (1f - pause) + 0.999f).toInt().coerceAtMost(5)
-                Text(if (left > 0 && pause < 1f) "${left}s" else "✓", color = colors.textPrimary, style = AuroraType.Caption)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
-                listOf(5, 15, 30).forEach { m -> Chip(minutesText(m), chosen && m == 15) { } }
-            }
-        }
+        Text(stringResource(R.string.intent_prompt_question), color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 24.sp, lineHeight = 28.sp))
+        ChoicePills(listOf(5, 15, 30), 15, onSelect = { }, label = { minutesText(it) }, fill = true)
     }
 }
 
-/** Home: Start session, lit and pressed now and then, over a saved session holding a Shield and an Intent. */
+/** Home: Start session (a picture, so not filled: the page has one filled action) over a saved session, as Home lists it. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeArt() {
     val colors = Aurora.colors
-    val t = loop(3600, still = 0f)
-    val press = 1f - 0.035f * (ramp(t, 0.3f, 0.06f) * (1f - ramp(t, 0.42f, 0.08f)).coerceIn(0f, 1f))
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
-            Modifier.fillMaxWidth().graphicsLayer { scaleX = press; scaleY = press }.heightIn(min = 58.dp).clip(Radius.Pill).sunlit(colors).padding(horizontal = Space.L),
+            Modifier.fillMaxWidth().heightIn(min = 58.dp).glass(colors, Radius.Pill).padding(horizontal = Space.L),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
         ) {
-            Icon(AuroraIcons.Play, null, Modifier.size(18.dp), tint = colors.onAccent)
+            Icon(AuroraIcons.Play, null, Modifier.size(18.dp), tint = colors.accent)
             Spacer(Modifier.size(10.dp))
-            Text(stringResource(R.string.home_start_title), color = colors.onAccent, style = AuroraType.Label)
+            Text(stringResource(R.string.home_start_title), color = colors.textPrimary, style = AuroraType.Label)
         }
-        Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-            Text(stringResource(R.string.onb_tour_mock_session), color = colors.textPrimary, style = AuroraType.Title)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-                ModeChip(Mode.Flexible, label = stringResource(R.string.tab_shield))
-                IntentChip(stringResource(R.string.tab_intent))
+        Text(stringResource(R.string.home_ready_title), Modifier.padding(start = 4.dp, top = Space.XS), color = colors.textSecondary, style = AuroraType.Label)
+        Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(horizontal = Space.Inner, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+                Text(stringResource(R.string.onb_tour_mock_session), Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Title)
+                Box(Modifier.size(28.dp).glassCard(colors, RoundedCornerShape(8.dp), fill = colors.glassFill(field = true)), contentAlignment = Alignment.Center) {
+                    Icon(AuroraIcons.Apps, null, Modifier.size(15.dp), tint = colors.textTertiary)
+                }
             }
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 48.dp).glass(colors, Radius.Pill),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
-            ) {
-                Icon(AuroraIcons.Play, null, Modifier.size(16.dp), tint = colors.textPrimary)
-                Spacer(Modifier.size(8.dp))
-                Text(stringResource(R.string.cfg_start), color = colors.textPrimary, style = AuroraType.Title)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
+                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+                    ModeChip(Mode.Flexible, label = stringResource(R.string.tab_shield))
+                    IntentChip(stringResource(R.string.tab_intent))
+                }
+                AuroraButton(stringResource(R.string.cfg_start), { }, kind = ButtonKind.Tonal, icon = AuroraIcons.Play, compact = true)
             }
         }
     }
 }
 
-/** Track: days lighting up one by one as a habit is kept, and a line filling towards it. No figures: nothing is invented. */
+/** Track: screen time, progress and habits side by side, each as a still picture. No figures: nothing is invented. */
 @Composable
 private fun TrackArt() {
     val colors = Aurora.colors
-    val t = loop(5000, still = 0.85f)
-    val days = 10
-    Column(Modifier.fillMaxWidth().auroraSurface(colors).padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-            LitBadge(AuroraIcons.Target, size = 36)
-            Text(stringResource(R.string.track_tab_goals), color = colors.textPrimary, style = AuroraType.Title)
+    Row(Modifier.fillMaxWidth().auroraSurface(colors).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        TrackTile(stringResource(R.string.onb_tour_mock_time)) {
+            // A week of screen time, easing down.
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+                listOf(0.85f, 0.7f, 0.78f, 0.55f, 0.5f, 0.38f, 0.3f).forEachIndexed { i, h ->
+                    Box(Modifier.weight(1f).fillMaxHeight(h).clip(Radius.Pill).background(if (i == 6) colors.accent else colors.textTertiary.copy(alpha = 0.45f)))
+                }
+            }
         }
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(Radius.Pill).background(colors.hairline)) {
-            Box(Modifier.fillMaxWidth((ramp(t, 0.05f, 0.75f)).coerceIn(0f, 1f)).height(6.dp).clip(Radius.Pill).background(colors.accent))
+        TrackTile(stringResource(R.string.onb_tour_mock_progress)) {
+            // Most of the way round.
+            val track = colors.textTertiary.copy(alpha = 0.3f)
+            val lit = colors.accent
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(4.dp)) {
+                val stroke = androidx.compose.ui.graphics.drawscope.Stroke(5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                val side = minOf(size.width, size.height) - stroke.width
+                val at = androidx.compose.ui.geometry.Offset((size.width - side) / 2f, (size.height - side) / 2f)
+                val box = androidx.compose.ui.geometry.Size(side, side)
+                drawArc(track, 0f, 360f, false, at, box, style = stroke)
+                drawArc(lit, -90f, 260f, false, at, box, style = stroke)
+            }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            repeat(days) { i ->
-                val on = ramp(t, 0.05f + i * 0.07f, 0.06f)
-                Box(Modifier.size(14.dp).clip(Radius.Pill).background(colors.hairline), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(14.dp).graphicsLayer { scaleX = on; scaleY = on; alpha = on }.clip(Radius.Pill).background(colors.accent))
+        TrackTile(stringResource(R.string.track_tab_goals)) {
+            // The days kept, lit.
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
+                repeat(3) { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        repeat(3) { col ->
+                            val kept = row * 3 + col < 7
+                            Box(Modifier.size(10.dp).clip(Radius.Pill).background(if (kept) colors.accent else colors.textTertiary.copy(alpha = 0.3f)))
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-/** The last page: Shield needs one permission, explained at the moment it is asked for. */
+/** One of Track's three pictures: a square well with its name under it. */
 @Composable
-private fun TurnOnShield() {
-    val context = LocalContext.current
+private fun androidx.compose.foundation.layout.RowScope.TrackTile(label: String, art: @Composable () -> Unit) {
     val colors = Aurora.colors
-    val access = rememberAccess(Access.Accessibility)
-    val connected by ShieldService.connected.collectAsStateWithLifecycle()
-    var disclosure by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.Gutter), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-        Spacer(Modifier.height(Space.XL))
-        LitBadge(AuroraIcons.Protect, Modifier.enter(0), size = 64)
-        Spacer(Modifier.height(Space.XS))
-        Eyebrow(stringResource(R.string.onb_shield_eyebrow), Modifier.enter(1), color = colors.accent)
-        Text(stringResource(R.string.onb_shield_title), Modifier.enter(1).semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-        Text(stringResource(R.string.onb_shield_body), Modifier.enter(2), color = colors.textSecondary, style = AuroraType.Body)
-        Column(Modifier.padding(vertical = Space.S).enter(3), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-            StatusLine(stringResource(R.string.onb_shield_permission), access == AccessState.Granted)
-            StatusLine(stringResource(R.string.onb_shield_running), connected)
-        }
-        if (access != AccessState.Granted) AuroraButton(stringResource(R.string.status_turn_on), { disclosure = true }, Modifier.fillMaxWidth().enter(4))
-        Text(stringResource(R.string.onb_shield_privacy), Modifier.enter(5), color = colors.textTertiary, style = AuroraType.Caption)
-        // Xiaomi stops background services, so keeping Shield running belongs with turning it on.
-        if (isXiaomi) {
-            Spacer(Modifier.height(Space.S))
-            Text(stringResource(R.string.onb_keep_xiaomi), color = colors.textSecondary, style = AuroraType.Secondary)
-            AuroraButton(stringResource(R.string.keep_running_autostart), { openAutostart(context) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
-            AuroraButton(stringResource(R.string.keep_running_battery), { openAppInfo(context) }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
-        }
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).glassCard(colors, TileShape, fill = colors.glassFill(field = true)).padding(14.dp)) { art() }
+        Text(label, color = colors.textSecondary, style = AuroraType.Caption, maxLines = 1)
     }
-    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
 }
 
+/** What the last page asks for, in order: Shield first, since nothing works without it. */
+private val Needed = listOf(Access.Accessibility, Access.Content, Access.Usage, Access.Notifications)
+
+/** The last page: only the permissions still off, in the one permission card, each with its own Allow. */
 @Composable
-private fun StatusLine(text: String, ok: Boolean) {
+private fun Permissions(missing: List<Access>) {
     val colors = Aurora.colors
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S)) {
-        SelectionMark(ok)
-        Text(text, color = if (ok) colors.textPrimary else colors.textSecondary, style = AuroraType.BodyStrong)
+    Page {
+        Text(
+            stringResource(R.string.onb_access_title), Modifier.semantics { heading() },
+            color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center,
+        )
+        Text(
+            stringResource(if (missing.isEmpty()) R.string.onb_access_done else R.string.onb_access_body), Modifier.padding(top = Space.S).widthIn(max = 300.dp),
+            color = colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+        )
+        if (missing.isNotEmpty()) app.aurora.ui.protect.PermissionCard(missing, Modifier.padding(top = 36.dp))
     }
 }

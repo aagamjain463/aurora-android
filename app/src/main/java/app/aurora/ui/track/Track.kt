@@ -1,5 +1,7 @@
 package app.aurora.ui.track
 
+import app.aurora.ui.components.AuroraIconButton
+import app.aurora.ui.components.glassRim
 import androidx.compose.ui.unit.em
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
@@ -72,13 +74,16 @@ import app.aurora.ui.components.ArtTier
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.AuroraIcons
-import app.aurora.ui.components.AuroraIconButton
+import app.aurora.ui.components.glass
+import androidx.compose.foundation.layout.size
 import app.aurora.ui.library.MenuItem
 import app.aurora.ui.library.DetailsDialog
 import app.aurora.ui.library.keyRows
 import app.aurora.ui.home.outcomeName
 import app.aurora.ui.protect.modeName
 import app.aurora.ui.components.Chevron
+import app.aurora.ui.components.AuroraRow
+import app.aurora.ui.components.RowGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
 import app.aurora.ui.components.AuroraScreen
@@ -103,6 +108,7 @@ import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -112,6 +118,7 @@ import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
+import app.aurora.ui.components.Chip
 
 /** Insights opens on where the time goes; Progress and Goals follow. */
 enum class TrackTab(val label: Int) { Usage(R.string.track_tab_usage), Progress(R.string.track_tab_progress), Goals(R.string.track_tab_goals) }
@@ -132,7 +139,8 @@ private data class TrackState(
     val stats: Map<StatPeriod, SessionStats> = emptyMap(),
     /** Null: Time Reclaimed can't be measured right now. */
     val reclaimed: Reclaimed? = null,
-    val recent: List<RunRecord> = emptyList(),
+    /** Finished sessions kept: Progress only links to them. */
+    val sessions: Int = 0,
     val goals: List<GoalRow> = emptyList(),
     /** Completed habits, newest first: they leave the Habits list for History. */
     val completed: List<GoalRow> = emptyList(),
@@ -147,7 +155,7 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
     /** Called on resume and every minute while Track is open; skipped while one is running. */
     fun refresh() {
         if (measuring?.isActive == true) return
-        measuring = viewModelScope.launch {
+        measuring = viewModelScope.launch(Dispatchers.Default) {
             runCatching { app.syncRuns() }
             // The service last reported at some earlier event: a run going now should count up to now.
             if (ShieldService.connected.value) runCatching { app.serviceSeen(connected = true) }
@@ -159,7 +167,12 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
             val zone = ZoneId.systemDefault()
             val today = LocalDate.now(zone)
             fun startOf(date: LocalDate) = date.atStartOfDay(zone).toInstant().toEpochMilli()
-            val live = app.runsNow(t).map { LiveRun(it.configId, it.startAt(t), it.endAt(t), it.shield != null) }
+            val unlocks = app.runtime.value?.unlocks.orEmpty()
+            val live = app.runsNow(t).map { r ->
+                // Unlocks that stopped its timer aren't the session's time.
+                val stopped = unlocks[r.id].orEmpty().filterNot { it.focusRuns }.map { it.start to minOf(it.end, t.wall) }
+                LiveRun(r.configId, r.startAt(t), r.endAt(t), r.shield != null, stopped)
+            }
             val tomorrow = startOf(today.plusDays(1))
             _state.value = TrackState(
                 loading = false,
@@ -170,7 +183,7 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
                     StatPeriod.Overall to 0L,
                 ).mapValues { (_, from) -> sessionStats(history.runs, live, from, tomorrow, t.wall) },
                 reclaimed = reclaimed,
-                recent = history.runs.sortedByDescending { it.end }.take(3),
+                sessions = history.runs.size,
                 goals = rules.activeGoalIds(app.plan).let { active ->
                     rules.trackGoals.filter { it.status != GoalStatus.Completed }
                         .sortedWith(compareByDescending<Goal> { it.id in active }.thenByDescending { it.createdAt }).map { g ->
@@ -223,20 +236,18 @@ private class TrackModel(val app: AuroraApplication) : ViewModel() {
 
 /** Track: Progress (time reclaimed, what sessions achieved), Goals, and Usage (screen time). */
 @Composable
-fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, onCreateGoal: () -> Unit = {}, onOpenHistory: () -> Unit = {}, onOpenHabitHistory: () -> Unit = {}, start: TrackTab = TrackTab.Usage, onOpenGuide: () -> Unit = {}) {
+fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, onCreateGoal: () -> Unit = {}, onOpenHistory: () -> Unit = {}, onOpenHabitHistory: () -> Unit = {}, onOpenAppUsage: (app.aurora.ui.insights.Period) -> Unit = {}, start: TrackTab = TrackTab.Usage) {
     val vm = auroraViewModel { TrackModel(it) }
     val usage = auroraViewModel { InsightsViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     val usageState by usage.state.collectAsStateWithLifecycle()
-    val minute by clockTicks(60_000).collectAsStateWithLifecycle(0L)
+    val minute by androidx.compose.runtime.remember { clockTicks(60_000) }.collectAsStateWithLifecycle(0L)
     val resources = LocalResources.current
     var tab by rememberSaveable { mutableStateOf(start) }
     var period by rememberSaveable { mutableStateOf(StatPeriod.Today) }
     var plusNote by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Goal?>(null) }
     var resuming by remember { mutableStateOf<Goal?>(null) }
-    var session by remember { mutableStateOf<RunRecord?>(null) }
-    session?.let { SessionDetailsDialog(it) { session = null } }
     resuming?.let { g ->
         val current = state.goals.firstOrNull { it.measuring }?.goal
         GoalLimitDialog(current, onPlus, { resuming = null }) { old, status ->
@@ -256,20 +267,21 @@ fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, o
         title = stringResource(R.string.tab_track),
         tabBar = true,
         art = ArtTier.Balanced,
-        header = { TabHeader(stringResource(R.string.track_headline), onOpenSettings, app.aurora.ui.guide.GuideTopic.Track, onOpenGuide) },
+        header = { TabHeader(stringResource(R.string.track_headline), onOpenSettings) },
     ) {
         item(key = "tabs") {
-            ChoicePills(
-                TrackTab.entries, tab, { tab = it }, label = { resources.getString(it.label) }, fill = true, segmented = true,
-                modifier = Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S),
-            )
+            // Editorial tabs: words only, a fine rule under the chosen one, a hairline beneath them all.
+            Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.L)) {
+                ChoicePills(TrackTab.entries, tab, { tab = it }, label = { resources.getString(it.label) }, quiet = true, quietSize = 17.sp)
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Aurora.colors.hairline))
+            }
         }
         when (tab) {
-            TrackTab.Progress -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else progressSection(state, period, { period = it }, onOpenHistory) { session = it }
+            TrackTab.Progress -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else progressSection(state, period, { period = it }, onOpenHistory)
             TrackTab.Goals -> if (state.loading) item(key = "loading") { SkeletonRows(5) } else goalsSection(state, onCreateGoal, onOpenHabitHistory, { deleting = it }) { g, status ->
                 vm.setStatus(g.id, status, onBlocked = { resuming = g })
             }
-            TrackTab.Usage -> usageSection(usageState, usage) { plusNote = true }
+            TrackTab.Usage -> usageSection(usageState, usage, onOpenAppUsage) { plusNote = true }
         }
     }
     deleting?.let { g ->
@@ -285,10 +297,10 @@ fun TrackScreen(onPlus: () -> Unit = {}, onOpenSettings: (() -> Unit)? = null, o
         confirmLabel = stringResource(R.string.settings_got_it),
         onConfirm = { plusNote = false },
         onDismiss = { plusNote = false },
-    ) { AuroraButton(stringResource(R.string.insights_about_aurora_plus), { plusNote = false; onPlus() }, kind = ButtonKind.Quiet) }
+    ) { AuroraButton(stringResource(R.string.insights_about_aurora_plus), { plusNote = false; onPlus() }, kind = ButtonKind.PlusQuiet) }
 }
 
-private fun LazyListScope.progressSection(state: TrackState, period: StatPeriod, onPeriod: (StatPeriod) -> Unit, onOpenHistory: () -> Unit, onOpen: (RunRecord) -> Unit) {
+private fun LazyListScope.progressSection(state: TrackState, period: StatPeriod, onPeriod: (StatPeriod) -> Unit, onOpenHistory: () -> Unit) {
     item(key = "stats") {
         val resources = LocalResources.current
         val colors = Aurora.colors
@@ -301,10 +313,10 @@ private fun LazyListScope.progressSection(state: TrackState, period: StatPeriod,
                 StatPeriod.Overall -> it.overallMs
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
-            ChoicePills(StatPeriod.entries, period, onPeriod, label = { resources.getString(it.label) }, fill = true, segmented = true, modifier = Modifier.padding(horizontal = Space.Gutter))
+        Column(verticalArrangement = Arrangement.spacedBy(Space.L)) {
+            ChoicePills(StatPeriod.entries, period, onPeriod, label = { resources.getString(it.label) }, quiet = true, quietSize = 14.sp, modifier = Modifier.padding(horizontal = Space.Gutter))
             // Built like Home's Time Reclaimed: the one number large, the session counts beneath it.
-            Column(Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 18.dp)) {
+            Column(Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(colors).padding(24.dp)) {
                 Text(stringResource(R.string.today_metric_label), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title.copy(fontSize = 15.sp))
                 when {
                     reclaimed != null -> CountUpText(formatDuration(reclaimed), colors.textPrimary, AuroraType.Metric.copy(fontSize = 40.sp, lineHeight = 46.sp), Modifier.padding(top = 8.dp))
@@ -312,16 +324,12 @@ private fun LazyListScope.progressSection(state: TrackState, period: StatPeriod,
                     !state.usageAccess -> {
                         Text(stringResource(R.string.today_metric_not_measured), Modifier.padding(top = Space.XS), color = colors.textPrimary, style = AuroraType.Headline)
                         Text(stringResource(R.string.today_metric_no_access), color = colors.textSecondary, style = AuroraType.Secondary)
-                        AuroraButton(stringResource(R.string.today_metric_allow), { openUsageAccessSettings(context) }, Modifier.padding(top = Space.S), kind = ButtonKind.Secondary)
+                        AuroraButton(stringResource(R.string.today_metric_allow), app.aurora.ui.protect.askFor(app.aurora.data.Access.Usage), Modifier.padding(top = Space.S), kind = ButtonKind.Secondary)
                     }
                     else -> {
                         Text("—", color = colors.textPrimary, style = AuroraType.Metric.copy(fontSize = 40.sp, lineHeight = 46.sp))
                         Text(stringResource(R.string.usage_records_unavailable_body), color = colors.textSecondary, style = AuroraType.Secondary)
                     }
-                }
-                // Sessions count on the day they began; time counts on the day it passed.
-                if (period == StatPeriod.Today && state.fromLastNight && (reclaimed ?: 0) > 0) {
-                    Text(stringResource(R.string.track_from_last_night), Modifier.padding(top = 2.dp), color = colors.textTertiary, style = AuroraType.Caption)
                 }
                 Box(Modifier.padding(top = 14.dp).fillMaxWidth().height(1.dp).background(colors.hairline))
                 Row(Modifier.padding(top = 14.dp).fillMaxWidth()) {
@@ -335,21 +343,16 @@ private fun LazyListScope.progressSection(state: TrackState, period: StatPeriod,
             }
         }
     }
-    item(key = "recent") { RecentSessions(state.recent, onOpenHistory, onOpen) }
-}
-
-@Composable
-private fun RecentSessions(recent: List<RunRecord>, onOpenHistory: () -> Unit, onOpen: (RunRecord) -> Unit) {
-    val colors = Aurora.colors
-    SectionLabel(stringResource(R.string.track_recent_runs))
-    if (recent.isEmpty()) {
-        Text(stringResource(R.string.track_no_runs), Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(colors).padding(horizontal = 22.dp, vertical = 20.dp), color = colors.textSecondary, style = AuroraType.Secondary)
-        return
-    }
-    Column(Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(colors)) {
-        SessionRows(recent, onOpen)
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.hairline))
-        AuroraButton(stringResource(R.string.track_all_runs), onOpenHistory, Modifier.fillMaxWidth().padding(Space.XS), kind = ButtonKind.Quiet, compact = true)
+    item(key = "recent") {
+        // One way in, no sessions on the page itself: the list and its filters live on their own screen.
+        RowGroup(Modifier.padding(top = Space.L)) {
+            AuroraRow(
+                stringResource(R.string.track_recent_runs),
+                subtitle = if (state.sessions == 0) stringResource(R.string.track_no_runs) else pluralStringResource(R.plurals.track_sessions_kept, state.sessions, state.sessions),
+                onClick = onOpenHistory,
+                trailing = { Chevron() },
+            )
+        }
     }
 }
 
@@ -358,7 +361,7 @@ private fun RecentSessions(recent: List<RunRecord>, onOpenHistory: () -> Unit, o
 private fun SessionRows(runs: List<RunRecord>, onOpen: (RunRecord) -> Unit) {
     val colors = Aurora.colors
     runs.forEachIndexed { i, r ->
-        if (i > 0) Box(Modifier.padding(horizontal = 22.dp).fillMaxWidth().height(1.dp).background(colors.hairline))
+        if (i > 0) Box(Modifier.padding(horizontal = Space.Inner).fillMaxWidth().height(1.dp).background(colors.hairline))
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClickLabel = stringResource(R.string.preset_view)) { onOpen(r) }.padding(start = 22.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -385,8 +388,10 @@ private fun SessionDetailsDialog(r: RunRecord, onDismiss: () -> Unit) {
     ).joinToString("\n")
     val rows = listOf(
         stringResource(R.string.detail_when) to "$day\n${clockTime(r.start)} – ${clockTime(r.end)}",
-        stringResource(R.string.detail_length) to formatDuration(r.end - r.start),
         stringResource(R.string.detail_result) to result,
+        stringResource(R.string.reclaimed_label) to formatDuration(r.reclaimedMs),
+        stringResource(R.string.detail_held) to formatDuration(r.end - r.start),
+    ) + listOfNotNull(r.plannedMs?.let { stringResource(R.string.detail_planned) to formatDuration(it) }) + listOf(
         stringResource(R.string.detail_shield) to listOfNotNull(r.shieldName, r.shieldMode?.let { modeName(it) }).joinToString(" · "),
         stringResource(R.string.detail_intent) to r.intentName.orEmpty(),
         stringResource(R.string.detail_focus) to r.focusTask.orEmpty(),
@@ -394,32 +399,79 @@ private fun SessionDetailsDialog(r: RunRecord, onDismiss: () -> Unit) {
     DetailsDialog(r.name, rows, onDismiss)
 }
 
+/** How the session list narrows: by how it went. The day it ran is chosen apart, from a calendar. */
+internal enum class SessionFilter(val label: Int, val keeps: (RunRecord) -> Boolean) {
+    All(R.string.filter_all, { true }),
+    Succeeded(R.string.outcome_succeeded, { it.outcome == Outcome.Succeeded }),
+    Missed(R.string.filter_missed, { it.outcome == Outcome.NotAchieved || it.outcome == Outcome.Partial }),
+}
+
 /** Every finished session this account has kept, newest first, each with its recorded result. */
 @Composable
-fun SessionHistoryScreen(onBack: () -> Unit) {
+fun SessionHistoryScreen(onBack: () -> Unit, initialDay: String? = null) {
     val app = LocalContext.current.applicationContext as AuroraApplication
+    val resources = LocalResources.current
     val history by app.history.state.collectAsStateWithLifecycle()
-    val runs = history?.value?.runs.orEmpty().sortedByDescending { it.end }
+    val all = history?.value?.runs.orEmpty().sortedByDescending { it.end }
+    var filter by rememberSaveable { mutableStateOf(SessionFilter.All) }
+    var day by rememberSaveable { mutableStateOf(initialDay) }
+    var picking by remember { mutableStateOf(false) }
+    val zone = ZoneId.systemDefault()
+    val runs = all.filter(filter.keeps).filter { r -> day == null || java.time.Instant.ofEpochMilli(r.start).atZone(zone).toLocalDate().toString() == day }
     var session by remember { mutableStateOf<RunRecord?>(null) }
     session?.let { SessionDetailsDialog(it) { session = null } }
-    AuroraScreen(title = stringResource(R.string.history_title), subtitle = stringResource(R.string.history_subtitle), onBack = onBack) {
-        if (runs.isEmpty()) item(key = "empty") { EmptyState(stringResource(R.string.track_no_runs), "", icon = AuroraIcons.Track) }
+    if (picking) SessionDayPicker(day, { day = it; picking = false }) { picking = false }
+    AuroraScreen(title = stringResource(R.string.history_title), onBack = onBack) {
+        if (all.isEmpty()) {
+            item(key = "empty") { EmptyState(stringResource(R.string.track_no_runs), "") }
+            return@AuroraScreen
+        }
+        item(key = "filter") {
+            // Clear of the top bar, so the pills' rims are never cut off. How it went on the left; the calendar on the right.
+            Row(
+                Modifier.fillMaxWidth().padding(top = Space.S).padding(horizontal = Space.Gutter),
+                horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ChoicePills(SessionFilter.entries, filter, { filter = it }, label = { resources.getString(it.label) }, modifier = Modifier.weight(1f))
+                AuroraIconButton(AuroraIcons.Calendar, stringResource(R.string.filter_date), { picking = true })
+            }
+        }
+        // The chosen day, said once in full on its own line, with the way back to every day beside it.
+        day?.let { chosen ->
+            item(key = "day") {
+                val label = java.time.LocalDate.parse(chosen).format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM"))
+                Row(
+                    Modifier.padding(horizontal = Space.Gutter).padding(top = Space.M).fillMaxWidth()
+                        .glass(Aurora.colors, Radius.Pill).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S),
+                ) {
+                    androidx.compose.material3.Icon(AuroraIcons.Calendar, null, tint = Aurora.colors.textSecondary, modifier = Modifier.size(18.dp))
+                    Text(label, Modifier.weight(1f), color = Aurora.colors.textPrimary, style = AuroraType.BodyStrong, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    AuroraIconButton(AuroraIcons.Close, stringResource(R.string.filter_date_clear), { day = null }, Modifier.size(40.dp))
+                }
+            }
+        }
+        item(key = "gap") { Spacer(Modifier.height(Space.L)) }
         item(key = "runs") {
-            if (runs.isNotEmpty()) Column(Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(Aurora.colors)) { SessionRows(runs) { session = it } }
+            if (runs.isEmpty()) Text(
+                stringResource(R.string.filter_none), Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(Aurora.colors).padding(horizontal = Space.Inner, vertical = 20.dp),
+                color = Aurora.colors.textSecondary, style = AuroraType.Secondary,
+            )
+            else Column(Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(Aurora.colors)) { SessionRows(runs) { session = it } }
         }
     }
 }
 
 private fun LazyListScope.goalsSection(state: TrackState, onCreate: () -> Unit, onHistory: () -> Unit, onDelete: (Goal) -> Unit, onStatus: (Goal, GoalStatus) -> Unit) {
     item(key = "goal-create") {
-        Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
+        Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.XL), verticalArrangement = Arrangement.spacedBy(Space.S)) {
             AuroraButton(stringResource(R.string.goal_create), onCreate, Modifier.fillMaxWidth(), icon = AuroraIcons.Plus)
             // Completed habits live in History, with their results, ready to resume.
             AuroraButton(stringResource(R.string.habit_history), onHistory, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Clock)
         }
     }
     if (state.goals.isEmpty()) item(key = "goal-empty") {
-        EmptyState(stringResource(R.string.goal_empty_title), stringResource(R.string.goal_empty_body), icon = AuroraIcons.Target)
+        EmptyState(stringResource(R.string.goal_empty_title), stringResource(R.string.goal_empty_body))
     }
     items(state.goals, key = { "goal-" + it.goal.id }) { row -> GoalCard(row, state.usageAccess, { onStatus(row.goal, it) }) { onDelete(row.goal) } }
 }
@@ -435,9 +487,15 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
     val g = row.goal
     val p = row.progress
     val failed = p.state == GoalState.Failed
-    val amount = g.sessions?.let { pluralStringResource(R.plurals.goal_sessions_per_week, it, it) }
+    val amount = g.sessions?.let {
+        when {
+            g.period == GoalPeriod.Weekly -> pluralStringResource(R.plurals.goal_sessions_per_week, it, it)
+            g.days.isNotEmpty() -> stringResource(R.string.goal_session_on_days, app.aurora.ui.protect.daysText(g.days))
+            else -> stringResource(R.string.goal_session_daily)
+        }
+    }
         ?: if (g.days.isNotEmpty()) stringResource(R.string.goal_on_days, formatDuration(g.target), app.aurora.ui.protect.daysText(g.days)) else stringResource(if (g.period == GoalPeriod.Daily) R.string.limits_per_day else R.string.goal_per_week, formatDuration(g.target))
-    Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 12.dp, top = 12.dp, bottom = 20.dp)) {
+    Column(Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.Card).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 12.dp, top = 12.dp, bottom = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(top = 8.dp)) {
                 Text(g.name, Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title.copy(fontSize = 15.sp))
@@ -454,7 +512,7 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
                 ) to colors.textTertiary
                 p.state == GoalState.OnTrack -> stringResource(R.string.goal_on_track) to colors.accent
                 p.state == GoalState.Achieved -> stringResource(R.string.goal_achieved) to colors.accent
-                failed -> stringResource(R.string.goal_failed) to colors.violetText
+                failed -> stringResource(R.string.goal_failed) to colors.mutedText
                 else -> "" to colors.textTertiary
             }
             if (status.isNotEmpty()) Text(status, Modifier.padding(start = Space.S, top = 8.dp), color = tone, style = AuroraType.Caption)
@@ -465,7 +523,7 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
                     open, { open = false },
                     shape = Radius.M,
                     containerColor = colors.elevated,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.hairline),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.glassRim()),
                 ) {
                     if (g.status == GoalStatus.Active) {
                         MenuItem(stringResource(R.string.goal_pause), AuroraIcons.Pause) { open = false; onStatus(GoalStatus.Paused) }
@@ -480,7 +538,7 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
             val value = p.value
             if (value == null) {
                 Text(stringResource(if (usageAccess) R.string.usage_records_unavailable_body else R.string.insights_needs_usage_access_to_measure), Modifier.padding(top = Space.XS), color = colors.textSecondary, style = AuroraType.Secondary)
-                if (!usageAccess) AuroraButton(stringResource(R.string.today_metric_allow), { openUsageAccessSettings(context) }, kind = ButtonKind.Secondary, compact = true)
+                if (!usageAccess) AuroraButton(stringResource(R.string.today_metric_allow), app.aurora.ui.protect.askFor(app.aurora.data.Access.Usage), kind = ButtonKind.Secondary, compact = true)
             } else {
                 val rest = g.target - value
                 val left = when {
@@ -496,34 +554,12 @@ private fun GoalCard(row: GoalRow, usageAccess: Boolean, onStatus: (GoalStatus) 
                 }
                 Row(Modifier.padding(top = Space.S), verticalAlignment = Alignment.Bottom) {
                     Text(left, Modifier.weight(1f), color = colors.textPrimary, style = AuroraType.Headline.copy(fontSize = 22.sp, lineHeight = 28.sp))
-                    if (right != null) Text(right, Modifier.padding(bottom = 3.dp), color = if (failed) colors.violetText else colors.textTertiary, style = AuroraType.Caption)
+                    if (right != null) Text(right, Modifier.padding(bottom = 3.dp), color = if (failed) colors.mutedText else colors.textTertiary, style = AuroraType.Caption)
                 }
                 ProgressLine(value.toFloat() / g.target.coerceAtLeast(1), warm = failed)
             }
-            // The record is the points of light alone; the counts are spoken, not printed.
-            val summary = stringResource(R.string.goal_record_line, p.met, p.failed, p.streak)
-            DayStrip(p.record.map { it.second }, Modifier.padding(top = Space.XS).semantics(mergeDescendants = true) { contentDescription = summary }, dot = 8.dp)
             if (g.status != GoalStatus.Active) AuroraButton(stringResource(R.string.goal_resume), { onStatus(GoalStatus.Active) }, Modifier.padding(top = Space.XS).fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Play)
         }
-    }
-}
-
-/** The track record, as points of light: lit for success, a violet ring for failure, faint where nothing was judged. */
-@Composable
-private fun DayStrip(marks: List<DayMark>, modifier: Modifier = Modifier, dot: Dp = 14.dp) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) { marks.forEach { DayDot(it, dot) } }
-}
-
-@Composable
-private fun DayDot(m: DayMark, size: Dp) {
-    val colors = Aurora.colors
-    val base = Modifier.size(size).clip(Radius.Pill)
-    when (m) {
-        DayMark.Succeeded -> Box(base.background(colors.accent))
-        DayMark.Missed -> Box(base.border(1.5.dp, colors.violet.copy(alpha = 0.7f), Radius.Pill))
-        DayMark.Pending -> Box(base.border(1.5.dp, colors.accent.copy(alpha = 0.7f), Radius.Pill))
-        DayMark.Rest -> Box(base.background(colors.hairline))
-        DayMark.Before -> Box(base.background(colors.hairline.copy(alpha = 0.35f)))
     }
 }
 
@@ -547,11 +583,11 @@ fun HabitHistoryScreen(onBack: () -> Unit, onPlus: () -> Unit = {}) {
             vm.setStatus(g.id, GoalStatus.Active, replacing = old.id, replacingStatus = status)
         }
     }
-    AuroraScreen(title = stringResource(R.string.habit_history_title), subtitle = stringResource(R.string.habit_history_subtitle), onBack = onBack) {
+    AuroraScreen(title = stringResource(R.string.habit_history_title), onBack = onBack) {
         when {
             state.loading -> item(key = "loading") { SkeletonRows(4) }
             state.completed.isEmpty() -> item(key = "empty") {
-                EmptyState(stringResource(R.string.habit_history_empty), stringResource(R.string.habit_history_empty_body), icon = AuroraIcons.Target)
+                EmptyState(stringResource(R.string.habit_history_empty), stringResource(R.string.habit_history_empty_body))
             }
             else -> items(state.completed, key = { "done-" + it.goal.id }) { row ->
                 HabitResultCard(row, onResume = { vm.setStatus(row.goal.id, GoalStatus.Active, onBlocked = { resuming = row.goal }) }) { deleting = row.goal }
@@ -581,13 +617,9 @@ private fun HabitResultCard(row: GoalRow, onResume: () -> Unit, onDelete: () -> 
         add(stringResource(R.string.habit_stat_met) to p.met.toString())
         add(stringResource(R.string.habit_stat_missed) to p.failed.toString())
         add(stringResource(R.string.habit_stat_best) to p.best.toString())
-        if (g.kind == GoalKind.Session) {
-            add(stringResource(R.string.habit_stat_sessions) to row.sessions.toString())
-            add(stringResource(R.string.habit_stat_sessions_won) to row.won.toString())
-        }
     }
     Column(
-        Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.S).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 12.dp, top = 12.dp, bottom = 20.dp),
+        Modifier.padding(horizontal = Space.Gutter).padding(bottom = Space.Card).fillMaxWidth().auroraSurface(colors).padding(start = 22.dp, end = 12.dp, top = 12.dp, bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.S),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -609,8 +641,34 @@ private fun HabitResultCard(row: GoalRow, onResume: () -> Unit, onDelete: () -> 
                 }
             }
         }
-        val summary = stringResource(R.string.goal_record_line, p.met, p.failed, p.streak)
-        DayStrip(p.record.map { it.second }, Modifier.padding(top = Space.XS).semantics(mergeDescendants = true) { contentDescription = summary }, dot = 8.dp)
         AuroraButton(stringResource(R.string.goal_resume), onResume, Modifier.padding(top = Space.XS, end = 10.dp).fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Play)
     }
+}
+
+/** The calendar for the session list: any day up to today. Clear date shows every day again. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionDayPicker(day: String?, onPick: (String?) -> Unit, onDismiss: () -> Unit) {
+    val utc = java.time.ZoneOffset.UTC
+    val today = java.time.LocalDate.now()
+    val state = androidx.compose.material3.rememberDatePickerState(
+        initialSelectedDateMillis = (day?.let(java.time.LocalDate::parse) ?: today).atStartOfDay(utc).toInstant().toEpochMilli(),
+        selectableDates = object : androidx.compose.material3.SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = !java.time.Instant.ofEpochMilli(utcTimeMillis).atZone(utc).toLocalDate().isAfter(today)
+            override fun isSelectableYear(year: Int) = year <= today.year
+        },
+    )
+    val colors = androidx.compose.material3.DatePickerDefaults.colors(containerColor = Aurora.colors.elevated)
+    androidx.compose.material3.DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            app.aurora.ui.components.AuroraButton(stringResource(R.string.action_ok), {
+                onPick(state.selectedDateMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(utc).toLocalDate().toString() })
+            }, kind = app.aurora.ui.components.ButtonKind.Quiet, compact = true)
+        },
+        dismissButton = {
+            app.aurora.ui.components.AuroraButton(stringResource(R.string.filter_date_clear), { onPick(null) }, kind = app.aurora.ui.components.ButtonKind.Quiet, compact = true)
+        },
+        colors = colors,
+    ) { androidx.compose.material3.DatePicker(state, showModeToggle = false, colors = colors) }
 }

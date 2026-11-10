@@ -66,6 +66,107 @@ fun fromChannels(texts: List<String>, channels: List<String>): Boolean = channel
     texts.any { whole.containsMatchIn(normal(it)) }
 }
 
+/** The channel row under a video: "jawed 67.3 lakh subscribers", "Rick Astley, Official Artist Channel 45.5 lakh subscribers". */
+private val SubscriberRow = Regex("^(.+?) [\\d.,]+\\s*(?:[KMB]|lakh|crore|thousand|million|billion)? subscribers?$", RegexOption.IGNORE_CASE)
+
+/**
+ * The channels [texts] name for certain: a handle ("@veritasium"), YouTube's "Subscribe to Veritasium." (or
+ * "Unsubscribe from") button, or the channel row with its subscriber count (English). A title, a view count or an
+ * ad names none: a page still loading isn't judged by them.
+ */
+fun channelsNamed(texts: List<String>): List<String> = texts.mapNotNull { text ->
+    val t = text.trim()
+    when {
+        // A video by several channels names the first: "@MoreKSIVideos +1".
+        Regex("^@[\\p{L}\\p{N}._\\-]+(?: \\+\\d+)?$").matches(t) -> t.substringBefore(" +")
+        t.startsWith("Subscribe to ") -> t.removePrefix("Subscribe to ").trimEnd('.').trim().takeIf(String::isNotEmpty)
+        t.startsWith("Unsubscribe from ") -> t.removePrefix("Unsubscribe from ").trimEnd('.').trim().takeIf(String::isNotEmpty)
+        else -> SubscriberRow.find(t)?.groupValues?.get(1)?.trim()?.takeIf(String::isNotEmpty)
+    }
+}
+
+/**
+ * The channels [texts] name by the channel row's own words: the Subscribe button or the subscriber count, never an
+ * @handle alone (it can be a commenter's). They change the moment another video opens in the same page.
+ */
+fun strongChannels(texts: List<String>): List<String> = channelsNamed(texts.filterNot { it.trim().startsWith("@") })
+
+/** A channel name or handle reduced to its letters and digits: "@IShowSpeed", "ishowspeed" and "I Show Speed" agree. */
+private fun channelId(name: String): String =
+    name.trim().removeSuffix(", verified").removeSuffix(", Official Artist Channel").lowercase().filter(Char::isLetterOrDigit)
+
+/**
+ * Whether [channel] (a name YouTube shows, or a handle) is one of [chosen], as a whole: "IShowSpeed Clips" and
+ * "Live Speedy" are other channels. A card's "Go to channel" part names it twice ("X – X"); that counts as X.
+ */
+fun isChosen(channel: String, chosen: List<String>): Boolean {
+    val whole = channelId(channel)
+    val twice = channel.split(" – ").takeIf { it.size == 2 && channelId(it[0]) == channelId(it[1]) }?.let { channelId(it[0]) }
+    return chosen.map(::channelId).filter(String::isNotEmpty).any { it == whole || it == twice }
+}
+
+/** How a video card's label ends in YouTube's lists (YouTube 21.41, English). */
+const val PlayVideo = " – play video"
+const val PlayShort = " – play Short"
+
+/** A playlist in YouTube's lists: "<title> - <channel> - 24 videos". It plays its first video when tapped. */
+private val PlaylistCount = Regex(" - [\\d,.]+\\s*(?:K|lakh|crore)? videos?$")
+
+/** How a card's label ends, in a list (" – play video") or in the player when a video ends (" - Play video"). */
+private val PlayEnding = Regex("\\s[–-]\\s+play (?:video|Short)$", RegexOption.IGNORE_CASE)
+
+/** The player's suggestion when a video ends: "Suggested video - <title> - <length> - <channel> - Play video". */
+private const val Suggested = "Suggested video - "
+
+/**
+ * Whether [label] is a card that opens a video when tapped (a video, a Short, a playlist, the player's suggestion
+ * when a video ends). The player's own "Play video" button isn't one.
+ */
+fun isVideoCard(label: String): Boolean = PlayEnding.containsMatchIn(label) || PlaylistCount.containsMatchIn(label)
+
+/** A playlist card: it names its owner, but the videos in it can be anyone's. */
+fun isPlaylistCard(label: String): Boolean = PlaylistCount.containsMatchIn(label)
+
+/**
+ * The channel a page section names for the cards under it that don't name one themselves: a shelf ("Latest from
+ * Veritasium") or a channel's page, whose header ("Subscribe to Veritasium.") stays at the top as it scrolls.
+ */
+fun pageChannel(label: String): String? {
+    val t = label.trim()
+    val name = when {
+        t.startsWith("Latest from ") -> t.removePrefix("Latest from ")
+        t.startsWith("Subscribe to ") -> t.removePrefix("Subscribe to ").trimEnd('.')
+        t.startsWith("Unsubscribe from ") -> t.removePrefix("Unsubscribe from ").trimEnd('.')
+        else -> null
+    }
+    return name?.trim()?.takeIf(String::isNotEmpty)
+}
+
+/**
+ * The channel a video card in YouTube's lists names in its own label, or null when it names none (a channel's own
+ * page and its shelves leave it out). Checked against YouTube 21.41, English:
+ * - a video: "<title> – <length> – [Go to channel X] – X[, verified] - <views> - <age> – play video";
+ * - a Short: "<title>, <views> views[, X, <age>] – play Short".
+ */
+fun cardChannel(label: String): String? {
+    val t = label.trim()
+    val name = when {
+        // After "Go to channel" the name comes twice, up to the view count: "X – X - 18 lakh views". A name can hold
+        // a dash itself ("Ali Abdaal – Lifestyle Business Academy"), so all of it is kept: matching is by whole name.
+        " – Go to channel " in t -> t.substringAfter(" – Go to channel ").substringBefore(" - ")
+        t.startsWith(Suggested) -> t.replace(PlayEnding, "").split(" - ").takeIf { it.size >= 4 }?.last()
+        t.endsWith(PlayVideo) -> t.removeSuffix(PlayVideo).split(" – ").takeIf { it.size >= 3 }?.last()?.substringBefore(" - ")
+        PlaylistCount.containsMatchIn(t) -> t.replace(PlaylistCount, "").split(" - ").takeIf { it.size >= 2 }?.last()
+        t.endsWith(PlayShort) -> {
+            val parts = t.removeSuffix(PlayShort).split(", ")
+            val views = parts.indexOfLast { it.endsWith(" views") || it.endsWith(" view") }
+            if (views >= 0 && views == parts.size - 3) parts[views + 1] else null
+        }
+        else -> null
+    }
+    return name?.removeSuffix(", verified")?.removeSuffix(", Official Artist Channel")?.trim()?.takeIf(String::isNotEmpty)
+}
+
 /** The old global switches ([Rules.content]) and the parts each one becomes. */
 val LegacyContent = mapOf(
     "youtube_shorts" to listOf(PartShorts),
@@ -119,8 +220,14 @@ const val IgId = "$Instagram:id/"
 data class InstagramScreen(
     /** The selected tab's ID name ("feed_tab", "search_tab", "clips_tab"...), null when no tab bar shows. */
     val tab: String? = null,
+    /** A chat is open. */
+    val chat: Boolean = false,
     /** A reel is playing full screen. */
     val reelViewer: Boolean = false,
+    /** The reel viewer's swipeable area, top to bottom. */
+    val reelArea: Pair<Int, Int>? = null,
+    /** Something is open over the screen (a sheet of comments or shares, the keyboard): nothing is gated. */
+    val busy: Boolean = false,
     /** The reel came in a chat: its viewer names who sent it. Instagram's "Suggested" reels after it don't. */
     val sentInChat: Boolean = false,
     /** Someone's story is open. */
@@ -133,9 +240,13 @@ data class InstagramScreen(
     val reelsPage: Boolean = false,
     /** A profile's grid of posts and reels starts here; its header (name, bio, follow, message) is above. */
     val profileGridTop: Int? = null,
+    /** On a post opened from a chat: more of that profile's posts start here, under the one that was sent. */
+    val laterPostsTop: Int? = null,
     val storiesBottom: Int? = null,
     val headerBottom: Int? = null,
     val tabBarTop: Int? = null,
+    /** Where each tab's button is, by its ID name: left, top, right, bottom. */
+    val tabBounds: Map<String, List<Int>> = emptyMap(),
 )
 
 sealed interface InstagramVerdict {
@@ -144,13 +255,16 @@ sealed interface InstagramVerdict {
     data class Leave(val key: String, @StringRes val says: Int) : InstagramVerdict
     /** Cover this band of the screen, so what [key] holds back can't be seen or touched. */
     data class Cover(val top: Int, val bottom: Int, val key: String) : InstagramVerdict
+    /** Taps go through this band, swipes up and down don't: the list under it stays where it is. */
+    data class Gate(val top: Int, val bottom: Int, val key: String, @StringRes val says: Int) : InstagramVerdict
 }
 
 /**
  * What Aurora does on this Instagram screen, given the parts a Shield holds back right now.
- * [reels]: only the Reels tab. [messages]: only chats and stories. The one reel or post a friend sent
- * opens from the chat; every other reel and post is held back (Home, Search, the Reels tab, the
- * "Suggested" reels after a sent one, audio pages, every profile's grid). Profiles themselves stay.
+ * [reels]: the Reels tab (its button doesn't answer, see ContentService). [messages]: all of Instagram except
+ * messages. The one reel or post a friend sent opens from the chat, and a sent reel can't be swiped on to the
+ * "Suggested" ones after it; every other reel, post and story is held back (Home, Search, the Reels tab, audio
+ * pages, every profile's grid). Profiles themselves stay.
  * [feed] and [search] are the older separate parts: Home posts, and Search.
  */
 fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed: Boolean, search: Boolean, screenBottom: Int): InstagramVerdict {
@@ -160,17 +274,25 @@ fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed
     fun cover(top: Int, key: String) = if (top < bottom) InstagramVerdict.Cover(top, bottom, key) else InstagramVerdict.Allow
     fun leave(says: Int) = InstagramVerdict.Leave(PartInstagramMessages, says)
     return when {
-        s.storyViewer -> InstagramVerdict.Allow
         messages -> when {
+            s.storyViewer -> leave(R.string.part_no_stories)
             s.tab == "clips_tab" -> leave(R.string.part_no_reels)
-            s.reelViewer -> if (s.sentInChat) InstagramVerdict.Allow else leave(R.string.part_no_other_reels)
+            s.reelViewer && !s.sentInChat -> leave(R.string.part_no_other_reels)
+            s.reelViewer -> s.reelArea?.takeUnless { s.busy }?.let { (top, bottom) ->
+                InstagramVerdict.Gate(top, bottom, PartInstagramMessages, R.string.part_no_other_reels)
+            } ?: InstagramVerdict.Allow
             s.reelsPage -> leave(R.string.part_no_reels)
             s.profileGridTop != null -> cover(s.profileGridTop, PartInstagramMessages)
-            s.tab == "feed_tab" -> cover(belowStories, PartInstagramMessages)
+            // Stories too: all of Home under its header.
+            s.tab == "feed_tab" -> cover(s.headerBottom ?: 0, PartInstagramMessages)
             s.tab == "search_tab" -> leave(R.string.part_no_search)
-            s.posts && !s.fromChat -> leave(R.string.part_no_posts)
+            // Blanked, never Back: while Instagram opens, Home's posts show before its tab bar does, and Back
+            // there would close the app.
+            s.posts && !s.fromChat -> cover(s.headerBottom ?: 0, PartInstagramMessages)
+            s.posts && s.laterPostsTop != null -> cover(maxOf(s.laterPostsTop, s.headerBottom ?: 0), PartInstagramMessages)
             else -> InstagramVerdict.Allow
         }
+        s.storyViewer -> InstagramVerdict.Allow
         reels && s.tab == "clips_tab" -> InstagramVerdict.Leave(PartReels, R.string.part_no_reels)
         search && s.tab == "search_tab" -> InstagramVerdict.Leave(PartInstagramSearch, R.string.part_no_search)
         feed && s.tab == "feed_tab" && s.posts -> cover(belowStories, PartInstagramFeed)
@@ -182,10 +304,29 @@ fun instagramVerdict(s: InstagramScreen, reels: Boolean, messages: Boolean, feed
 data class YouTubeScreen(
     /** The Shorts player is open. */
     val shorts: Boolean = false,
+    /** The Shorts tab is the chosen tab (not a Short opened from Home, Search or a channel). */
+    val shortsTab: Boolean = false,
+    /** The Shorts player's swipeable area: left, top, right, bottom. */
+    val shortsArea: List<Int>? = null,
     /** The Home tab's feed, top to bottom, when Home is the chosen tab. */
     val homeFeed: Pair<Int, Int>? = null,
+    /** The list under (or beside) the open video: its details, comments, then every suggestion. */
+    val watchList: List<Int>? = null,
+    /** Where the first suggested video in [watchList] starts, null before any shows. */
+    val suggestionsTop: Int? = null,
+    /** The bar of the playlist the video plays from (Watch later, a playlist): it stays usable. */
+    val playlistBar: List<Int>? = null,
+    /** A panel is open over the video's page (description, comments, the playlist). */
+    val panelOpen: Boolean = false,
     /** The open video's player (not the miniplayer, not a preview in a list): left, top, right, bottom. */
     val watch: List<Int>? = null,
+    /** The small player above the tab bar, when a video is minimised: left, top, right, bottom. */
+    val miniplayer: List<Int>? = null,
+    /**
+     * What else YouTube recommends around the open video: the "Suggested video" that ends a video, the row
+     * that slides up in full screen. Each is left, top, right, bottom.
+     */
+    val related: List<List<Int>> = emptyList(),
     /** What YouTube shows around the playing video or Short: its title, channel, handle. */
     val texts: List<String> = emptyList(),
 )
@@ -196,34 +337,51 @@ sealed interface YouTubeVerdict {
     data class Leave(val key: String, @StringRes val says: Int) : YouTubeVerdict
     /** Not from a chosen channel: the Shield for [key] once YouTube has settled on it. */
     data class NotFromChannel(val key: String, @StringRes val says: Int) : YouTubeVerdict
-    /** Cover this rectangle: left, top, right, bottom. */
-    data class Cover(val bounds: List<Int>, val key: String) : YouTubeVerdict
+    /**
+     * Blank out [areas] (each left, top, right, bottom) so they show nothing. [gate]: taps go through it,
+     * swipes up and down don't, so nothing can be scrolled out from under the blanks.
+     */
+    data class Cover(val areas: List<List<Int>>, val key: String, val gate: List<Int>? = null) : YouTubeVerdict
 }
 
 /**
- * What Aurora does on this YouTube screen. [shorts]: Shorts. [feed]: every recommendation (Home's feed,
- * what's beside or below a video, Shorts); Subscriptions and Search stay. [channels]: the channels key
- * and its channels, when only those may play.
+ * What Aurora does on this YouTube screen. [shorts]: the Shorts tab. [feed]: the Shorts tab, Home's feed and
+ * everything YouTube suggests around a video; Subscriptions, Search, the video itself, its details and its comments
+ * stay. Under either, a Short opened any other way (Search, Subscriptions, a channel, Home) plays on its own, as a
+ * sent reel does on Instagram: it can't be swiped on to more Shorts.
+ * [channels]: the channels key and its channels, when only those may play.
  */
 fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: Pair<String, List<String>>?, screenWidth: Int, screenBottom: Int): YouTubeVerdict {
     val playing = s.shorts || s.watch != null
     return when {
-        s.shorts && shorts -> YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts)
-        s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts)
-        // Nothing to read yet (still loading, or full screen): judged once it shows.
-        channels != null && playing && s.texts.isNotEmpty() && !fromChannels(s.texts, channels.second) ->
-            YouTubeVerdict.NotFromChannel(channels.first, R.string.part_only_channels)
-        feed && s.watch != null -> {
-            val (_, _, right, bottom) = s.watch
-            when {
-                // Side by side (landscape, tablets): what's beside the video.
-                right < screenWidth * 4 / 5 -> YouTubeVerdict.Cover(listOf(right, 0, screenWidth, screenBottom), PartYouTubeFeed)
-                bottom < screenBottom -> YouTubeVerdict.Cover(listOf(0, bottom, screenWidth, screenBottom), PartYouTubeFeed)
-                else -> YouTubeVerdict.Allow
-            }
+        s.shorts && s.shortsTab && (shorts || feed) -> YouTubeVerdict.Leave(if (shorts) PartShorts else PartYouTubeFeed, R.string.part_no_shorts)
+        // Judged only once the page names its channel for certain: while it loads (only a title, a view count,
+        // an ad) an allowed video is never held back.
+        // Only what names a channel counts: a title that mentions a chosen one ("Reacting to Veritasium") doesn't.
+        channels != null && playing && channelsNamed(s.texts).let { it.isNotEmpty() && !fromChannels(it, channels.second) } ->
+            YouTubeVerdict.NotFromChannel(channels.first, R.string.part_no_video)
+        // One Short, no more: taps go through (like, comment, the channel), swipes to the next or last Short don't.
+        // An open panel (comments, the description) is left alone, so it scrolls and takes typing.
+        s.shorts && (shorts || feed) -> s.shortsArea?.takeUnless { s.panelOpen }
+            ?.let { YouTubeVerdict.Cover(emptyList(), if (shorts) PartShorts else PartYouTubeFeed, gate = it) } ?: YouTubeVerdict.Allow
+        // Under the video: its details and the comments row stay usable (taps go through), every suggestion is
+        // blank, and the list can't be scrolled at all, so no suggestion ever slides out from under its blank. The
+        // playlist bar stays usable. An open panel (description, comments) is left alone, so it scrolls and takes typing.
+        feed && s.watchList != null && !s.panelOpen -> {
+            val (left, top, right, bottom) = s.watchList
+            val from = (s.suggestionsTop ?: bottom).coerceIn(top, bottom)
+            val blank = s.playlistBar?.takeIf { it[1] < bottom && it[3] > from }?.let { bar ->
+                listOf(listOf(left, from, right, bar[1]), listOf(left, bar[3], right, bottom))
+            } ?: listOf(listOf(left, from, right, bottom))
+            YouTubeVerdict.Cover(blank.filter { it[1] < it[3] } + s.related, PartYouTubeFeed, gate = s.watchList)
         }
+        feed && s.related.isNotEmpty() -> YouTubeVerdict.Cover(s.related, PartYouTubeFeed)
+        // No list in sight under the video: what's there is a panel (comments, the description, the playlist) or a
+        // page still loading, never a suggestion. It's never blanked: blanking "everything under the player" here is
+        // what hid the comments while they opened.
+        // Home's feed is blank. Its header stays free, so it can be pulled down to show Home and Subscriptions.
         feed && s.homeFeed != null && s.homeFeed.first < s.homeFeed.second ->
-            YouTubeVerdict.Cover(listOf(0, s.homeFeed.first, screenWidth, s.homeFeed.second), PartYouTubeFeed)
+            YouTubeVerdict.Cover(listOf(listOf(0, s.homeFeed.first, screenWidth, s.homeFeed.second)), PartYouTubeFeed)
         else -> YouTubeVerdict.Allow
     }
 }

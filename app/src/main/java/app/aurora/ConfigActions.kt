@@ -34,7 +34,6 @@ import app.aurora.protect.runsRefusedByQuota
 import app.aurora.protect.targetsRefusal
 import app.aurora.protect.usesQuota
 import app.aurora.protect.ConfigRun
-import app.aurora.protect.intentsEnded
 import app.aurora.protect.Decision
 import app.aurora.protect.DeviceTime
 import app.aurora.protect.IntentPreset
@@ -48,7 +47,17 @@ import app.aurora.protect.Rules
 import app.aurora.protect.attempted
 import app.aurora.protect.endedWindows
 import app.aurora.protect.entitledActivations
-import app.aurora.protect.runFor
+import app.aurora.protect.runsFor
+import app.aurora.protect.sessionClash
+import app.aurora.protect.unlockKeys
+import app.aurora.protect.intentConfigsOf
+import app.aurora.protect.UnlockUse
+import app.aurora.protect.sessionConflict
+import app.aurora.protect.sessionLimitRefusal
+import app.aurora.protect.modeOf
+import app.aurora.protect.shownMode
+import app.aurora.protect.runningShield
+import app.aurora.protect.intentsEnded
 import app.aurora.protect.intentOf
 import app.aurora.protect.key
 import app.aurora.protect.liveRuns
@@ -109,7 +118,7 @@ suspend fun AuroraApplication.adoptOnboarding() {
  * that no configuration uses yet. A preset starts as a one-off configuration (not saved), like Normal Use.
  */
 fun Rules.readyToStart(max: Int = 3): List<UsageConfig> {
-    val used = configs.flatMap { listOfNotNull(it.shieldId, it.intentId) }.toSet()
+    val used = configs.flatMap { it.allShieldIds + it.allIntentIds }.toSet()
     val presets = shields.filter { it.id !in used && it.keys.isNotEmpty() }.map { UsageConfig("preset:${it.id}", it.name, custom = false, shield = it, createdAt = it.createdAt) } +
         intentPresets.filter { it.id !in used && it.keys.isNotEmpty() }.map { UsageConfig("preset:${it.id}", it.name, custom = false, intent = it, createdAt = it.createdAt) }
     return (configs.filter { it.custom }.sortedByDescending { it.createdAt } + presets.sortedByDescending { it.createdAt }).take(max)
@@ -187,13 +196,13 @@ suspend fun AuroraApplication.saveIntentPreset(p: IntentPreset): Refusal? = chan
 
 /** Names of the configurations using a preset: a preset in use can't be deleted until they change. */
 fun AuroraApplication.configsUsing(presetId: String): List<String> =
-    rules.value?.configs.orEmpty().filter { it.shieldId == presetId || it.intentId == presetId }.map { it.name }
+    rules.value?.configs.orEmpty().filter { presetId in it.allShieldIds || presetId in it.allIntentIds }.map { it.name }
 
 /** Deletes a preset no configuration uses. Returns false (nothing deleted) when one does. */
 suspend fun AuroraApplication.deletePreset(id: String): Boolean {
     var done = false
     rules.update { r ->
-        if (r.configs.any { it.shieldId == id || it.intentId == id }) r
+        if (r.configs.any { id in it.allShieldIds || id in it.allIntentIds }) r
         else {
             done = true
             r.copy(shields = r.shields.filterNot { it.id == id }, intentPresets = r.intentPresets.filterNot { it.id == id })
@@ -206,7 +215,11 @@ fun newId(): String = UUID.randomUUID().toString()
 
 // ---- Configurations --------------------------------------------------------------------------------
 
-suspend fun AuroraApplication.saveConfig(c: UsageConfig): Refusal? = changeRules { r -> r.copy(configs = r.configs.filterNot { it.id == c.id } + c) }
+/** Saves [c]. Refused (nothing saved) when an app is in two of its Shields and Intents. */
+suspend fun AuroraApplication.saveConfig(c: UsageConfig): Refusal? {
+    rules.value?.copy(configs = rules.value!!.configs.filterNot { it.id == c.id } + c)?.sessionClash(c)?.let { return Refusal(ActivationProblem.Conflict, conflict = it) }
+    return changeRules { r -> r.copy(configs = r.configs.filterNot { it.id == c.id } + c) }
+}
 
 /**
  * Deletes a configuration and its schedules. Goals linked to it go with it, and only when [removeGoals]
@@ -248,6 +261,7 @@ suspend fun AuroraApplication.activate(c: UsageConfig, timing: Timing): Refusal?
         explain(refusal, if (fits) { minutes -> scope.launch { saving { activate(c, Timing.Now(minutes)) } } } else null)
         return@withLock refusal
     }
+    withConfig.sessionConflict(c, timing, rt0, t, zone)?.let { return@withLock Refusal(ActivationProblem.Conflict, conflict = it) }
     if (timing !is Timing.Now) {
         rules.update { x ->
             x.copy(configs = x.configs.filterNot { it.id == c.id } + c, activations = x.activations + Activation(newId(), c.id, timing, true, t.wall))
@@ -255,25 +269,27 @@ suspend fun AuroraApplication.activate(c: UsageConfig, timing: Timing): Refusal?
         syncLocked()
         return@withLock null
     }
-    val shield = withConfig.shieldOf(c)
+    val shield = withConfig.runningShield(c)
+    val mode = withConfig.modeOf(c)
     val runId = "now:${newId()}"
-    if (shield?.mode?.usesQuota == true) serverRefusal(runId, shield.mode, timing.minutes, null)?.let { refusal ->
+    if (mode.usesQuota) serverRefusal(runId, mode, timing.minutes, null)?.let { refusal ->
         val left = (refusal.decision?.remaining ?: 0) / 60_000
         explain(refusal, if (left >= 1) { minutes -> scope.launch { saving { activate(c, Timing.Now(minutes)) } } } else null)
         return@withLock refusal
     }
     val run = ConfigRun(
         runId, c.id, c.name, null, c.custom, shield, withConfig.intentOf(c), c.focus,
-        start = t.wall, end = t.wall + timing.minutes * 60_000L, time = Session.start(t, timing.minutes), note = c.note.trim(),
+        start = t.wall, end = t.wall + timing.minutes * 60_000L, time = Session.start(t, timing.minutes), note = c.note.trim(), mode = mode,
+        intentConfigs = withConfig.intentConfigsOf(c), unlocks = c.unlocks.filter { it.on },
     )
     runtime.update { rt ->
         val base = rt.pruned(t)
-        if (shield?.mode?.usesQuota == true) base.copy(runs = base.runs + run, ledger = base.ledger + base.ledgerEntry(run.start, run.end!!, t, zone))
+        if (mode.usesQuota) base.copy(runs = base.runs + run, ledger = base.ledger + base.ledgerEntry(run.start, run.end!!, t, zone))
         else base.copy(runs = base.runs + run)
     }
     if (c.custom) rules.update { x -> x.copy(configs = x.configs.filterNot { it.id == c.id } + c) }
     history.update { it.withProtection(ProtectionRecord(run.id, t.wall, run.end!!, shield?.keys.orEmpty().toSet())) }
-    if (shield?.mode == Mode.AlwaysBlock) history.update { it.withAlwaysBlock(dayOf(t.wall), t.wall, timing.minutes) }
+    if (mode == Mode.AlwaysBlock) history.update { it.withAlwaysBlock(dayOf(t.wall), t.wall, timing.minutes) }
     null
 }
 
@@ -395,7 +411,7 @@ private suspend fun AuroraApplication.syncLocked() {
         if (refused.isNotEmpty()) next = next.copy(quotaDenied = next.quotaDenied + refused.map { it.id to (it.end ?: (t.wall + 86_400_000L)) })
         for (run in runsToMaterialize(r, next, plan, t, zone)) {
             val end = run.end
-            if (run.shield?.mode?.usesQuota == true && end != null) next = next.copy(ledger = next.ledger + next.ledgerEntry(run.start, end, t, zone))
+            if (run.sessionMode.usesQuota && end != null) next = next.copy(ledger = next.ledger + next.ledgerEntry(run.start, end, t, zone))
             started += run
             next = next.copy(runs = next.runs + run)
         }
@@ -411,7 +427,8 @@ private suspend fun AuroraApplication.syncLocked() {
         val spans = history.value?.service.orEmpty()
         val usage = usageSince(ended.minOf { it.startAt(t) }, t.wall)
         // A carried commitment was another account's: it ends here, and isn't this one's history.
-        history.update { h -> ended.filterNot { it.carried }.fold(h) { acc, run -> acc.withRun(recordOf(run, run.endAt(t) ?: t.wall, turnedOff = false, spans, usage)) } }
+        val rt = runtime.value
+        history.update { h -> ended.filterNot { it.carried }.fold(h) { acc, run -> acc.withRun(recordOf(run, run.endAt(t) ?: t.wall, turnedOff = false, spans, usage, rt.stoppedFor(run))) } }
     }
     // Occurrences that came and went without being stored (the phone untouched all window long) still
     // get a record, judged on the same evidence. Only since this version began recording evidence.
@@ -421,8 +438,8 @@ private suspend fun AuroraApplication.syncLocked() {
         val known = h.runs.map { it.id }.toSet() + runtime.value?.closed?.keys.orEmpty() + runtime.value?.runs.orEmpty().map { it.id } + runtime.value?.quotaDenied?.keys.orEmpty()
         val entitled = r.entitledActivations(plan, t.wall, zone)
         val missed = r.activations.filter { it.id in entitled }.flatMap { a ->
-            a.endedWindows(maxOf(evidenceFrom, t.wall - 2 * 86_400_000L), t.wall, zone).mapNotNull { w ->
-                r.runFor(a, w, plan, t.wall, zone)?.takeIf { it.id !in known }
+            a.endedWindows(maxOf(evidenceFrom, t.wall - 2 * 86_400_000L), t.wall, zone).flatMap { w ->
+                r.runsFor(a, w, plan, t.wall, zone).filter { it.id !in known }
             }
         }
         // Screen-off time counts as away, so a window slept through is protected time like any other.
@@ -439,23 +456,32 @@ private suspend fun AuroraApplication.syncLocked() {
     }
 }
 
+
 /** A run has begun: its protection span, and for a scheduled Strict what one started by hand earns, its committed minutes. */
 private fun app.aurora.progress.History.withStarted(run: ConfigRun): app.aurora.progress.History {
     val recorded = withProtection(ProtectionRecord(run.id, run.start, run.end ?: Long.MAX_VALUE, run.shield?.keys.orEmpty().toSet()))
     val until = run.committedUntil ?: run.end
-    return if (run.shield?.mode == Mode.AlwaysBlock && until != null) recorded.withAlwaysBlock(dayOf(run.start), run.start, ((until - run.start) / 60_000).toInt()) else recorded
+    return if (run.sessionMode == Mode.AlwaysBlock && until != null) recorded.withAlwaysBlock(dayOf(run.start), run.start, ((until - run.start) / 60_000).toInt()) else recorded
 }
 
 /** Android's usage records from [from] to [to] for judging runs, or null without usage access. */
 private suspend fun AuroraApplication.usageSince(from: Long, to: Long) = runCatching { screenTime.intervals(from, to) }.getOrNull()
 
-private fun recordOf(run: ConfigRun, end: Long, turnedOff: Boolean, spans: List<app.aurora.progress.ServiceSpan>, usage: List<app.aurora.data.UsageInterval>?) = record(
+/** [run]'s unlocks so far that stopped its Focus timer. */
+private fun app.aurora.protect.Runtime?.stoppedFor(run: ConfigRun): List<Pair<Long, Long>> =
+    this?.unlocks?.get(run.id).orEmpty().filterNot { it.focusRuns }.map { it.start to it.end }
+
+private fun recordOf(
+    run: ConfigRun, end: Long, turnedOff: Boolean, spans: List<app.aurora.progress.ServiceSpan>, usage: List<app.aurora.data.UsageInterval>?,
+    stopped: List<Pair<Long, Long>> = emptyList(),
+) = record(
     run.id, run.configId, run.name, run.custom,
-    run.shield?.name, run.shield?.mode, run.intent?.name, run.shield?.keys.orEmpty().toSet() + run.intent?.keys.orEmpty(),
+    run.shield?.name, run.shownMode, run.intent?.name, run.shield?.keys.orEmpty().toSet() + run.intent?.keys.orEmpty(),
     run.time?.startWall ?: run.start, run.end ?: run.time?.let { it.startWall + it.durationMs }, end, spans.reaching(end, app.aurora.protect.ShieldService.connected.value), turnedOff,
     run.focus?.task, run.focus?.minutes?.let { it * 60_000L } ?: ((run.end ?: end) - run.start), run.intentOverruns,
     // Intent apps are meant to be used: only the Shield's apps say anything when used while the service was down.
     run.accessGrants, run.intentRelapses, usage?.filter { it.packageName in run.shield?.keys.orEmpty() },
+    stopped = stopped.mapNotNull { (s, e) -> (s to minOf(e, end)).takeIf { it.second > it.first } },
 )
 
 /**
@@ -493,7 +519,8 @@ suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
         }
     }
     val spans = history.value?.service.orEmpty()
-    history.update { it.endProtection(run.id, t.wall).withRun(recordOf(run, t.wall, turnedOff = true, spans, usage = null)) }
+    val rt = runtime.value
+    history.update { it.endProtection(run.id, t.wall).withRun(recordOf(run, t.wall, turnedOff = true, spans, usage = null, rt.stoppedFor(run))) }
     return true
 }
 
@@ -503,6 +530,18 @@ suspend fun AuroraApplication.turnOffRun(runId: String): Boolean {
  */
 suspend fun AuroraApplication.setActivationEnabled(id: String, enabled: Boolean): Refusal? {
     syncRuns()
+    // Resuming is activating: Free's app limits count what will be on beside it, at its own times.
+    if (enabled) {
+        val r = rules.value
+        val rt = runtime.value
+        val a = r?.activations?.find { it.id == id }
+        if (r != null && rt != null && a != null) {
+            val t = now()
+            val timing = a.timing
+            val refusal = r.configs.find { it.id == a.configId }?.let { r.sessionLimitRefusal(it, timing, plan, rt, t, zone, excluding = id) }
+            if (refusal != null) { explain(refusal); return refusal }
+        }
+    }
     val now = now().wall
     val refusal = changeRules { r ->
         r.copy(activations = r.activations.map { a ->
@@ -519,6 +558,37 @@ suspend fun AuroraApplication.deleteActivation(id: String) {
     rules.update { r ->
         val activations = r.activations.filterNot { it.id == id }
         r.copy(activations = activations, configs = r.configs.filter { c -> c.custom || activations.any { it.configId == c.id } })
+    }
+}
+
+// ---- Unlocks ---------------------------------------------------------------------------------------
+
+/**
+ * Uses [unlockId] in running session [runId]: what it opens stops for its time, then is blocked again on its own. Refused
+ * (false) when it has no uses left, another unlock is on, or the session is over. Never past the session's end.
+ */
+suspend fun AuroraApplication.useUnlock(runId: String, unlockId: String): Boolean {
+    val t = now()
+    val r = rules.value ?: return false
+    var done = false
+    runtime.update { rt ->
+        val run = rt.runs.find { it.id == runId && it.covers(t) } ?: return@update rt
+        val u = run.unlocks.find { it.id == unlockId } ?: return@update rt
+        val used = rt.unlocks[run.id].orEmpty()
+        if (run.left(u, used) <= 0 || run.unlockedAt(used, t.wall) != null) return@update rt
+        done = true
+        val end = minOf(run.endAt(t) ?: Long.MAX_VALUE, t.wall + u.minutes * 60_000L)
+        rt.copy(unlocks = rt.unlocks + (run.id to used + UnlockUse(u.id, t.wall, end, r.unlockKeys(r.configs.find { it.id == run.configId }, u), u.focusRuns)))
+    }
+    return done
+}
+
+/** Ends the unlock on in session [runId] now: what it opened is blocked again at once. It still counts as used. */
+suspend fun AuroraApplication.endUnlock(runId: String) {
+    val now = now().wall
+    runtime.update { rt ->
+        val uses = rt.unlocks[runId] ?: return@update rt
+        rt.copy(unlocks = rt.unlocks + (runId to uses.map { if (now >= it.start && now < it.end) it.copy(end = now) else it }))
     }
 }
 

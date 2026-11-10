@@ -51,6 +51,17 @@ class DeviceWideLimitsTest {
     }
 
     @Test
+    fun aCarriedStrictSessionAlsoHoldsFreesSlots() {
+        // A's committed Strict session (a schedule window or a manual start), not a configuration run.
+        val aSession = Runtime(sessions = listOf(ProtectionSession("s-a", aKeys.toSet(), Mode.AlwaysBlock, Session(start - hour, t.elapsed - hour, t.boot, 2 * hour))))
+        val carried = mergeCarried(aSession, Runtime(), t, "Commitment")
+        val active = activeTargets(bRules, carried, t, zone, Free)
+        assertEquals("five on the phone, not ten", 5, active.shield.size)
+        assertTrue(active.shield.containsAll(aKeys))
+        assertTrue(bRules.entitledActivations(Free, t.wall, zone, carried.carriedShield(t)).isEmpty())
+    }
+
+    @Test
     fun bsOwnTargetsComeBackWhenTheCarriedCommitmentEnds() {
         val later = DeviceTime(start + 2 * hour, t.elapsed + 2 * hour, t.boot)
         assertTrue(switched.carriedShield(later).isEmpty())

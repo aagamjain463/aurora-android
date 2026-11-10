@@ -1,3 +1,5 @@
+> **Visual identity superseded (2026-11-07).** Brand, colour, type and art guidance in this document describes the retired First Light identity. The active spec is `brand/Aurora_Brand_Guidelines.md`; where they disagree, the guidelines win.
+
 # Aurora: the 10/10 plan
 
 **Review date:** 31 October 2026  

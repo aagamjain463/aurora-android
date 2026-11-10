@@ -109,3 +109,12 @@ fun clockTicks(periodMs: Long = 1_000): Flow<Long> = flow {
         delay(periodMs)
     }
 }
+
+/** [clockTicks] on each minute's turn, for screens that show nothing finer than minutes. */
+fun minuteTicks(): Flow<Long> = flow {
+    while (true) {
+        val now = System.currentTimeMillis()
+        emit(now)
+        delay(60_000 - now % 60_000)
+    }
+}

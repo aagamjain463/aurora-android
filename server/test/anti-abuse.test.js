@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { housekeeping } from '../src/worker.js'
 import { readFileSync } from 'node:fs'
 import { derToRaw } from '../src/device.js'
-import { IDS, activeSub, deviceKey, idToken, signedCall, world } from './fixture.js'
+import { IDS, activeSub, deviceKey, idToken, insideOneWindow, signedCall, world } from './fixture.js'
 
 const MIN = 60_000
 // A zone where it is about 6 in the morning, so no test here runs into midnight and splits a day.
@@ -299,6 +299,7 @@ test('malformed requests are refused with a structured error and change nothing'
 test('one phone can\'t out-ask the rate limit by spreading requests over accounts', async () => {
   const w = world()
   let last
+  await insideOneWindow()
   for (let i = 0; i < 31; i++) last = await reserve(w, `u${i}`, 121)
   assert.equal(last.status, 429)
 })

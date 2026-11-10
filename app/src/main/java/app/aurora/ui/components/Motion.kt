@@ -39,7 +39,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawOutline
@@ -59,7 +61,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.Motion
+import app.aurora.ui.theme.clipShape
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.ui.node.currentValueOf
 
 /**
  * A live clock whose digits roll as they change: each new digit falls in from above while the old one
@@ -79,7 +84,9 @@ fun RollingClock(text: String, color: Color, style: TextStyle, modifier: Modifie
             Text(text, color = color, style = sized)
             return@BoxWithConstraints
         }
-        Row {
+        // Each character is its own Text, so the style's tracking has to be put back between them.
+        val tracking = with(density) { (sized.fontSize * sized.letterSpacing.value).toDp() }
+        Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(tracking)) {
             text.forEach { c ->
                 AnimatedContent(
                     c,
@@ -95,27 +102,78 @@ fun RollingClock(text: String, color: Color, style: TextStyle, modifier: Modifie
     }
 }
 
-/** Average width of a clock's characters, in em, in the Hero cut (Geist tabular digits, colons included). */
+/** Average width of a clock's characters, in em, in the Hero cut (Inter tabular digits, colons included). */
 private const val DigitWidth = 0.58f
 
 /**
  * A tappable card or row: it sinks a little under the finger and springs back, with the ripple kept
  * inside [shape]. Put it before the surface (`auroraSurface`, `clip`, `background`) so the whole card moves.
  */
-fun Modifier.pressable(shape: Shape, role: Role = Role.Button, onClickLabel: String? = null, onClick: () -> Unit): Modifier = composed {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        if (pressed && !Aurora.reducedMotion) 0.96f else 1f,
-        if (Aurora.reducedMotion) snap() else spring(dampingRatio = 0.55f, stiffness = 700f),
-        label = "press",
-    )
-    graphicsLayer { scaleX = scale; scaleY = scale; this.shape = shape; clip = true }
-        .clickable(interaction, ripple(), role = role, onClickLabel = onClickLabel, onClick = onClick)
+// Plain Modifier chain, no composed{}: a list item that scrolls in costs nothing until it is pressed (the
+// indication's interaction source is created lazily), and the sink is drawn, not laid out.
+fun Modifier.pressable(shape: Shape, role: Role = Role.Button, onClickLabel: String? = null, onClick: () -> Unit): Modifier =
+    clip(shape.clipShape).clickable(null, PressHighlight, role = role, onClickLabel = onClickLabel, onClick = onClick)
+
+/**
+ * How anything pressable answers the finger, as on iOS: a soft wash of ink appears the instant it is pressed and
+ * fades on release. Drawn beneath the content, so labels stay crisp. [color] defaults to the theme's ink.
+ */
+class HighlightIndication(private val color: Color = Color.Unspecified, private val sink: Boolean = false) : androidx.compose.foundation.IndicationNodeFactory {
+    override fun create(interactionSource: androidx.compose.foundation.interaction.InteractionSource): androidx.compose.ui.node.DelegatableNode =
+        HighlightNode(interactionSource, color, sink)
+
+    override fun equals(other: Any?) = other is HighlightIndication && other.color == color && other.sink == sink
+    override fun hashCode() = color.hashCode() * 31 + sink.hashCode()
 }
 
-/** Set when a tab is chosen: the screen it opens performs its opening again. Coming back from a pushed screen does not. */
-object TabArrival { var fresh = false }
+/** The highlight in the theme's ink: Aurora's default indication. */
+val Highlight = HighlightIndication()
+
+/** [Highlight], and the surface sinks a little under the finger and springs back ([pressable]). */
+private val PressHighlight = HighlightIndication(sink = true)
+
+private const val PressScale = 0.96f
+
+private const val HighlightAlpha = 0.10f
+
+private class HighlightNode(
+    private val source: androidx.compose.foundation.interaction.InteractionSource,
+    private val color: Color,
+    private val sink: Boolean,
+) : Modifier.Node(), androidx.compose.ui.node.DrawModifierNode, androidx.compose.ui.node.CompositionLocalConsumerModifierNode {
+    private val level = Animatable(0f)
+    private val scale = Animatable(1f)
+
+    override fun onAttach() {
+        coroutineScope.launch {
+            var presses = 0
+            source.interactions.collect { i ->
+                when (i) {
+                    is androidx.compose.foundation.interaction.PressInteraction.Press -> presses++
+                    is androidx.compose.foundation.interaction.PressInteraction.Release,
+                    is androidx.compose.foundation.interaction.PressInteraction.Cancel -> presses = (presses - 1).coerceAtLeast(0)
+                    else -> return@collect
+                }
+                val reduced = currentValueOf(app.aurora.ui.theme.LocalReducedMotion)
+                if (sink && !reduced) launch { scale.animateTo(if (presses > 0) PressScale else 1f, spring(dampingRatio = 0.9f, stiffness = 700f)) }
+                if (presses > 0) level.snapTo(1f)
+                else launch { level.animateTo(0f, if (reduced) snap() else tween(Motion.Standard, easing = Motion.Ease)) }
+            }
+        }
+    }
+
+    override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.draw() {
+        val v = level.value
+        val s = scale.value
+        scale(s) {
+            if (v > 0f) {
+                val ink = if (color != Color.Unspecified) color else currentValueOf(app.aurora.ui.theme.LocalAuroraColors).textPrimary
+                drawRect(ink, alpha = HighlightAlpha * v)
+            }
+            this@draw.drawContent()
+        }
+    }
+}
 
 /** A screen's opening: how far it has run, 0 to 1, and whether the screen has settled ([rise] on anything newly shown). */
 class Intro(val progress: State<Float>, val settled: State<Boolean>)
@@ -127,10 +185,9 @@ val LocalIntro = staticCompositionLocalOf<Intro?> { null }
 @Composable
 fun ProvideIntro(durationMs: Int = IntroMs, content: @Composable () -> Unit) {
     val reduced = Aurora.reducedMotion
-    // Once, and again each time its tab is chosen. Coming back from a pushed screen finds it as you left it.
+    // Once per screen. Choosing its tab again, or coming back from a pushed screen, finds it as you left it.
     var played by rememberSaveable { mutableStateOf(false) }
-    val again = remember { TabArrival.fresh.also { TabArrival.fresh = false } }
-    val still = reduced || (played && !again)
+    val still = reduced || played
     val intro = remember { Animatable(if (still) 1f else 0f) }
     val settled = remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -151,30 +208,27 @@ fun ProvideIntro(durationMs: Int = IntroMs, content: @Composable () -> Unit) {
 
 /**
  * During the opening the block fades up as it climbs into place, a beat later the further down the page it sits.
- * Once the screen has settled, a block newly shown (scrolled to, or loaded late) rises in by itself, from the edge
- * it came in by.
+ * A block shown after the opening (scrolled to, or loaded late) is simply there: lists scroll like lists.
  */
 fun Modifier.rise(): Modifier = composed {
     val intro = LocalIntro.current
-    if (intro == null || Aurora.reducedMotion) return@composed this
+    // Composed once the opening has run (scrolled to, loaded late): simply there. Scrolling never animates.
+    val late = remember(intro) { intro == null || intro.settled.value || intro.progress.value >= 1f }
+    if (late || Aurora.reducedMotion) return@composed this
     var y by remember { mutableFloatStateOf(Float.NaN) }
     val distance = with(LocalDensity.current) { RiseDp.dp.toPx() }
-    val late = remember { intro.settled.value }
-    val reveal = remember { Animatable(if (late) 0f else 1f) }
-    LaunchedEffect(Unit) { if (late) reveal.animateTo(1f, tween(Motion.Gentle, easing = Motion.Ease)) }
     val screen = LocalWindowInfo.current.containerSize.height.toFloat().coerceAtLeast(1f)
     onPlaced { if (y.isNaN()) y = it.positionInRoot().y }.graphicsLayer {
         val delay = if (y.isNaN()) 0f else (y / screen).coerceIn(0f, 1f) * 0.4f
-        val p = ((intro.progress.value - delay) / 0.6f).coerceIn(0f, 1f)
+        val p = ((intro!!.progress.value - delay) / 0.6f).coerceIn(0f, 1f)
         val t = Motion.Ease.transform(p)
-        val r = reveal.value
-        // From above when it came in at the top of the page, scrolling back up.
-        val side = if (late && y < screen / 3f) -0.6f else 1f
-        alpha = Motion.Ease.transform((p * 1.6f).coerceAtMost(1f)) * r
-        translationY = (1f - t * r) * distance * side
-        val s = 1f - RiseShrink * (1f - t * r)
+        alpha = Motion.Ease.transform((p * 1.6f).coerceAtMost(1f))
+        translationY = (1f - t) * distance
+        val s = 1f - RiseShrink * (1f - t)
         scaleX = s
         scaleY = s
+        // Fade each draw, not an offscreen copy of the block: no extra render target per block on the GPU.
+        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
     }
 }
 
@@ -202,7 +256,7 @@ fun rememberFill(target: Float, follow: AnimationSpec<Float> = tween(Motion.Gent
  * run of digits counts ("1h 20m"). Read as the final value by screen readers. With reduced motion it is plain text.
  */
 @Composable
-fun CountUpText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
+fun CountUpText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier, autoSize: androidx.compose.foundation.text.TextAutoSize? = null) {
     val reduced = Aurora.reducedMotion
     var done by rememberSaveable { mutableStateOf(false) }
     val p = remember { Animatable(if (reduced || done) 1f else 0f) }
@@ -212,7 +266,7 @@ fun CountUpText(text: String, color: Color, style: TextStyle, modifier: Modifier
         p.animateTo(1f, tween(CountMs, easing = Motion.Ease))
         done = true
     }
-    Text(countedText(text, p.value), modifier.clearAndSetSemantics { contentDescription = text }, color = color, style = style)
+    Text(countedText(text, p.value), modifier.clearAndSetSemantics { contentDescription = text }, color = color, style = style, maxLines = if (autoSize != null) 1 else Int.MAX_VALUE, autoSize = autoSize)
 }
 
 /** [text] with every run of digits at [progress] of its value. */
@@ -221,8 +275,8 @@ internal fun countedText(text: String, progress: Float): String =
     else Regex("\\d+").replace(text) { m -> m.value.toLongOrNull()?.let { (it * progress).toLong().toString() } ?: m.value }
 
 private const val CountMs = 800
-internal const val QuickIntroMs = 700
-private const val IntroMs = 1000
-private const val SettleMs = 300L
+internal const val QuickIntroMs = 420
+private const val IntroMs = 640
+private const val SettleMs = 0L
 private const val RiseDp = 44
 private const val RiseShrink = 0.03f

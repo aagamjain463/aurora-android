@@ -2,6 +2,8 @@ package app.aurora.protect
 
 import android.accessibilityservice.AccessibilityService
 import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.pm.PackageManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -42,6 +44,9 @@ class ShieldService : AccessibilityService() {
     private var lastCommitCheck = 0L
     private var screenReceiver: BroadcastReceiver? = null
     private var screens = LockedScreens()
+    private var exempt: Set<String> = emptySet()
+    /** "package/class" to whether that window floats over the app in front instead of being a screen. */
+    private val floatingCache = HashMap<String, Boolean>()
 
     /** Today's use of apps with a daily limit, re-measured while one is open. Empty without usage access. */
     @Volatile private var usedToday: Map<String, Long> = emptyMap()
@@ -52,7 +57,7 @@ class ShieldService : AccessibilityService() {
         val presenter = OverlayShieldPresenter(this) { request, close -> ShieldContent(request, close) }
         presenter.onClosed = { how -> interceptor?.closedByPerson(how) }
         this.presenter = presenter
-        val exempt = exemptPackages(this)
+        val exempt = exemptPackages(this).also { this.exempt = it }
         val interceptor = Interceptor(
             presenter, trace, packageName, overlayPackages(this),
             wallClock = TrustedClock::wall, uptime = SystemClock::uptimeMillis,
@@ -97,6 +102,9 @@ class ShieldService : AccessibilityService() {
         // aurora's own screens (not this service's overlay) count as leaving the protected app.
         val ownApp = event.packageName?.toString() == packageName && event.className?.toString()?.startsWith("app.aurora.") == true
         val pkg = event.packageName?.toString()
+        // A system app's floating window (Xiaomi's Game Turbo over a game) is not the person opening that
+        // app: it must neither replace the Shield nor bring a Locked one.
+        if (pkg != null && pkg in exempt && floating(pkg, event.className?.toString())) return
         interceptor?.onWindow(pkg, event.eventTime, received, ownApp, screens.matches(pkg, event.className, event.text))
         if (received - lastCommitCheck > CommitCheckMs) {
             lastCommitCheck = received
@@ -106,6 +114,17 @@ class ShieldService : AccessibilityService() {
                 runCatching { app.syncRuns() }
                 runCatching { app.serviceSeen(connected = true) }
             }
+        }
+    }
+
+    /** Whether [cls] is a view (a floating window) rather than one of [pkg]'s activities. */
+    private fun floating(pkg: String, cls: String?): Boolean = cls != null && floatingCache.getOrPut("$pkg/$cls") {
+        try {
+            packageManager.getActivityInfo(ComponentName(pkg, cls), 0)
+            false
+        } catch (_: PackageManager.NameNotFoundException) {
+            // Only when the package itself is known: an app hidden from aurora still counts as a screen.
+            runCatching { packageManager.getPackageInfo(pkg, 0) }.isSuccess
         }
     }
 

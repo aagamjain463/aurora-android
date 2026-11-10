@@ -1,3 +1,5 @@
+> Security update (2026-11-04): automatic account reassignment is disabled for both Apple and Google Play. Both transfer endpoints return `403 transfer_disabled`. Earlier move/cooldown instructions below are historical, not the current contract. Recover the original account and restore there. See [APP_STORE_BILLING.md](APP_STORE_BILLING.md).
+
 # Billing and purchase verification
 
 Plus is unlocked by one thing: a snapshot signed by Aurora's verification server after verifying the purchase with Google Play. A flag on the phone, a purchase token alone, or Play's local purchase list cannot grant it. Entitlements belong to the verified Aurora account, not just a single device.
@@ -23,8 +25,10 @@ Google RTDN   -> Pub/Sub push -> server re-queries Google, updates Cloudflare D1
 | Clock set before the snapshot | Free until verified again. |
 | Reinstall, replacement phone | Sign into the same Aurora account; the server signs a snapshot for the new install. Restored immediately. |
 | Multiple devices | Up to 5 concurrent active installations per Plus account. The 6th device is prompted to remove an older device. |
-| Purchase on another account | If another Aurora account attempts to verify an already-claimed purchase, the server returns `conflict`. Resolves via explicit transfer with reauthentication. |
 | No server configured in the build | Plus isn't sold. |
+| Trial | Server-granted, 14 days, `source: trial`, never renews. Ends offline on time (it is `paidThrough`). |
+| Founding Lifetime | One-time purchase, acknowledged and never consumed. `source: lifetime`, paid through 9999. Refund or chargeback (voided RTDN) ends it; the slot stays used. |
+| Purchase on another account | `conflict`. Transfers are disabled (token replay); sign in to the original account. |
 
 Checks run at every app start, on Restore purchases, on the Plus screen, and every 6 hours once the snapshot is over
 a day old. The plan is re-read from the clock each minute, because the Shield service keeps the process alive for weeks.
@@ -33,8 +37,11 @@ a day old. The plan is re-read from the clock each minute, because the Shield se
 
 ### 1. Play Console
 
-- Create subscriptions `aurora_plus_monthly` and `aurora_plus_annual` (India reference prices: ₹149 a month, ₹1,199 a
-  year), or one subscription with monthly and annual base plans and `-Paurora.plusProductIds=<id>` at build time.
+- Create subscriptions `aurora_plus_monthly` and `aurora_plus_annual` (US$14.99 / US$99.99; ₹199 / ₹999 in India; no
+  other country until it has an explicit price), or one subscription with monthly and annual base plans and
+  `-Paurora.plusProductIds=<id>` at build time.
+- Create the one-time product `aurora_plus_lifetime_us` at US$89.99, available in the United States only, not
+  consumable. Deactivate it when the server closes sales (`lifetime_inventory.open = 0`).
   Both shapes work. The app shows only base plans, at the price Google Play returns.
 - Enable grace period and account hold as you prefer. The app handles both.
 - Add license testers.
@@ -80,5 +87,7 @@ Rotating the key means a new app release: snapshots signed by the old key stop v
 
 Buy monthly and annual, slow-card pending (test card "Slow test card"), cancel, resubscribe, restore after reinstall,
 account hold, grace, expiry, refund from the console, airplane mode for more than 7 days.
+
+App Store purchases, the shared entitlement across stores and their setup: `docs/APP_STORE_BILLING.md`.
 
 See `docs/ACCOUNT_SYSTEM.md` for the complete specification of routes, payload schemas, and multi-device quota synchronization.
