@@ -53,7 +53,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import app.aurora.account.ApiResult
+import app.aurora.account.RemoteTrial
+import app.aurora.account.TrialOutcome
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
@@ -92,13 +93,28 @@ fun PlusScreen(onBack: () -> Unit) {
     val billing by app.billing.state.collectAsStateWithLifecycle()
     val plan by app.billing.plan.collectAsStateWithLifecycle()
     val subscription by app.billing.subscription.collectAsStateWithLifecycle()
+    val remote by app.account.remote.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val colors = Aurora.colors
-    var transferMessage by remember { mutableStateOf<String?>(null) }
-    val reauthText = stringResource(R.string.account_reauth_body)
-    val limitText = stringResource(R.string.plus_conflict_limit)
-    val failedText = stringResource(R.string.plus_conflict_failed)
+    var trialMessage by remember { mutableStateOf<String?>(null) }
+    var trialBusy by remember { mutableStateOf(false) }
+    var lifetimeMessage by remember { mutableStateOf<String?>(null) }
+    // A trial is Plus, but not a purchase: the ways to buy stay open during it.
+    val source = subscription?.source.takeIf { plan == Plan.Plus }
+    val paid = source == "subscription" || source == "lifetime"
+    val trial = remote?.trial
+    val lifetimeOffer = remote?.lifetime?.offer
+    val trialRefusals = mapOf(
+        "account_used" to stringResource(R.string.trial_refused_used),
+        "device_used" to stringResource(R.string.trial_refused_used),
+        "not_new" to stringResource(R.string.trial_refused_not_new),
+        "purchased" to stringResource(R.string.trial_refused_purchased),
+        "device_unverifiable" to stringResource(R.string.trial_refused_device),
+        "device_ineligible" to stringResource(R.string.trial_refused_device),
+    )
+    val trialUnavailable = stringResource(R.string.trial_refused_other)
     val offlineText = stringResource(R.string.account_offline)
+    val soldOutText = stringResource(R.string.lifetime_sold_out)
     // Only what Plus changes. Everything else is the same on both plans, so neither card repeats it.
     val compare = listOf(
         Triple(stringResource(R.string.plus_compare_items), "${FreeLimits.getValue(Allowance.ProtectedItems)}", stringResource(R.string.plus_unlimited)),
@@ -127,9 +143,13 @@ fun PlusScreen(onBack: () -> Unit) {
         item(key = "plus") {
             PlusCard(compare, current = plan == Plan.Plus) {
                 when {
-                    plan == Plan.Plus || subscription?.state == "on_hold" -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
-                    billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = Aurora.colors.textSecondary, style = AuroraType.Secondary)
-                    billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = Aurora.colors.textSecondary, style = AuroraType.Secondary)
+                    source == "lifetime" -> Text(stringResource(R.string.lifetime_owned), color = colors.textSecondary, style = AuroraType.Secondary)
+                    paid || subscription?.state == "on_hold" -> {
+                        if (subscription?.store == "app_store") Text(stringResource(R.string.plus_managed_in_app_store), color = colors.textSecondary, style = AuroraType.Secondary)
+                        else AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
+                    }
+                    billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = colors.textSecondary, style = AuroraType.Secondary)
+                    billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = colors.textSecondary, style = AuroraType.Secondary)
                     else -> billing.offers.sortedByDescending { it.yearly }.forEach { offer ->
                         AuroraButton(
                             stringResource(if (offer.yearly) R.string.plus_year_price else R.string.plus_month_price, offer.price),
@@ -137,7 +157,46 @@ fun PlusScreen(onBack: () -> Unit) {
                             Modifier.fillMaxWidth(),
                             kind = if (offer.yearly) ButtonKind.Plus else ButtonKind.Secondary,
                         )
+                    }.also {
+                        // Founding Lifetime: only where Play sells it (the US) and while the server has a slot to hold.
+                        val lifetime = billing.lifetime
+                        if (lifetime != null && (lifetimeOffer == "available" || lifetimeOffer == "held")) {
+                            AuroraButton(
+                                stringResource(R.string.lifetime_price, lifetime.price),
+                                {
+                                    scope.launch {
+                                        val hold = app.account.holdLifetime()
+                                        lifetimeMessage = when {
+                                            hold == null -> offlineText
+                                            !hold.held -> soldOutText
+                                            else -> null.also { context.activity()?.let { app.billing.buyLifetime(it, lifetime) } }
+                                        }
+                                        app.account.sync()
+                                    }
+                                },
+                                Modifier.fillMaxWidth(), kind = ButtonKind.PlusQuiet,
+                            )
+                            Text(stringResource(R.string.lifetime_terms), color = colors.textTertiary, style = AuroraType.Caption)
+                        } else if (lifetime != null && lifetimeOffer == "sold_out") {
+                            Text(soldOutText, color = colors.textTertiary, style = AuroraType.Caption)
+                        }
+                        lifetimeMessage?.let { Text(it, color = colors.textSecondary, style = AuroraType.Secondary) }
                     }
+                }
+            }
+        }
+        item(key = "trial") {
+            TrialSection(trial, onTrial = source == "trial", free = plan != Plan.Plus, message = trialMessage) {
+                if (trialBusy) return@TrialSection
+                trialBusy = true
+                scope.launch {
+                    trialMessage = when (val r = app.account.claimTrial()) {
+                        is TrialOutcome.Granted -> null
+                        is TrialOutcome.Refused -> trialRefusals[r.reason] ?: trialUnavailable
+                        TrialOutcome.Unreachable -> offlineText
+                    }
+                    app.account.sync()
+                    trialBusy = false
                 }
             }
         }
@@ -149,6 +208,7 @@ fun PlusScreen(onBack: () -> Unit) {
             Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.M), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                 subscription?.let { s ->
                     when {
+                        source == "trial" || source == "lifetime" -> Unit
                         plan == Plan.Plus && s.state == "in_grace_period" -> Notice(stringResource(R.string.plus_grace_title), stringResource(R.string.plus_grace_body))
                         plan == Plan.Plus -> Text(stringResource(if (s.autoRenewing) R.string.plus_renews_on else R.string.plus_ends_on, dateOf(s.paidThrough)), color = colors.textSecondary, style = AuroraType.Secondary)
                         s.state == "on_hold" -> Notice(stringResource(R.string.plus_hold_title), stringResource(R.string.plus_hold_body))
@@ -159,30 +219,7 @@ fun PlusScreen(onBack: () -> Unit) {
                     Notice(
                         stringResource(R.string.plus_conflict_title),
                         conflict.hint?.let { stringResource(R.string.plus_conflict_body_hint, it) } ?: stringResource(R.string.plus_conflict_body),
-                    ) {
-                        transferMessage?.let { Text(it, color = colors.danger, style = AuroraType.Secondary) }
-                        AuroraButton(
-                            stringResource(R.string.plus_conflict_move),
-                            {
-                                scope.launch {
-                                    when (val r = app.account.transferPurchase(conflict.token)) {
-                                        is ApiResult.Ok -> {
-                                            app.billing.store(r.value)
-                                            app.billing.clearConflict()
-                                            transferMessage = null
-                                        }
-                                        is ApiResult.Refused -> if (r.code == "reauth_required") {
-                                            context.activity()?.let { app.account.reauthenticate(it) }
-                                            app.account.clearEmailStep()
-                                            transferMessage = reauthText
-                                        } else transferMessage = if (r.code == "transfer_limit") limitText else failedText
-                                        ApiResult.Unreachable -> transferMessage = offlineText
-                                    }
-                                }
-                            },
-                            Modifier.fillMaxWidth(), kind = ButtonKind.Secondary,
-                        )
-                    }
+                    )
                 }
                 if (billing.verifying) Notice(stringResource(R.string.plus_verifying_title), stringResource(R.string.plus_verifying_body))
                 if (billing.pending) Notice(stringResource(R.string.plus_payment_pending), stringResource(R.string.plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp))
@@ -198,6 +235,25 @@ fun PlusScreen(onBack: () -> Unit) {
                     textAlign = TextAlign.Center,
                 )
             }
+        }
+    }
+}
+
+/**
+ * The 14-day trial, in plain words: offered to a new account with no payment details and nothing that renews, then
+ * its end date while it runs, then when it ended. Nothing at all once Plus is paid for.
+ */
+@Composable
+internal fun TrialSection(trial: RemoteTrial?, onTrial: Boolean, free: Boolean, message: String?, onStart: () -> Unit) {
+    val colors = Aurora.colors
+    Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
+        when {
+            trial?.status == "active" && onTrial -> Notice(stringResource(R.string.trial_active_title, dateOf(trial.endsAt ?: 0)), stringResource(R.string.trial_active_body))
+            trial?.status == "available" && free -> Notice(stringResource(R.string.trial_offer_title), stringResource(R.string.trial_offer_body)) {
+                message?.let { Text(it, color = colors.textSecondary, style = AuroraType.Secondary) }
+                AuroraButton(stringResource(R.string.trial_start), onStart, Modifier.fillMaxWidth(), kind = ButtonKind.Plus)
+            }
+            trial?.status == "ended" && free -> Text(stringResource(R.string.trial_ended, dateOf(trial.endsAt ?: 0)), color = colors.textTertiary, style = AuroraType.Secondary)
         }
     }
 }

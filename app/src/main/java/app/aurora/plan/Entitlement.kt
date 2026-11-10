@@ -38,6 +38,14 @@ data class EntitlementSnapshot(
     val uid: String = "",
     /** Google confirmed the purchase is real, even if this device can't use it. Play refunds what is never acknowledged. */
     val purchaseValid: Boolean = false,
+    /** "google_play" or "app_store": where the purchase is managed. */
+    val store: String? = null,
+    /** What grants Plus: "subscription", "lifetime" or "trial". Null on Free. */
+    val source: String? = null,
+    /** When the account's trial ends or ended, whatever the tier now. Null: never had one. */
+    val trialEndsAt: Long? = null,
+    /** Play says the purchase is waiting for payment. */
+    val pending: Boolean = false,
 )
 
 /** How long a verified snapshot is trusted without reaching the server again. */

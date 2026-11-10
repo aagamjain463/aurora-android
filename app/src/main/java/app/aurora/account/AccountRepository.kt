@@ -31,6 +31,13 @@ sealed interface Authorization {
 
 enum class ProfileState { Checking, NeedsDecision, Ready, Failed }
 
+/** What became of a trial claim. [Refused.reason] is the server's (trial.js): account_used, device_used, not_new, ... */
+sealed interface TrialOutcome {
+    data class Granted(val endsAt: Long) : TrialOutcome
+    data class Refused(val reason: String) : TrialOutcome
+    data object Unreachable : TrialOutcome
+}
+
 /** Why the last session ended without the person asking. */
 enum class SessionEnd { Expired, DeviceRemoved }
 
@@ -138,8 +145,34 @@ class AccountRepository(
     suspend fun verifyPurchase(purchaseToken: String, productId: String, packageName: String): SignedEntitlement? =
         (authed { server, token -> server.verify(token, purchaseToken, productId, installId, packageName) } as? ApiResult.Ok)?.value
 
-    /** Moves a purchase held on this phone to this account. "reauth_required" comes back as Refused. */
-    suspend fun transferPurchase(purchaseToken: String): ApiResult<SignedEntitlement> = authed { server, token -> server.transfer(token, purchaseToken, installId) }
+    /**
+     * Claims the 14-day trial: the server asks for a Play Integrity verdict made for this claim, the app gets one and
+     * asks again with it. Nothing about payment is involved. A grant is stored like any other signed entitlement.
+     */
+    suspend fun claimTrial(): TrialOutcome {
+        uid ?: return TrialOutcome.Unreachable
+        var integrity: String? = null
+        repeat(2) {
+            val r = authed { server, token -> server.claimTrial(token, installId, integrity) }
+            val answer = (r as? ApiResult.Ok)?.value ?: return TrialOutcome.Unreachable
+            answer.entitlement?.let { signed ->
+                storeEntitlement(signed)
+                answer.trial?.let { t -> _remote.value = _remote.value?.copy(trial = t) }
+                return if (answer.trial?.status == "active") TrialOutcome.Granted(answer.trial.endsAt ?: 0) else TrialOutcome.Refused("account_used")
+            }
+            if (answer.reason == "attestation_required" && answer.attestNonce != null && integrity == null) {
+                // No Play Integrity on this phone (no Play services, a sideloaded build): it can't vouch for itself.
+                integrity = integrityToken(answer.attestNonce) ?: return TrialOutcome.Refused("device_unverifiable")
+            } else {
+                return TrialOutcome.Refused(answer.reason ?: answer.error ?: "")
+            }
+        }
+        return TrialOutcome.Refused("device_unverifiable")
+    }
+
+    /** Holds a Founding Lifetime slot for the next 15 minutes, before the store sheet opens. Null: no answer. */
+    suspend fun holdLifetime(): HoldResponse? = (authed { server, token -> server.holdLifetime(token, installId) } as? ApiResult.Ok)?.value
+
 
     /**
      * Asks to commit [minutes]. [commitmentId] is also the idempotency key, so asking twice reserves once.

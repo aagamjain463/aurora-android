@@ -490,4 +490,59 @@ class AccountFlowTest {
         val empty = mergeCarried(null, null, app.now(), "x")
         assertEquals(Runtime(), empty)
     }
+
+    // ---- Trial claims (server/src/worker.js, claimTrial) ------------------------------------------------------
+
+    /** A repository whose server answers [replies] in order, recording each request body. */
+    private fun trialRepo(replies: List<HttpReply?>, bodies: MutableList<String>, stored: MutableList<String>, integrity: (String) -> String?): AccountRepository {
+        var i = 0
+        val api = AccountApi({ _, _, body, _ -> bodies += body; replies[i++] })
+        return AccountRepository(
+            identity, api, "i", "m", app.packageName, app.packageName, java.io.File(app.cacheDir, "p"),
+            storeEntitlement = { stored += it.payload }, integrityToken = { integrity(it) },
+        )
+    }
+
+    @Test
+    fun aTrialClaimAttestsForTheServersNonceThenStoresTheGrant() = flow {
+        ready()
+        val bodies = mutableListOf<String>()
+        val stored = mutableListOf<String>()
+        val nonces = mutableListOf<String>()
+        val repo = trialRepo(
+            listOf(
+                HttpReply(428, """{"error":"trial_unavailable","reason":"attestation_required","attestNonce":"n1"}"""),
+                HttpReply(200, """{"trial":{"status":"active","startedAt":1,"endsAt":1209600001},"entitlement":{"payload":"p","signature":"s"}}"""),
+            ),
+            bodies, stored,
+        ) { nonces += it; "play-token" }
+        assertEquals(TrialOutcome.Granted(1209600001), repo.claimTrial())
+        assertEquals(listOf("n1"), nonces)
+        assertFalse(bodies[0].contains("integrityToken"))
+        assertTrue(bodies[1].contains("\"integrityToken\":\"play-token\""))
+        assertTrue(bodies.all { it.contains("\"platform\":\"android\"") })
+        assertEquals(listOf("p"), stored)
+    }
+
+    @Test
+    fun aPhoneWithoutPlayIntegrityIsToldWhyAndNothingIsStored() = flow {
+        ready()
+        val bodies = mutableListOf<String>()
+        val stored = mutableListOf<String>()
+        val repo = trialRepo(listOf(HttpReply(428, """{"error":"trial_unavailable","reason":"attestation_required","attestNonce":"n1"}""")), bodies, stored) { null }
+        assertEquals(TrialOutcome.Refused("device_unverifiable"), repo.claimTrial())
+        assertEquals(1, bodies.size)
+        assertTrue(stored.isEmpty())
+    }
+
+    @Test
+    fun aRefusedTrialSaysWhyAndAnOutageDecidesNothing() = flow {
+        ready()
+        val refused = trialRepo(listOf(HttpReply(403, """{"error":"trial_unavailable","reason":"device_used"}""")), mutableListOf(), mutableListOf()) { "t" }
+        assertEquals(TrialOutcome.Refused("device_used"), refused.claimTrial())
+        val down = trialRepo(listOf(HttpReply(503, """{"error":"try_again"}""")), mutableListOf(), mutableListOf()) { "t" }
+        assertEquals(TrialOutcome.Unreachable, down.claimTrial())
+        val gone = trialRepo(listOf(null), mutableListOf(), mutableListOf()) { "t" }
+        assertEquals(TrialOutcome.Unreachable, gone.claimTrial())
+    }
 }

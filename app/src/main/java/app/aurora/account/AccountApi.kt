@@ -21,12 +21,27 @@ import java.net.URL
 @Serializable data class RemoteDevice(val id: String = "", val label: String? = null, val registeredAt: Long = 0, val lastSeenAt: Long = 0, val current: Boolean = false)
 /** This installation as the server sees it. [attestNonce]: a Play Integrity check is due, for this nonce. */
 @Serializable data class RemoteInstallation(val proved: Boolean = false, val integrity: String = "unknown", val attestNonce: String? = null)
+/** The 14-day trial as the server sees this account: available, active, ended or unavailable ([reason]). */
+@Serializable data class RemoteTrial(val status: String = "unavailable", val reason: String? = null, val startedAt: Long? = null, val endsAt: Long? = null, val days: Int? = null)
+/** Founding Lifetime for this account: off, available, held, owned or sold_out. Never a count. */
+@Serializable data class RemoteLifetime(val offer: String = "off")
+/** The answer to a trial claim, granted or not: the server sends one shape for both (server/src/worker.js, claimTrial). */
+@Serializable data class TrialResponse(
+    val trial: RemoteTrial? = null,
+    val entitlement: SignedEntitlement? = null,
+    val error: String? = null,
+    val reason: String? = null,
+    val attestNonce: String? = null,
+)
+@Serializable data class HoldResponse(val held: Boolean = false, val offer: String = "off", val expiresAt: Long? = null)
 @Serializable data class SyncResponse(
     val account: RemoteAccount = RemoteAccount(),
     val entitlement: SignedEntitlement = SignedEntitlement(),
     val quota: RemoteQuota? = null,
     val devices: List<RemoteDevice> = emptyList(),
     val device: RemoteInstallation? = null,
+    val trial: RemoteTrial? = null,
+    val lifetime: RemoteLifetime? = null,
 )
 @Serializable data class ReserveResponse(
     val allowed: Boolean = false,
@@ -110,14 +125,32 @@ class AccountApi(private val transport: Transport, private val prove: DeviceProo
         return runCatching { ApiResult.Ok(AuroraJson.decodeFromString(serializer, reply.body)) }.getOrDefault(ApiResult.Unreachable)
     }
 
+    /** Like [call], but a 4xx body is the answer too (a trial refusal says why). 5xx and no answer are [ApiResult.Unreachable]. */
+    private suspend fun <T> answer(path: String, token: String, body: JsonObject, serializer: KSerializer<T>): ApiResult<T> {
+        val text = body.toString()
+        val headers = withContext(Dispatchers.Default) { runCatching { prove(path, token, text) }.getOrDefault(emptyMap()) }
+        val reply = transport(path, token, text, headers) ?: return ApiResult.Unreachable
+        if (reply.status >= 500) return ApiResult.Unreachable
+        if (reply.status == 401 || reply.status == 403 && reply.body.contains("device_proof_required")) {
+            return ApiResult.Refused(reply.status, runCatching { AuroraJson.decodeFromString(ErrorBody.serializer(), reply.body).error }.getOrDefault(""))
+        }
+        return runCatching { ApiResult.Ok(AuroraJson.decodeFromString(serializer, reply.body)) }.getOrDefault(ApiResult.Unreachable)
+    }
+
+    suspend fun claimTrial(token: String, installId: String, integrityToken: String?) =
+        answer("/v1/trial/claim", token, buildJsonObject {
+            put("installId", installId); put("platform", "android")
+            if (integrityToken != null) put("integrityToken", integrityToken)
+        }, TrialResponse.serializer())
+
+    suspend fun holdLifetime(token: String, installId: String) =
+        call("/v1/lifetime/hold", token, buildJsonObject { put("installId", installId) }, HoldResponse.serializer())
+
     suspend fun sync(token: String, installId: String, label: String, zone: String) =
         call("/v1/account/sync", token, buildJsonObject { put("installId", installId); put("label", label); put("zone", zone) }, SyncResponse.serializer())
 
     suspend fun verify(token: String, purchaseToken: String, productId: String, installId: String, packageName: String) =
         call("/v1/verify", token, buildJsonObject { put("purchaseToken", purchaseToken); put("productId", productId); put("installId", installId); put("packageName", packageName) }, SignedEntitlement.serializer())
-
-    suspend fun transfer(token: String, purchaseToken: String, installId: String) =
-        call("/v1/purchases/transfer", token, buildJsonObject { put("purchaseToken", purchaseToken); put("installId", installId) }, SignedEntitlement.serializer())
 
     suspend fun reserve(token: String, installId: String, commitmentId: String, mode: String, minutes: Int, startAt: Long?, zone: String) =
         call("/v1/quota/reserve", token, buildJsonObject {

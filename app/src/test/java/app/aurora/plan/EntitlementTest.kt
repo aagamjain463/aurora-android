@@ -29,6 +29,11 @@ class EntitlementTest {
     private fun facts(purchased: Boolean = false, pending: Boolean = false, product: String = "aurora_plus_monthly") =
         PurchaseFacts(listOf(product), purchased, pending, acknowledged = false, autoRenewing = true, token = "t")
 
+    @Test fun sandboxReviewNeverGrantsProductionAndroidPlus() {
+        val review = signed("""{"tier":"free","uid":"u1","installId":"i1","packageName":"app.aurora","issuedAt":$now,"iosSandbox":{"scope":"ios_sandbox","productId":"aurora_plus_monthly","expiresAt":${now + 900000}}}""")
+        assertEquals(Plan.Free, plan(verifiedSnapshot(review, publicKey)))
+    }
+
     @Test
     fun aPendingPurchaseDoesNotUnlockPlus() {
         val v = evaluate(listOf(facts(pending = true)), plus)

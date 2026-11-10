@@ -327,7 +327,7 @@
     <string name="plus_google_play_is_waiting_for_your_payment_plus_starts_once_it_comp">Google Play is waiting for your payment. Plus starts once it completes; nothing is charged twice.</string>
     <string name="plus_google_play">Google Play</string>
     <string name="plus_restore_purchases">Restore purchases</string>
-    <string name="plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p">Renews until you cancel. Cancel any time in Google Play.</string>
+    <string name="plus_subscriptions_renew_until_you_cancel_cancel_any_time_in_google_p">Renews until you cancel. Cancel any time in the store where you subscribed.</string>
     <string name="focus_group_empty">%1$s has no protected apps yet, so nothing is held back.</string>
     <string name="focus_holds_off">Shield isn\'t on, so Focus can\'t hold apps back yet. Turn it on from Home.</string>
     <string name="focus_edit_profile_label">Edit %1$s</string>
@@ -749,9 +749,9 @@
     <string name="plus_renews_on">Your plan renews on %1$s.</string>
     <string name="plus_ends_on">Your plan is cancelled. Plus continues until %1$s.</string>
     <string name="plus_grace_title">Payment problem</string>
-    <string name="plus_grace_body">Google Play couldn\'t take your payment and is trying again. Plus continues for now. Update your payment method in Google Play.</string>
+    <string name="plus_grace_body">Your subscription store couldn\'t take your payment and is trying again. Plus continues for now. Update your payment method in the store where you subscribed.</string>
     <string name="plus_hold_title">Subscription on hold</string>
-    <string name="plus_hold_body">Google Play couldn\'t take your payment, so Plus has paused. Fix your payment method in Google Play to get it back.</string>
+    <string name="plus_hold_body">Your subscription store couldn\'t take your payment, so Plus has paused. Update your payment method in the store where you subscribed.</string>
     <string name="plus_devices_title">Too many phones</string>
     <string name="plus_devices_body">This subscription is already on the most phones it can be. Plus isn\'t active on this one.</string>
     <string name="plus_verifying_title">Confirming your purchase</string>
@@ -871,7 +871,7 @@
     <string name="account_sign_out_body">You\'ll need to sign in to use Aurora again. Sessions already running keep running until they end. Your data stays on this phone for when you\'re back.</string>
     <string name="account_delete">Delete account</string>
     <string name="account_delete_title">Delete your Aurora account?</string>
-    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 30 days from now. Sign in before then to change your mind.\n\nThis phone\'s Habits, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Google Play keeps billing until you cancel there.</string>
+    <string name="account_delete_body">Your account, its devices and its allowance history are deleted from our servers 30 days from now. Sign in before then to change your mind.\n\nThis phone\'s Habits, history and setup are erased now. Anything already running continues until it ends.\n\nThis doesn\'t cancel Aurora Plus. Your subscription store keeps billing until you cancel there.</string>
     <string name="account_delete_manage">Manage subscription in Google Play</string>
     <string name="account_delete_confirm">Delete my account</string>
     <string name="account_reauth_title">Confirm it\'s you</string>
@@ -880,11 +880,8 @@
     <string name="account_reauth_email">We sent a sign-in link to your email. Open it on this phone, then try again.</string>
     <string name="account_offline">Aurora needs the internet for this. Connect and try again.</string>
     <string name="plus_conflict_title">This purchase is on another account</string>
-    <string name="plus_conflict_body">This phone\'s Google Play subscription belongs to a different Aurora account. Sign in to that account, or move the subscription here. It can move once every 30 days, and the other account loses Plus.</string>
-    <string name="plus_conflict_body_hint">This phone\'s Google Play subscription belongs to the Aurora account %1$s. Sign in to that account, or move the subscription here. It can move once every 30 days, and the other account loses Plus.</string>
-    <string name="plus_conflict_move">Move to this account</string>
-    <string name="plus_conflict_limit">This subscription moved recently. It can move again after 30 days.</string>
-    <string name="plus_conflict_failed">That didn\'t work. Please try again.</string>
+    <string name="plus_conflict_body">This purchase belongs to another Aurora account. Sign in to the original account or contact support. Automatic transfers are disabled.</string>
+    <string name="plus_conflict_body_hint">This purchase belongs to the Aurora account %1$s. Sign in to that account or contact support. Automatic transfers are disabled.</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_dark">Dark</string>
     <string name="settings_theme_light">Light</string>
@@ -1139,4 +1136,22 @@
         <item quantity="one">%d Intent</item>
         <item quantity="other">%d Intents</item>
     </plurals>
+    <string name="plus_managed_in_app_store">Your subscription is managed through the App Store on your Apple device.</string>
+
+    <!-- Trial and Founding Lifetime (docs/MONETIZATION_PLAN.md). Draft copy: awaiting founder approval. -->
+    <string name="trial_offer_title">Try Aurora Plus free for 14 days</string>
+    <string name="trial_offer_body">No payment details, and nothing renews. After 14 days you\'re back on Aurora Free, with everything you set up kept.</string>
+    <string name="trial_start">Start free trial</string>
+    <string name="trial_active_title">Free trial · ends %1$s</string>
+    <string name="trial_active_body">Nothing is charged when it ends. Aurora Free continues unless you choose a plan.</string>
+    <string name="trial_ended">Your free trial ended on %1$s.</string>
+    <string name="trial_refused_used">This account or phone has already had a free trial.</string>
+    <string name="trial_refused_not_new">The free trial is for new accounts.</string>
+    <string name="trial_refused_purchased">This account has had Aurora Plus before, so the trial isn\'t available.</string>
+    <string name="trial_refused_device">Aurora couldn\'t confirm this phone with Google Play, so the trial isn\'t available here. Aurora Free and Plus still work.</string>
+    <string name="trial_refused_other">The free trial isn\'t available right now.</string>
+    <string name="lifetime_price">Founding Lifetime · %1$s once</string>
+    <string name="lifetime_terms">One payment, no renewals: Aurora Plus on your Aurora account for as long as Aurora offers Plus. For the first 1,000 buyers in the US.</string>
+    <string name="lifetime_sold_out">Founding Lifetime is sold out.</string>
+    <string name="lifetime_owned">Founding Lifetime. Nothing renews and nothing to manage.</string>
 </resources>
