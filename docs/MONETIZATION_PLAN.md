@@ -140,3 +140,74 @@ Recorded here once answered.
 | Gold | Keep the 2026-11-08 rule: gold on Aurora Plus surfaces via `ui/components/Plus.kt`, plus the logo. Nowhere else. |
 | Lifetime over-cap | Honor it: grant lifetime, record as overflow (no numbered slot), alert, deactivate the store product. |
 | Android trial gate | Strong Play Integrity verdict (device integrity + Play-recognized + licensed). Reinstall + new email stays open until Device Recall is approved; Device Recall goes in behind a flag. |
+
+## 7. Status (2026-11-10)
+
+Nothing is pushed, deployed, migrated remotely or switched on. All flags ship `off`.
+
+| Stage | State | Commits |
+|---|---|---|
+| 0 Merge | Done. `feat/monetization` = anti-abuse WIP + App Store backend. | aurora-android `28766fd`, `190d3c2` |
+| 1 Trial (server) | Done. Migration 0005, `/v1/trial/claim`, effective entitlement, snapshot `source`/`trialEndsAt`. | `6137892` |
+| 2 Lifetime (server) | Done. Migration 0006, `/v1/lifetime/hold`, Play one-time + App Store non-consumable verification, RTDN voided/one-time, Apple refund. | `0cb711f` |
+| 3 Device Recall | Done behind `DEVICE_RECALL`. Untested against Google (beta access not granted). | `48e6b24` |
+| 4 Android client | Done: trial claim, lifetime purchase, Plus screen states, transfers removed. | `4fd0f7a` |
+| 5 iOS client | Done: DeviceCheck trial claim, lifetime purchase, Plus screen states, App Store patch applied. | aurora-ios `cf7af4b`, `6662936` |
+| 6 Physical devices / store sandboxes | **Not started.** Needs your devices and console access. | — |
+
+Not built yet: onboarding-time trial prompt (the offer lives on the Plus screen only), a trial countdown on Home,
+App Attest on iOS (DeviceCheck is the device gate), a daily reconcile against Play's Voided Purchases API (RTDN
+only today), an admin view for `entitlement_events`.
+
+## 8. Test record (executed here, 2026-11-10)
+
+| Suite | Result | Where |
+|---|---|---|
+| Server (`npm test`, node:sqlite stand-in for D1, Google/Apple faked at fetch) | 166/166 pass | macOS, Node 26 |
+| Android unit + Robolectric (`testDebugUnitTest`) | 711/711 pass | JVM, no device |
+| Android lint (`lintDebug`) | **Fails: 30 errors, all pre-existing** in the WIP snapshot (unused session strings, AGP version, etc.) | — |
+| Android screenshots | Recorded `plus_*`, `plus_trial_offer_*`, `plus_trial_active_*`; reviewed | Roborazzi |
+| iOS unit (`AuroraTests`) | 109/110; the failure (`testASignedAnswerIsStoredAndTheTransactionFinished`, StoreKit lag) also fails on the base commit and passes alone 3/3 | iPhone 18 Pro simulator |
+
+Matrix items covered by executed server tests: first trial; second account on one phone; 100 accounts on one phone;
+20 racing accounts; one account racing itself; reinstall keeps the end date; deletion + re-signup with the same
+address (case, +tag, Gmail dots); expiry online and in the offline snapshot; revoked trial; weak/unlicensed/modified
+Integrity verdicts; DeviceCheck used/unknown/invalid/outage/write failure; Device Recall enforce/shadow/unevaluated;
+90 minutes used then reinstall gives 30; lifetime slots 999/1000/1001; 2,000 concurrent cross-store commits; 40
+racing end-to-end buyers for 20 slots; holds and expiry; pending/canceled/unknown purchases; stolen token; duplicate
+across stores; non-US and tester purchases; Play voided refund; Apple refund confirmed by Apple's record only;
+sandbox never takes a slot; deletion never frees a slot. Existing suites cover quota clock/zone rules, account
+switching, device keys and subscription renewal/grace/hold/expiry.
+
+**Not executed, so not passed:** anything on a physical Android or iOS device; real Play/App Store sandbox purchases,
+renewals, refunds and notifications; real Play Integrity, Device Recall and DeviceCheck calls; real D1 under load;
+app cloning, work profiles, root/jailbreak; process death and reboot during a trial claim.
+
+## 9. What you need to do (credentials, consoles, review)
+
+1. Play Console: subscriptions at the new prices (US, IN; no other country without a price); one-time product
+   `aurora_plus_lifetime_us`, US only, US$89.99; RTDN topic (already in BILLING.md); link the Cloud project for Play
+   Integrity; set `APP_CERT_SHA256`; apply for Device Recall (interest form) if you want reinstall-proof Android trials.
+2. App Store Connect: `aurora_plus_lifetime_us` non-consumable, USA storefront only, Family Sharing off; subscriptions
+   at the new prices; Server Notifications V2 URL `/v1/apple/notifications`; a DeviceCheck key (.p8) and your Team ID.
+3. Secrets: `TRIAL_PEPPER` (never rotate), `DEVICECHECK_KEY_ID`, `DEVICECHECK_PRIVATE_KEY`, Apple App Store Server API
+   key, existing Google service account with Play Integrity scope. Var `APPLE_TEAM_ID`.
+4. Copy: every `trial_*` and `lifetime_*` string is draft and needs your approval; the privacy policy must say that a
+   keyed hash of the verified address and the install id are kept up to 3 years after a trial ends, to stop repeat
+   trials, and that Apple/Google device bits are written.
+5. Product decisions still open: "newly registered" is fixed at 30 days of account age; lifetime is defined as "for
+   as long as Aurora offers Plus".
+6. Rollout, each step on staging first: `wrangler d1 migrations apply` (0004 to 0006) → deploy → `TRIAL=on` with
+   `DEVICE_RECALL=off` → `LIFETIME=on` once both store products exist → physical-device matrix (section 8).
+
+## 10. Monitoring and rollback
+
+- Alerts (Workers Logs / Logpush): `lifetime_attention` warnings (overflow or duplicate purchases); `request failed`
+  errors on `/v1/trial/claim`, `/v1/verify*`, `/v1/rtdn`, `/v1/apple/notifications`.
+- Daily queries: `SELECT kind, COUNT(*) FROM entitlement_events WHERE created_at > ? GROUP BY kind` (trial grants vs
+  refusals by reason, lifetime slot/overflow/duplicate/revoked); `SELECT COUNT(*) FROM lifetime_slots WHERE slot IS NOT
+  NULL`; `SELECT open FROM lifetime_inventory`; `abuse_events` kinds `recall_shadow`, `recall_write_failed`.
+- When `lifetime_inventory.open` turns 0: deactivate both store products by hand the same day.
+- Rollback: set `TRIAL`/`LIFETIME`/`DEVICE_RECALL` to `off` and deploy, or `wrangler rollback`. Never drop 0005/0006
+  tables: granted trials and lifetime purchases live there. Turning `TRIAL` off stops new claims only; granted trials
+  keep running to their end.
