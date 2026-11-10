@@ -10,6 +10,7 @@
 // enforce), INTEGRITY (off, observe, enforce; default off), APP_CERT_SHA256 (Play's app signing certificate digests).
 
 import { appAccountToken, appleEntitlement, appleStatus, appleTransaction, environmentAllowed, verifySigned } from './apple.js'
+import { verifyAttestation } from './appattest.js'
 import { AuthError, bearer, isEmulated, verifyIdToken } from './auth.js'
 import { ATTEST_EVERY_MS, attestNonce, deviceOf, issueNonce, judgeIntegrity, licensedOf } from './device.js'
 import {
@@ -17,7 +18,7 @@ import {
 } from './lifetime.js'
 import { fits, quotaZone, statusOf, validZone } from './quota.js'
 import {
-  DeviceCheckInvalid, TRIAL_MS, TRIAL_NEW_ACCOUNT_MS, TRIAL_RETENTION_MS, androidVouches, deviceCheckReady, deviceCheckUsed, keyed, markDeviceCheck,
+  DeviceCheckInvalid, TRIAL_MS, TRIAL_RETENTION_MS, androidVouches, deviceCheckReady, deviceCheckUsed, keyed, markDeviceCheck,
   normalizeEmail,
 } from './trial.js'
 
@@ -40,6 +41,9 @@ const ACCOUNTS_PER_DEVICE = 3
 // What one account may import from phones that predate its ledger. A real import is the last few days of one phone.
 const MAX_IMPORTED = 400
 const IMPORT_HORIZON_MS = 86_400_000
+// The daily voided-purchase sweep looks this far back: today's run plus two missed ones. Google keeps 30 days.
+const VOIDED_LOOKBACK_MS = 3 * 86_400_000
+const VOIDED_PAGES = 5
 
 const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
 const b64url = (bytes) => b64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -347,7 +351,7 @@ async function allowed(env, bucket, max, windowSeconds) {
 
 async function sync(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { revocation: true })
-  const { installId, label, zone } = await body(request)
+  const { installId, label, zone, platform } = await body(request)
   if (!isId(installId)) return json(400, { error: 'bad_request' })
   if (!(await allowed(env, `sync:${claims.sub}`, 60, 60))) return json(429, { error: 'slow_down' })
   const now = Date.now()
@@ -361,7 +365,7 @@ async function sync(request, env, fetcher) {
     entitlement: await accountSnapshot(env, account, claims.sub, installId, now),
     quota: plus ? null : await quotaFor(env, account, installId, now, validZone(zone) ? zone : 'UTC'),
     devices: await devicesOf(env, account, installId),
-    trial: await trialStatus(env, account, now),
+    trial: await trialStatus(env, account, now, platform),
     lifetime: { offer: await offerFor(env, account, now) },
     device: { proved: here.proved, integrity: here.integrity, attestNonce: await attestNonce(env, here, now) },
     serverTime: now,
@@ -857,8 +861,15 @@ async function rtdn(request, env, fetcher) {
     return new Response(null, { status: 204 })
   }
   if (note.packageName !== env.PACKAGE_NAME) return new Response(null, { status: 204 })
-  const oneTime = note.oneTimeProductNotification ?? note.voidedPurchaseNotification
-  if (oneTime?.purchaseToken) return rtdnOneTime(env, fetcher, note)
+  if (note.voidedPurchaseNotification?.purchaseToken) {
+    try {
+      await applyVoided(env, fetcher, note.voidedPurchaseNotification.purchaseToken)
+    } catch {
+      return json(503, { error: 'try_again' }) // Pub/Sub redelivers; the daily sweep is the backstop.
+    }
+    return new Response(null, { status: 204 })
+  }
+  if (note.oneTimeProductNotification?.purchaseToken) return rtdnOneTime(env, fetcher, note)
   const token = note.subscriptionNotification?.purchaseToken
   // Test notifications: acknowledged, nothing to do.
   if (!token) return new Response(null, { status: 204 })
@@ -965,7 +976,6 @@ async function lifetimeHold(request, env, fetcher) {
 /** Why this account can't have a trial, whatever the device: null when it can. Needs TRIAL_PEPPER. */
 async function accountIneligible(env, account, rows, now) {
   if (account.status !== 'active') return 'account_deleting'
-  if (now - account.created_at > TRIAL_NEW_ACCOUNT_MS) return 'not_new'
   if (rows.some((r) => r.environment !== 'Sandbox')) return 'purchased'
   const used = await env.DB.prepare('SELECT 1 FROM trial_claims WHERE uid_hash = ? OR email_hash = ? LIMIT 1')
     .bind(await keyed(env, `uid:${account.firebase_uid}`), await keyed(env, `email:${normalizeEmail(account.email ?? '')}`)).first()
@@ -974,12 +984,41 @@ async function accountIneligible(env, account, rows, now) {
 
 const recallMode = (env) => env.DEVICE_RECALL ?? 'off'
 const trialsOn = (env) => env.TRIAL === 'on' && Boolean(env.TRIAL_PEPPER)
+/**
+ * Android trials need a device signal that survives a reinstall and a reset. Play Integrity doesn't give one: it says
+ * the phone and the app are genuine, not that this phone had a trial before. Only Device Recall does, and only once it
+ * is approved, switched on in Play Console and verified on real phones (founder, 2026-11-10). Until DEVICE_RECALL is
+ * 'enforce', no Android trial is offered or granted.
+ */
+const platformTrialsOn = (env, platform) => platform !== 'android' || recallMode(env) === 'enforce'
+// App Attest on iOS trial claims: 'off' or 'enforce' (needs the App Attest capability in the app's entitlements).
+const appAttestOn = (env) => env.APP_ATTEST === 'enforce'
+
+/**
+ * Spends this device's nonce on an App Attest attestation made over it. { refused } unless Apple's chain, the nonce,
+ * the key id, our Team ID + bundle id and the environment all check out. Each nonce counts once.
+ */
+async function spendAppAttest(env, here, appAttest, now) {
+  const nonce = here.attest_nonce
+  if (!nonce || !(here.attest_nonce_expires_at > now)) return { refused: json(409, { error: 'stale_nonce' }) }
+  const { meta } = await env.DB.prepare('UPDATE devices SET attest_nonce = NULL, attest_nonce_expires_at = NULL WHERE id = ? AND attest_nonce = ?').bind(here.id, nonce).run()
+  if (meta.changes === 0) return { refused: json(409, { error: 'stale_nonce' }) }
+  try {
+    await verifyAttestation({
+      attestation: appAttest.attestation, keyId: appAttest.keyId, challenge: nonce,
+      appId: `${env.APPLE_TEAM_ID}.${env.APPLE_BUNDLE_ID}`, environment: env.DEVICECHECK_ENV, now,
+    })
+    return {}
+  } catch {
+    return { invalid: true }
+  }
+}
 
 /** What the app shows about the trial. 'available' is the account's side only; the device is judged at the claim. */
-async function trialStatus(env, account, now) {
+async function trialStatus(env, account, now, platform) {
   const e = await entitlementOf(env, account, now)
   if (e.trial) return { status: e.trialPlus || (!e.trial.revoked_at && now < e.trial.expires_at) ? 'active' : 'ended', startedAt: e.trial.granted_at, endsAt: trialEnd(e.trial) }
-  if (!trialsOn(env)) return { status: 'unavailable', reason: 'off' }
+  if (!trialsOn(env) || !platformTrialsOn(env, platform)) return { status: 'unavailable', reason: 'off' }
   const reason = await accountIneligible(env, account, e.rows, now)
   return reason ? { status: 'unavailable', reason } : { status: 'available', days: TRIAL_MS / 86_400_000 }
 }
@@ -987,20 +1026,21 @@ async function trialStatus(env, account, now) {
 const trialRefused = (status, reason, more = {}) => json(status, { error: 'trial_unavailable', reason, ...more })
 
 /**
- * Grants the 14-day trial: a new verified account, a device that vouches for itself, and no trial before on any of
- * them. Idempotent per account: asking again, from any phone, returns the same trial and the same end. The grant is
+ * Grants the 14-day trial: a verified account of any age that never paid, a device that vouches for itself, and no
+ * trial before on any of them (no account-age rule; founder, 2026-11-10). Idempotent per account: asking again, from any phone, returns the same trial and the same end. The grant is
  * one INSERT guarded by three UNIQUE constraints (account, address, installation), so racing claims can't both win.
  *
- * Device evidence. Android: a Play Integrity verdict made for this claim (fresh), judged 'ok' and LICENSED. iOS:
+ * Device evidence. Android (only with DEVICE_RECALL=enforce): a Play Integrity verdict made for this claim (fresh),
+ * judged 'ok' and LICENSED, and Device Recall saying no trial was granted on this phone. iOS:
  * Apple's DeviceCheck says no trial was granted on this device, and is told when one is. No evidence is not
  * evidence of abuse, but it is never a trial either: the person is told why and keeps Free, and can still buy.
  */
 async function claimTrial(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher, { revocation: true })
-  const { installId, platform, deviceToken, integrityToken } = await body(request)
+  const { installId, platform, deviceToken, integrityToken, appAttest } = await body(request)
   if (!isId(installId) || !['android', 'ios'].includes(platform)) return json(400, { error: 'bad_request' })
   if (platform === 'ios' && !text(deviceToken, 8192)) return json(400, { error: 'bad_request' })
-  if (!trialsOn(env)) return trialRefused(404, 'off')
+  if (!trialsOn(env) || !platformTrialsOn(env, platform)) return trialRefused(404, 'off')
   if (!(await allowed(env, `trial:${claims.sub}`, 10, 3600))) return json(429, { error: 'slow_down' })
   const now = Date.now()
   let here = await device(request, env, installId, now)
@@ -1008,7 +1048,7 @@ async function claimTrial(request, env, fetcher) {
   if (!(await allowed(env, `trial-device:${installId}`, 10, 3600))) return json(429, { error: 'slow_down' })
   const account = await ensureAccount(env, claims, now)
   if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
-  const granted = async () => json(200, { trial: await trialStatus(env, account, now), entitlement: await accountSnapshot(env, account, claims.sub, installId, now) })
+  const granted = async () => json(200, { trial: await trialStatus(env, account, now, platform), entitlement: await accountSnapshot(env, account, claims.sub, installId, now) })
 
   const e = await entitlementOf(env, account, now)
   if (e.trial) return granted()
@@ -1036,18 +1076,28 @@ async function claimTrial(request, env, fetcher) {
     // No verdict made for this claim yet: ask for one. A fresh verdict that doesn't vouch is an answer, not a retry.
     if (!verdict.fresh) return trialRefused(428, 'attestation_required', { attestNonce: await issueNonce(env, here, now) })
     if (!verdict.ok) return refuse(403, 'device_ineligible')
-    evidence = 'play_integrity'
-    // Device Recall (docs/ANTI_ABUSE.md, section 5): off, shadow (record what it would refuse) or enforce.
-    if (recallMode(env) !== 'off') {
-      if (recall === null) return trialRefused(428, 'attestation_required', { attestNonce: await issueNonce(env, here, now), inline: true })
-      if (recall.bitFirst === true) {
-        if (recallMode(env) === 'enforce') return refuse(403, 'device_used')
-        await audit(env, 'recall_shadow', installId, account.id)
-      }
-      if (recallMode(env) === 'enforce') evidence = 'play_integrity+recall'
-    }
+    // Device Recall (docs/ANTI_ABUSE.md, section 5). The claim must carry its own token: the bit is written with it.
+    if (recall === null) return trialRefused(428, 'attestation_required', { attestNonce: await issueNonce(env, here, now), inline: true })
+    if (recall.bitFirst === true) return refuse(403, 'device_used')
+    // Google answers {} when it can't recall this phone (an account that isn't Play-licensed, say). Without recall a
+    // reinstall would look new, so no trial: Free stays, purchases stay open. Whether a phone never written also
+    // answers {} is unverified (the docs don't say); if it does, this refuses every first trial, which a
+    // physical-device test must settle before DEVICE_RECALL is set to enforce (docs/MONETIZATION_PLAN.md, 11).
+    if (typeof recall.bitFirst !== 'boolean') return refuse(403, 'device_unverifiable')
+    evidence = 'play_integrity+recall'
   } else {
     if (!deviceCheckReady(env)) return refuse(503, 'not_configured')
+    // App Attest: the claim comes from Aurora itself, not a script holding a DeviceCheck token. A device that can't
+    // attest (unsupported, or Apple's service down) gets no trial, as with any missing evidence; Free and buying stay.
+    if (appAttestOn(env)) {
+      if (!text(appAttest?.attestation, 16384) || !text(appAttest?.keyId, 128)) return trialRefused(428, 'attestation_required', { attestNonce: await issueNonce(env, here, now), appAttest: true })
+      const attested = await spendAppAttest(env, here, appAttest, now)
+      if (attested.refused) return attested.refused
+      if (attested.invalid) {
+        await audit(env, 'app_attest_failed', installId, account.id)
+        return refuse(403, 'device_unverifiable')
+      }
+    }
     try {
       if (await deviceCheckUsed(env, deviceToken, fetcher)) return refuse(403, 'device_used')
     } catch (err) {
@@ -1068,16 +1118,13 @@ async function claimTrial(request, env, fetcher) {
     const sameDevice = await env.DB.prepare('SELECT 1 FROM trial_claims WHERE installation_id = ?').bind(installId).first()
     return refuse(403, sameDevice ? 'device_used' : 'account_used')
   }
-  if (platform === 'android' && recallMode(env) !== 'off') {
+  if (platform === 'android') {
     try {
       await writeRecall(env, integrityToken, fetcher)
     } catch {
-      // Enforcing: a trial Google doesn't remember could be claimed again after a reset, so it isn't granted yet.
-      if (recallMode(env) === 'enforce') {
-        await env.DB.prepare('DELETE FROM trial_claims WHERE id = ?').bind(id).run()
-        return json(503, { error: 'try_again' })
-      }
-      await audit(env, 'recall_write_failed', installId, account.id)
+      // A trial Google doesn't remember could be claimed again after a reset, so it isn't granted yet.
+      await env.DB.prepare('DELETE FROM trial_claims WHERE id = ?').bind(id).run()
+      return json(503, { error: 'try_again' })
     }
   }
   if (platform === 'ios') {
@@ -1110,21 +1157,59 @@ async function revokeLifetime(env, key, state, now) {
 }
 
 /**
- * Play's one-time product and voided-purchase notifications. A voided purchase (refund, chargeback) grants nothing;
- * a cancellation is checked with Google before anything changes. Purchases nobody verified yet are left to the app.
+ * A Play purchase Google lists as voided (refunded, charged back, revoked), from RTDN or the daily sweep; idempotent.
+ * Lifetime: Plus ends, the slot stays consumed. Subscription: Google is asked again and its state decides, because a
+ * refund of one renewal without revocation leaves the subscription running. A purchase nobody verified yet is left
+ * alone: when the app verifies it, Google already reports it canceled. Throws when Google can't be reached.
  */
+async function applyVoided(env, fetcher, token) {
+  const key = await tokenKey(token)
+  const known = await env.DB.prepare('SELECT * FROM purchases WHERE token_hash = ?').bind(key).first()
+  if (!known || known.store === 'app_store') return
+  if (known.state === 'lifetime') return revokeLifetime(env, key, 'refunded', Date.now())
+  if (known.tier !== 'plus') return
+  const e = entitlementFrom(await playSubscription(env, token, fetcher), productIdsOf(env), Date.now())
+  await env.DB.prepare('UPDATE purchases SET tier = ?, state = ?, paid_through = ?, auto_renewing = ?, product_id = COALESCE(?, product_id), checked_at = ? WHERE token_hash = ?')
+    .bind(e.tier, e.state, e.paidThrough, e.autoRenewing ? 1 : 0, e.productId, Date.now(), key).run()
+  await entitlementEvent(env, known.account_id, 'subscription_voided', e.state)
+}
+
+/**
+ * Daily backstop for RTDN: Play's Voided Purchases API (purchases.voidedpurchases.list, type=1: one-time products and
+ * subscriptions) over the last few days. A refund whose notification was lost still ends Plus within a day.
+ * ponytail: one purchase's failure is skipped and retried by the next run's overlapping window; 5 pages of 1,000.
+ */
+async function reconcileVoidedPlay(env, fetcher, now) {
+  const access = await googleAccessToken(env.GOOGLE_SERVICE_ACCOUNT, 'https://www.googleapis.com/auth/androidpublisher', fetcher)
+  let page = null
+  for (let i = 0; i < VOIDED_PAGES; i++) {
+    const query = new URLSearchParams({ startTime: String(now - VOIDED_LOOKBACK_MS), endTime: String(now), type: '1', maxResults: '1000' })
+    if (page) query.set('token', page)
+    const res = await fetcher(`${PLAY}/applications/${env.PACKAGE_NAME}/purchases/voidedpurchases?${query}`, { headers: { authorization: `Bearer ${access}` } })
+    if (!res.ok) throw new Error(`voided ${res.status}`)
+    const body = await res.json()
+    for (const v of body.voidedPurchases ?? []) {
+      if (!text(v?.purchaseToken, 4096)) continue
+      try {
+        await applyVoided(env, fetcher, v.purchaseToken)
+      } catch {
+        // Google unreachable for this one; tomorrow's window covers it again.
+      }
+    }
+    page = body.tokenPagination?.nextPageToken
+    if (!page) return
+  }
+  console.warn('voided_reconcile_truncated')
+}
+
+/** Play's one-time product notifications: a cancellation is checked with Google before anything changes. */
 async function rtdnOneTime(env, fetcher, note) {
   const done = new Response(null, { status: 204 })
-  const voided = note.voidedPurchaseNotification
-  const token = (voided ?? note.oneTimeProductNotification).purchaseToken
+  const token = note.oneTimeProductNotification.purchaseToken
   const key = await tokenKey(token)
   const known = await env.DB.prepare('SELECT * FROM purchases WHERE token_hash = ?').bind(key).first()
   if (!known || known.store === 'app_store' || known.state !== 'lifetime') return done
   const now = Date.now()
-  if (voided) {
-    await revokeLifetime(env, key, 'refunded', now)
-    return done
-  }
   let p
   try {
     p = playLifetimeFrom(await playProduct(env, known.product_id, token, fetcher))
@@ -1167,6 +1252,13 @@ export async function housekeeping(env, fetcher, now = Date.now()) {
     env.DB.prepare('DELETE FROM entitlement_events WHERE created_at < ?').bind(now - TRIAL_RETENTION_MS),
   ])
   if (appleReady(env)) await recheckLapsedApple(env, fetcher, now)
+  if (env.GOOGLE_SERVICE_ACCOUNT) {
+    try {
+      await reconcileVoidedPlay(env, fetcher, now)
+    } catch (e) {
+      console.error('voided_reconcile_failed', e?.message)
+    }
+  }
 }
 
 // Store servers post these; their own signature or token is the check, not an IP budget.

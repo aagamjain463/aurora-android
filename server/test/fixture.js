@@ -90,7 +90,7 @@ export function idToken(uid, over = {}, { key = firebaseKey.privateKey, kid = KI
 export const verifySignature = ({ payload, signature }) => createVerify('RSA-SHA256').update(payload).verify(signing.publicKey, signature, 'base64')
 
 export function world({ without } = {}) {
-  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [], apple: null, deviceCheck: null, products: new Map(), appleTx: null, recallWrites: [], recallDown: false }
+  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [], apple: null, deviceCheck: null, products: new Map(), appleTx: null, recallWrites: [], recallDown: false, voided: [], voidedQueries: [], voidedDown: false }
   const fetcher = async (url, init) => {
     const u = String(url)
     if (u.includes('/jwk/securetoken')) {
@@ -127,6 +127,12 @@ export function world({ without } = {}) {
       const token = decodeURIComponent(u.split('/tokens/')[1])
       const sub = state.subs.get(token)
       return sub ? new Response(JSON.stringify(sub)) : new Response('{}', { status: 404 })
+    }
+    if (u.includes('/purchases/voidedpurchases')) {
+      state.voidedQueries.push(u)
+      if (state.voidedDown) return new Response('{}', { status: 500 })
+      const at = new URL(u).searchParams.get('token') ?? '0'
+      return new Response(JSON.stringify(state.voided[Number(at)] ?? {}))
     }
     if (u.includes('/purchases/products/')) {
       if (state.playDown) return new Response('{}', { status: 500 })

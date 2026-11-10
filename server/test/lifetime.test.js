@@ -213,3 +213,47 @@ test('deleting an account never frees its slot', async () => {
   assert.equal(slots(w)[0].account_id, null)
   assert.deepEqual((await buyPlay(w, 'other', 'o')).body.lifetime, { slot: 2, status: 'slot' })
 })
+
+test('daily voided-purchase sweep: a refund whose RTDN never came still ends Plus, once, across pages', async () => {
+  const w = lifetimeWorld()
+  await buyPlay(w, 'lost', 'lost-note')
+  await buyPlay(w, 'kept', 'kept-token')
+  // Page 0 names a purchase nobody verified, page 1 the refunded one. Nothing else is touched.
+  w.state.voided = [
+    { voidedPurchases: [{ purchaseToken: 'never-verified', voidedTimeMillis: String(Date.now()) }], tokenPagination: { nextPageToken: '1' } },
+    { voidedPurchases: [{ purchaseToken: 'lost-note', voidedTimeMillis: String(Date.now()), voidedReason: 1 }] },
+  ]
+  await housekeeping(w.env, w.fetcher)
+  const q = new URL(w.state.voidedQueries[0]).searchParams
+  assert.equal(q.get('type'), '1', 'subscriptions and one-time products')
+  assert.ok(Date.now() - Number(q.get('startTime')) <= 3 * 86_400_000 + 1000)
+  assert.equal(w.state.voidedQueries.length, 2, 'followed the page token')
+  assert.equal(snap(await w.call('/v1/account/sync', idToken('lost'), { installId: 'a-lost', zone: 'UTC' })).tier, 'free')
+  assert.equal(snap(await w.call('/v1/account/sync', idToken('kept'), { installId: 'a-kept', zone: 'UTC' })).tier, 'plus')
+  assert.ok(slots(w).find((s) => s.slot === 1).refunded_at, 'slot stays consumed')
+  // The next run sees the same window again: nothing changes twice.
+  await housekeeping(w.env, w.fetcher)
+  assert.equal(w.DB.rows("SELECT COUNT(*) AS n FROM entitlement_events WHERE kind = 'lifetime_revoked'")[0].n, 1)
+  // Google down: housekeeping still finishes, nothing is guessed.
+  w.state.voidedDown = true
+  await housekeeping(w.env, w.fetcher)
+  assert.equal(snap(await w.call('/v1/account/sync', idToken('kept'), { installId: 'a-kept', zone: 'UTC' })).tier, 'plus')
+})
+
+test('a voided subscription is read again from Google: revoked ends Plus, a refund without revocation does not', async () => {
+  const w = lifetimeWorld()
+  const sub = (state) => ({ subscriptionState: state, lineItems: [{ productId: 'aurora_plus_monthly', expiryTime: new Date(Date.now() + 20 * 86_400_000).toISOString(), autoRenewingPlan: { autoRenewEnabled: true } }] })
+  for (const [uid, token] of [['s1', 'sub-refund-only'], ['s2', 'sub-revoked']]) {
+    w.state.subs.set(token, sub('SUBSCRIPTION_STATE_ACTIVE'))
+    await w.call('/v1/verify', idToken(uid), { purchaseToken: token, productId: 'aurora_plus_monthly', installId: `a-${uid}`, packageName: 'app.aurora' })
+  }
+  w.state.subs.set('sub-revoked', sub('SUBSCRIPTION_STATE_EXPIRED'))
+  const rtdn = (token) => w.call('/v1/rtdn?token=secret', null, { message: { data: Buffer.from(JSON.stringify({ packageName: 'app.aurora', voidedPurchaseNotification: { purchaseToken: token, productType: 1, refundType: 1 } })).toString('base64') } })
+  assert.equal((await rtdn('sub-refund-only')).status, 204)
+  assert.equal((await rtdn('sub-revoked')).status, 204)
+  assert.equal(snap(await w.call('/v1/account/sync', idToken('s1'), { installId: 'a-s1', zone: 'UTC' })).tier, 'plus')
+  assert.equal(snap(await w.call('/v1/account/sync', idToken('s2'), { installId: 'a-s2', zone: 'UTC' })).tier, 'free')
+  // Google unreachable: Pub/Sub is asked to redeliver.
+  w.state.playDown = true
+  assert.equal((await rtdn('sub-refund-only')).status, 503)
+})

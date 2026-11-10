@@ -173,7 +173,7 @@ fun AuroraDialog(
     // The window spans the screen and the card sets its own margins: with the platform's wrap-content width a
     // weighted row of text fields (the duration boxes) made the dialog window re-layout every frame.
     BasicAlertDialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        val seeThrough = GlassWindow()
+        val seeThrough = glassWindow()
         val shown = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (reduced) 1f else 0f) }
         androidx.compose.runtime.LaunchedEffect(Unit) { if (!reduced) shown.animateTo(1f, tween(Motion.Gentle, easing = Motion.Ease)) }
         Column(
@@ -236,7 +236,7 @@ fun AuroraDialog(
  * the app nothing per frame. Without it the dim is stronger, so the card still separates.
  */
 @Composable
-fun GlassWindow(): Boolean {
+fun glassWindow(): Boolean {
     val colors = Aurora.colors
     val view = androidx.compose.ui.platform.LocalView.current
     val allowed = app.aurora.ui.components.LocalGlassBlur.current
@@ -245,7 +245,7 @@ fun GlassWindow(): Boolean {
     val blur = window != null && allowed && android.os.Build.VERSION.SDK_INT >= 31 && window.windowManager.isCrossWindowBlurEnabled
     androidx.compose.runtime.SideEffect {
         if (window == null) return@SideEffect
-        if (blur && android.os.Build.VERSION.SDK_INT >= 31) {
+        if (blur) {
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
             window.attributes = window.attributes.apply { blurBehindRadius = radius }
         }

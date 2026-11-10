@@ -169,6 +169,9 @@ android {
         // New warnings fail the build. The four Phase 1 warnings are recorded in the baseline.
         warningsAsErrors = true
         baseline = file("lint-baseline.xml")
+        // "A newer AGP/Gradle exists" turns red on every upstream release with no code change. Upgrades are
+        // deliberate commits, not lint failures.
+        disable += "AndroidGradlePluginVersion"
     }
 
     buildFeatures {

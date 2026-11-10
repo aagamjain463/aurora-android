@@ -358,11 +358,13 @@ fun Rules.retainedShield(plan: Plan, now: Long, zone: ZoneId, reserved: Set<Stri
     else keepActive(plan, Allowance.ProtectedItems, reserved.toList() + requestedShield(now, zone), reserved + keep.shield).toSet()
 
 /**
- * The targets of commitments another account on this phone left running ([app.aurora.account.mergeCarried]). They
- * hold Free's slots first, so switching accounts can't put more than Free's targets under protection at once.
+ * The targets that hold Free's slots before anything switched on: commitments another account on this phone left
+ * running ([app.aurora.account.mergeCarried]) and every live session, carried or not (a session is never marked).
+ * So switching accounts can't put more than Free's targets under protection at once.
  */
 fun Runtime.carriedShield(t: DeviceTime): Set<String> =
-    runs.filter { it.carried && !it.isOver(t) }.flatMap { it.shield?.keys.orEmpty() }.map(::canonicalKey).toSet()
+    (runs.filter { it.carried && !it.isOver(t) }.flatMap { it.shield?.keys.orEmpty() } + sessions.filterNot { it.time.isOver(t) }.flatMap { it.keys })
+        .map(::canonicalKey).toSet()
 
 fun Rules.retainedIntent(plan: Plan, now: Long, zone: ZoneId): Set<String>? =
     if (limit(plan, Allowance.IntentApps) == null) null else keepActive(plan, Allowance.IntentApps, requestedIntent(now, zone), keep.intent).toSet()

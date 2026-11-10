@@ -253,7 +253,7 @@ fun SessionRow(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpen: (
  * and the round controls: Focus, Pass, End, Details. The time reclaimed lives on the details page.
  */
 @Composable
-fun SessionHero(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpen: () -> Unit, onOpenFocus: (String) -> Unit, landscape: Boolean = false, fill: Boolean = false, modifier: Modifier = Modifier) {
+fun SessionHero(run: ConfigRun, d: ProtectData, app: AuroraApplication, onOpen: () -> Unit, onOpenFocus: (String) -> Unit, modifier: Modifier = Modifier, landscape: Boolean = false, fill: Boolean = false) {
     val colors = Aurora.colors
     val now = d.time.wall
     val end = run.endAt(d.time) ?: return

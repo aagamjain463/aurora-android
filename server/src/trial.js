@@ -4,12 +4,11 @@
 // paidThrough = the end and autoRenewing = false, so every client already ends it on time, offline too.
 
 export const TRIAL_MS = 14 * 86_400_000
-// "Newly registered": an account older than this when it asks gets no trial.
-// ponytail: fixed at 30 days; make it a var if marketing ever wants trials for older Free accounts.
-export const TRIAL_NEW_ACCOUNT_MS = 30 * 86_400_000
 // An Android verdict must be this fresh to vouch for a trial: the attestation made for this claim.
 export const TRIAL_VERDICT_FRESH_MS = 15 * 60_000
-// Claims of deleted accounts are dropped this long after they ended.
+// Claims of deleted accounts are dropped this long after they ended. NOT APPROVED: a placeholder pending the founder's
+// and counsel's decision (docs/PRIVACY_TRIAL_RETENTION_REVIEW.md). TRIAL stays "off" until it is decided; changing the
+// period is this one constant.
 export const TRIAL_RETENTION_MS = 3 * 365 * 86_400_000
 
 const utf8 = (text) => new TextEncoder().encode(text)

@@ -218,6 +218,7 @@ fun HomeScreen(
     onStartSession: (configId: String) -> Unit = {},
     onOpenSaved: () -> Unit = {},
     onOpenRun: (String) -> Unit = {},
+    onOpenPlus: () -> Unit = {},
 ) {
     var choosing by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val today = auroraViewModel { TodayModel(it) }
@@ -227,6 +228,7 @@ fun HomeScreen(
     val history by today.app.history.state.collectAsStateWithLifecycle()
     val minute by androidx.compose.runtime.remember { clockTicks(60_000) }.collectAsStateWithLifecycle(0L)
     val prefs by today.app.preferences.preferences.collectAsStateWithLifecycle(null)
+    val entitlement by today.app.billing.subscription.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
     LifecycleResumeEffect(minute) {
         today.refresh()
@@ -323,6 +325,12 @@ fun HomeScreen(
         if (lead != null) metric()
         // What is running sits right under the hero's timer, before anything else (founder, 2026-11-08).
         if (d != null) homeNow(d, today.app, onOpenFocus, onOpenLegacyFocus, onOpenRun)
+        // The trial's countdown while it runs, from the server's signed end (founder, 2026-11-10). [minute] redraws it.
+        val trialEnd = entitlement?.takeIf { it.source == "trial" && today.app.plan == app.aurora.plan.Plan.Plus }?.paidThrough
+        if (trialEnd != null) item(key = "trial") {
+            val now = androidx.compose.runtime.remember(minute) { System.currentTimeMillis() }
+            app.aurora.ui.plus.TrialCountdown(trialEnd, now, onOpenPlus, Modifier.rise().padding(top = Space.Card))
+        }
         // Start a session: it asks New or Saved.
         // One session runs at a time: while one does, the hero is the way in, and Start steps away.
         if (d == null || leadRun(d, today.app) == null) item(key = "choose") { Column(Modifier.animateItem()) { ChooseCard { choosing = true } } }

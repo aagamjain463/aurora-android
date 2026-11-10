@@ -1,5 +1,9 @@
 package app.aurora.ui.onboarding
 
+import app.aurora.ui.plus.offered
+import app.aurora.ui.plus.rememberTrialClaim
+import app.aurora.ui.plus.TrialOfferPage
+import app.aurora.plan.Plan
 import app.aurora.ui.components.glassShine
 import app.aurora.ui.components.glassFill
 import app.aurora.ui.components.glassCard
@@ -101,6 +105,8 @@ private const val HowPage = 1
 private const val FirstTabPage = 2
 private val PageCount = FirstTabPage + Tab.entries.size + 1
 internal val ShieldPage = PageCount - 1
+// After the tour, only when the server offers this account a trial. Outside the dots: an offer, not a step.
+private val TrialPage = PageCount
 
 /**
  * Still pages: the promise, how Aurora works (its four tabs on one card), a page for each tab (a picture of it, its
@@ -120,10 +126,13 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val granted = Needed.associateWith { rememberAccess(it) == AccessState.Granted }
     val shieldOn = granted[Access.Accessibility] == true
     val missing = Needed.filter { granted[it] != true }
-    val finish = {
+    val remote by app.account.remote.collectAsStateWithLifecycle()
+    val done = {
         app.scope.launch { runCatching { app.preferences.setOnboardingStep(0) } }
         onFinish()
     }
+    val trialClaim = rememberTrialClaim(onGranted = done)
+    val finish = { if (remote?.trial.offered(onPlus = app.plan == Plan.Plus)) page = TrialPage else done() }
 
     Box(Modifier.fillMaxSize().background(if (p == 0) colors.sky else colors.background)) {
         Column(Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -137,6 +146,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     0 -> Welcome()
                     HowPage -> HowItWorks()
                     ShieldPage -> Permissions(missing)
+                    TrialPage -> Page { TrialOfferPage(trialClaim.message) }
                     else -> TabPage(Tab.entries[step - FirstTabPage])
                 }
             }
@@ -147,6 +157,10 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when {
+                    p == TrialPage -> {
+                        AuroraButton(stringResource(R.string.trial_start), trialClaim.claim, Modifier.fillMaxWidth(), kind = ButtonKind.Plus, enabled = !trialClaim.busy)
+                        AuroraButton(stringResource(R.string.action_not_now), done, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                    }
                     p == 0 -> {
                         AuroraButton(stringResource(R.string.onb_begin), { page = HowPage }, Modifier.fillMaxWidth())
                         Privacy(Modifier.padding(top = Space.S))

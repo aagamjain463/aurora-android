@@ -315,6 +315,8 @@ fun ConfigureScreen(
     }
     // The first time protection starts, ask to show it in the notification shade (Android 13+).
     val context = androidx.compose.ui.platform.LocalContext.current
+    val breakPassName = stringResource(R.string.pass_kind_break)
+    val workPassName = stringResource(R.string.pass_kind_work)
     val notifications = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val confirm = {
         val t = timing
@@ -468,8 +470,8 @@ fun ConfigureScreen(
                     onEdit = { editUnlock(it) },
                 ) { k ->
                     val name = when (k) {
-                        app.aurora.protect.PassKind.Break -> context.getString(R.string.pass_kind_break)
-                        app.aurora.protect.PassKind.Work -> context.getString(R.string.pass_kind_work)
+                        app.aurora.protect.PassKind.Break -> breakPassName
+                        app.aurora.protect.PassKind.Work -> workPassName
                         app.aurora.protect.PassKind.Other -> ""
                     }
                     editUnlock(app.aurora.protect.SessionUnlock(app.aurora.newId(), name, minutes = if (k == app.aurora.protect.PassKind.Break) 10 else 30, times = if (k == app.aurora.protect.PassKind.Break) 3 else 1, focusRuns = k == app.aurora.protect.PassKind.Work))

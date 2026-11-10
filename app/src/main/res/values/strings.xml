@@ -173,7 +173,6 @@
     <string name="status_turn_on">Turn on Shield</string>
     <string name="status_open_accessibility">Open Accessibility settings</string>
     <string name="keep_running_autostart">Turn on Autostart</string>
-    <string name="keep_running_battery">Battery settings for Aurora</string>
     <string name="disclosure_title">Turn on Shield</string>
     <string name="disclosure_body">To block the apps you choose, Aurora uses an Android accessibility service called Aurora Shield.\n\nIt reads only the name of the app in front. It doesn\'t read your screen, your messages or what you type, and nothing leaves your phone.\n\nAndroid will ask you to confirm. You can turn it off at any time in Settings › Accessibility.</string>
     <string name="disclosure_confirm">Open settings</string>
@@ -205,7 +204,8 @@
 
     <!-- Start protection -->
     <string name="start_friction_title">Choose the task</string>
-    <string name="start_review_cooldown">Wait: %1$s before each access</string>
+    <!-- Used by iOS (AuroraStrings.generated.swift); Android has no screen for it. -->
+    <string name="start_review_cooldown" tools:ignore="UnusedResources">Wait: %1$s before each access</string>
     <string name="start_commit_body">Once it starts, nothing in Aurora can end it early. Editing apps, schedules or groups won\'t end it either.</string>
     <string name="start_commit_limits">Accessibility, date and time and uninstalling stay locked until it ends. Calls and emergency services always work.</string>
     <string name="start_always_block_allowance">%1$s of Cooldown and Strict left today on Aurora Free.</string>
@@ -525,7 +525,6 @@
     <string name="home_ready_title">Saved Sessions</string>
     <string name="cfg_keep_saved">Save this session</string>
     <string name="cfg_keep_saved_body">Start it again any time, set up the same way.</string>
-    <string name="cfg_save_for_later">Save without starting</string>
     <string name="cfg_schedule">Schedule</string>
     <string name="cfg_turn_on">Turn on</string>
     <string name="cfg_strict_link">What strict protection locks</string>
@@ -568,7 +567,6 @@
     <string name="shield_sites_add">Add</string>
     <string name="action_remove_site">Remove %1$s</string>
     <string name="shield_sites_invalid">That isn\'t a website address.</string>
-    <string name="shield_type_title">Choose the Shield type</string>
     <string name="shield_review_note">Saving doesn\'t start it. Start it from Home.</string>
     <string name="shield_save">Save Shield</string>
     <string name="shield_always_block_note">How long it lasts is set when you start it on Home. It can\'t be ended early, and Accessibility, date and time and uninstalling stay locked until it ends.</string>
@@ -585,7 +583,6 @@
     <!-- Track -->
     <string name="track_recent_runs">Recent sessions</string>
     <string name="track_no_runs">No finished sessions yet.</string>
-    <string name="track_all_runs">See all sessions</string>
     <string name="history_title">All sessions</string>
     <plurals name="track_sessions_kept">
         <item quantity="one">%d finished session</item>
@@ -630,9 +627,7 @@
     <string name="goal_name_title">Name your habit</string>
     <string name="goal_link_title">What is this habit for?</string>
     <string name="goal_link_session">A saved session</string>
-    <string name="goal_link_session_desc">Count the time you really run it, breaks left out.</string>
     <string name="goal_link_limit">A time limit</string>
-    <string name="goal_link_limit_desc">Stay under a limit on apps or your whole screen time.</string>
     <string name="goal_session_title">Choose a saved session</string>
     <string name="goal_session_none">No saved sessions yet. Make one; this habit waits for you.</string>
     <string name="goal_session_create">New session</string>
@@ -722,7 +717,6 @@
     <plurals name="picker_cap">
         <item quantity="other">Aurora Free: up to %1$d apps and sites.</item>
     </plurals>
-    <string name="quick_save">Save this session</string>
     <string name="limit_items_title">That\'s the most for now</string>
     <plurals name="limit_items_body">
         <item quantity="other">You\'re protecting %1$d items, the most Aurora Free allows. Remove one to add another, or protect everything with Aurora Plus.</item>
@@ -916,7 +910,8 @@
 
     <!-- Details of a saved item or a finished session -->
     <string name="preset_view">View details</string>
-    <string name="detail_type">Type</string>
+    <!-- Used by iOS (AuroraStrings.generated.swift); Android has no screen for it. -->
+    <string name="detail_type" tools:ignore="UnusedResources">Type</string>
     <string name="detail_apps">Apps</string>
     <string name="detail_sites">Websites</string>
     <string name="detail_parts">Parts of apps</string>
@@ -1017,16 +1012,13 @@
     <!-- Sessions and Tasks (2026-11-09) -->
     <string name="home_start_session">Start a session</string>
     <string name="start_new_session">New session</string>
-    <string name="start_new_session_body">Choose apps and how strict, then start.</string>
     <string name="start_saved_sessions">Saved sessions</string>
-    <string name="start_saved_sessions_body">Start one you set up before.</string>
     <string name="saved_new_session">New saved session</string>
     <string name="saved_none_sessions">No saved sessions yet.</string>
     <string name="when_save">Just save</string>
     <string name="when_save_body">Keep it in Saved. Start it any time.</string>
     <string name="run_details">Details</string>
     <string name="run_left">%1$s left</string>
-    <string name="run_starts_at">Starts at %1$s</string>
     <string name="session_eyebrow">Session</string>
     <string name="task_contents_none">Nothing chosen yet</string>
     <string name="task_clash_title">Already in this task</string>
@@ -1034,9 +1026,7 @@
     <string name="task_view_details">View details</string>
     <string name="task_unlocks_title">Passes</string>
     <string name="task_unlocks_body">Planned ways out of a locked session. Only the passes switched on can be used.</string>
-    <string name="task_unlocks_none">No passes. Everything stays locked until the session ends.</string>
     <string name="task_unlock_add">Add a pass</string>
-    <string name="task_break_name">Break</string>
     <string name="task_unlock_new">New pass</string>
     <string name="task_unlock_edit">Edit pass</string>
     <string name="task_unlock_name_placeholder">Name it</string>
@@ -1045,11 +1035,8 @@
     <string name="task_unlock_length">Open for</string>
     <string name="task_unlock_times">Uses</string>
     <string name="task_unlock_delete">Delete pass</string>
-    <string name="task_unlock_timer_runs">Reclaimed time counts</string>
-    <string name="task_unlock_timer_stops">Reclaimed time pauses</string>
     <string name="task_unlock_action">Pass</string>
     <string name="task_unlock_choose_title">Use a pass</string>
-    <string name="task_unlock_choose_body">It opens for its time, then locks again on its own.</string>
     <string name="task_unlock_none_left">None left</string>
     <string name="task_unlock_use">Use pass</string>
     <string name="task_unlocked">On a pass</string>
@@ -1062,7 +1049,6 @@
     <string name="task_unlock_no_more">No passes left in this session.</string>
     <string name="task_timer_stopped">Reclaimed time paused</string>
     <string name="task_timer_running">Reclaimed time counting</string>
-    <string name="pass_kind_title">What is it for?</string>
     <string name="pass_kind_break">Break</string>
     <string name="pass_kind_break_body">Everything opens. Reclaimed time pauses; the session keeps running.</string>
     <string name="pass_kind_work">Work</string>
@@ -1074,11 +1060,10 @@
     <string name="pass_intro_title">How passes work</string>
     <string name="reclaimed_label">Reclaimed</string>
     <string name="pass_name_label">Name</string>
-    <string name="pass_left_of">%1$d of %2$d left</string>
+    <string name="pass_left_of" tools:ignore="PluralsCandidate">%1$d of %2$d left</string>
     <string name="need_focus_goal">Add a goal for the Focus timer.</string>
     <string name="detail_held">Held for</string>
     <string name="detail_planned">Session length</string>
-    <string name="focus_focused">Focused</string>
     <string name="focus_paused">Paused · %1$s</string>
     <string name="session_time_left">Session · %1$s left</string>
     <string name="pass_on_line">%1$s · %2$s left · %3$s</string>
@@ -1096,7 +1081,6 @@
         <item quantity="one">%d app or site</item>
         <item quantity="other">%d apps or sites</item>
     </plurals>
-    <string name="task_saved_note">Your passes are saved with the session.</string>
     <string name="conflict_title">Already taken at that time</string>
     <string name="conflict_apps">%1$s already in \"%2$s\" at that time. An app can be in one session at a time.</string>
     <string name="conflict_inside">%1$s in both a Shield and an Intent of this session. Keep each app in one.</string>
@@ -1124,9 +1108,9 @@
         <item quantity="one">%d pass left</item>
         <item quantity="other">%d passes left</item>
     </plurals>
-    <plurals name="task_unlocks_count">
-        <item quantity="one">%d pass</item>
-        <item quantity="other">%d passes</item>
+    <plurals name="trial_days_left">
+        <item quantity="one">%d day left in your Aurora Plus trial</item>
+        <item quantity="other">%d days left in your Aurora Plus trial</item>
     </plurals>
     <plurals name="task_shields_count">
         <item quantity="one">%d Shield</item>
@@ -1140,18 +1124,21 @@
 
     <!-- Trial and Founding Lifetime (docs/MONETIZATION_PLAN.md). Draft copy: awaiting founder approval. -->
     <string name="trial_offer_title">Try Aurora Plus free for 14 days</string>
-    <string name="trial_offer_body">No payment details, and nothing renews. After 14 days you\'re back on Aurora Free, with everything you set up kept.</string>
+    <string name="trial_offer_body">No payment details, and nothing renews. After 14 days you\'re back on Aurora Free: everything you set up is kept, and Free\'s limits apply again.</string>
     <string name="trial_start">Start free trial</string>
     <string name="trial_active_title">Free trial · ends %1$s</string>
     <string name="trial_active_body">Nothing is charged when it ends. Aurora Free continues unless you choose a plan.</string>
+    <string name="trial_badge">Free trial</string>
+    <string name="trial_ends_today">Your Aurora Plus trial ends today at %1$s</string>
+    <string name="trial_countdown_detail">Ends %1$s. Nothing is charged.</string>
     <string name="trial_ended">Your free trial ended on %1$s.</string>
     <string name="trial_refused_used">This account or phone has already had a free trial.</string>
-    <string name="trial_refused_not_new">The free trial is for new accounts.</string>
     <string name="trial_refused_purchased">This account has had Aurora Plus before, so the trial isn\'t available.</string>
     <string name="trial_refused_device">Aurora couldn\'t confirm this phone with Google Play, so the trial isn\'t available here. Aurora Free and Plus still work.</string>
     <string name="trial_refused_other">The free trial isn\'t available right now.</string>
     <string name="lifetime_price">Founding Lifetime · %1$s once</string>
-    <string name="lifetime_terms">One payment, no renewals: Aurora Plus on your Aurora account for as long as Aurora offers Plus. For the first 1,000 buyers in the US.</string>
+    <string name="lifetime_terms">One payment. Aurora Plus access for the lifetime of the Aurora Plus service. No recurring subscription fees. Access ends if Aurora permanently discontinues the service.</string>
+    <string name="lifetime_scope">Linked to your Aurora account. Available in the US to the first 1,000 buyers.</string>
     <string name="lifetime_sold_out">Founding Lifetime is sold out.</string>
     <string name="lifetime_owned">Founding Lifetime. Nothing renews and nothing to manage.</string>
 </resources>

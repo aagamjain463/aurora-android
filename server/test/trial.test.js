@@ -5,6 +5,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { housekeeping } from '../src/worker.js'
 import { normalizeEmail } from '../src/trial.js'
 import { activeSub, deviceKey, idToken, IDS, signedCall, verifySignature, world } from './fixture.js'
+import { attestation } from './appattest-fixture.js'
 
 const DAY = 86_400_000
 const TRIAL = 14 * DAY
@@ -12,7 +13,8 @@ const dcKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
 
 function trialWorld() {
   const w = world()
-  Object.assign(w.env, { TRIAL: 'on', TRIAL_PEPPER: 'pepper', APPLE_TEAM_ID: 'TEAM', DEVICECHECK_KEY_ID: 'KID', DEVICECHECK_PRIVATE_KEY: dcKey })
+  // Android trials exist only with Device Recall enforcing (founder, 2026-11-10).
+  Object.assign(w.env, { TRIAL: 'on', TRIAL_PEPPER: 'pepper', DEVICE_RECALL: 'enforce', APPLE_TEAM_ID: 'TEAM', DEVICECHECK_KEY_ID: 'KID', DEVICECHECK_PRIVATE_KEY: dcKey })
   // DeviceCheck: one physical device per token prefix ("dev1:anything"), as Apple would resolve it.
   const bits = new Map()
   w.state.dcCalls = []
@@ -36,7 +38,7 @@ function trialWorld() {
 const verdict = (nonce, over = {}) => ({
   requestDetails: { requestPackageName: 'app.aurora', nonce, timestampMillis: String(Date.now()) },
   appIntegrity: { appRecognitionVerdict: 'PLAY_RECOGNIZED', packageName: 'app.aurora', certificateSha256Digest: ['cert'] },
-  deviceIntegrity: { deviceRecognitionVerdict: ['MEETS_DEVICE_INTEGRITY'] },
+  deviceIntegrity: { deviceRecognitionVerdict: ['MEETS_DEVICE_INTEGRITY'], deviceRecall: { values: { bitFirst: false }, writeDates: {} } },
   accountDetails: { appLicensingVerdict: 'LICENSED' },
   ...over,
 })
@@ -49,15 +51,13 @@ const snapshot = (res) => {
   return JSON.parse(res.body.entitlement.payload)
 }
 
-/** The Android path: ask, attest with the nonce the server hands back, ask again. */
+/** The Android path: ask, get a nonce, ask again with the Integrity token made for it (Device Recall writes with it). */
 async function androidClaim(w, key, uid, installId, shape = verdict, token = {}) {
   const first = await claim(w, key, uid, installId, {}, token)
   if (first.status !== 428) return first
   assert.equal(first.body.reason, 'attestation_required')
   w.state.verdict = () => shape(first.body.attestNonce)
-  const attested = await signedCall(w, key, '/v1/device/attest', idToken(uid, token), { installId, token: 'integrity-token' })
-  assert.equal(attested.status, 200, JSON.stringify(attested.body))
-  return claim(w, key, uid, installId, {}, token)
+  return claim(w, key, uid, installId, { integrityToken: `tok-${uid}-${installId}` }, token)
 }
 
 const claimsIn = (w) => w.DB.rows('SELECT * FROM trial_claims')
@@ -80,7 +80,7 @@ test('first legitimate Android trial: 14 days of Plus, no store, ends by itself,
   assert.equal(res.body.trial.endsAt - res.body.trial.startedAt, TRIAL)
   assert.equal(w.state.subs.size, 0, 'no store was asked for anything')
   const [row] = claimsIn(w)
-  assert.equal(row.evidence, 'play_integrity')
+  assert.equal(row.evidence, 'play_integrity+recall')
   assert.ok(!JSON.stringify(row).includes('alice'), 'no address or uid in the clear')
   // Plus means Plus everywhere the server decides: no Free ledger for a trial reservation.
   const reserved = await signedCall(w, key, '/v1/quota/reserve', idToken('alice'), { installId: 'p1', idempotencyKey: 'k', commitmentId: 'c', mode: 'always_block', minutes: 600, zone: 'UTC' })
@@ -125,10 +125,10 @@ test('racing claims: twenty accounts on one phone at once grant exactly one tria
   const key = deviceKey()
   const first = await claim(w, key, 'a0', 'p1')
   w.state.verdict = () => verdict(first.body.attestNonce)
-  await signedCall(w, key, '/v1/device/attest', idToken('a0'), { installId: 'p1', token: 't' })
-  const results = await Promise.all(Array.from({ length: 20 }, (_, i) => claim(w, key, `a${i}`, 'p1')))
-  assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => r.body.reason ?? 'ok')))
-  assert.ok(results.filter((r) => r.status !== 200).every((r) => r.body.reason === 'device_used' || r.status === 429))
+  const results = await Promise.all(Array.from({ length: 20 }, (_, i) => claim(w, key, `a${i}`, 'p1', { integrityToken: 't' })))
+  assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => r.body.reason ?? r.body.error ?? 'ok')))
+  // The nonce is spent once, so the losers are refused before or at the grant; none is granted.
+  assert.ok(results.filter((r) => r.status !== 200).every((r) => r.body.reason === 'device_used' || r.body.error === 'stale_nonce' || r.status === 429))
   assert.equal(claimsIn(w).length, 1)
 })
 
@@ -137,11 +137,14 @@ test('racing claims: one account asking twice at once gets one trial and the sam
   const key = deviceKey()
   const first = await claim(w, key, 'alice', 'p1')
   w.state.verdict = () => verdict(first.body.attestNonce)
-  await signedCall(w, key, '/v1/device/attest', idToken('alice'), { installId: 'p1', token: 't' })
-  const [a, b] = await Promise.all([claim(w, key, 'alice', 'p1'), claim(w, key, 'alice', 'p1')])
-  assert.equal(a.status, 200)
-  assert.equal(b.status, 200)
-  assert.equal(a.body.trial.endsAt, b.body.trial.endsAt)
+  const both = await Promise.all([claim(w, key, 'alice', 'p1', { integrityToken: 't' }), claim(w, key, 'alice', 'p1', { integrityToken: 't' })])
+  const won = both.filter((r) => r.status === 200)
+  assert.ok(won.length >= 1)
+  // The slower one either found the grant or lost the nonce; asking again (what the app does) returns the same end.
+  assert.ok(both.every((r) => r.status === 200 || r.body.error === 'stale_nonce'))
+  const again = await claim(w, key, 'alice', 'p1')
+  assert.equal(again.status, 200)
+  assert.ok(won.every((r) => r.body.trial.endsAt === again.body.trial.endsAt))
   assert.equal(claimsIn(w).length, 1)
 })
 
@@ -213,13 +216,14 @@ test('Android evidence: weak, unlicensed or modified builds get no trial; an unk
   assert.equal((await claim(w, key, 'bob', 'p2')).status, 428)
 })
 
-test('account rules: only new accounts that never paid; off means off; unverified email never gets in', async () => {
+test('account rules: any account age, never paid; off means off; unverified email never gets in', async () => {
   const w = trialWorld()
   const key = deviceKey()
   await sync(w, key, 'old', 'p1')
-  w.DB.db.prepare("UPDATE accounts SET created_at = ? WHERE firebase_uid = 'old'").run(Date.now() - 31 * DAY)
-  assert.equal((await claim(w, key, 'old', 'p1')).body.reason, 'not_new')
-  assert.equal((await sync(w, key, 'old', 'p1')).body.trial.reason, 'not_new')
+  // No account-age rule (founder, 2026-11-10): a two-year-old Free account that never had a trial gets one.
+  w.DB.db.prepare("UPDATE accounts SET created_at = ? WHERE firebase_uid = 'old'").run(Date.now() - 730 * DAY)
+  assert.equal((await sync(w, key, 'old', 'p1')).body.trial.status, 'available')
+  assert.equal((await androidClaim(w, key, 'old', 'p1')).status, 200)
 
   const k2 = deviceKey()
   w.state.subs.set('tok', activeSub())
@@ -306,7 +310,7 @@ async function inlineClaim(w, key, uid, installId, shape = verdict) {
 }
 const recalled = (bit) => (n) => verdict(n, { deviceIntegrity: { deviceRecognitionVerdict: ['MEETS_DEVICE_INTEGRITY'], deviceRecall: { values: bit === null ? {} : { bitFirst: bit }, writeDates: {} } } })
 
-test('the Integrity token can ride on the claim itself; a nonce is spent once', async () => {
+test('the Integrity token rides on the claim itself; a nonce is spent once', async () => {
   const w = trialWorld()
   const key = deviceKey()
   const ok = await inlineClaim(w, key, 'alice', 'p1')
@@ -314,7 +318,23 @@ test('the Integrity token can ride on the claim itself; a nonce is spent once', 
   // Replaying the same token on another account: the nonce is gone.
   const replay = await claim(w, key, 'bob', 'p1', { integrityToken: 'tok-alice' })
   assert.ok(replay.status === 409 || replay.body.reason === 'device_used')
-  assert.equal(w.state.recallWrites.length, 0, 'Device Recall off: nothing written')
+  assert.equal(w.state.recallWrites.length, 1, 'the one grant wrote its bit')
+})
+
+test('Android trials stay off unless Device Recall enforces: Play Integrity alone is not reinstall-proof', async () => {
+  for (const mode of [undefined, 'off', 'shadow']) {
+    const w = trialWorld()
+    w.env.DEVICE_RECALL = mode
+    const key = deviceKey()
+    const offered = await signedCall(w, key, '/v1/account/sync', idToken('alice'), { installId: 'p1', zone: 'UTC', platform: 'android' })
+    assert.deepEqual(offered.body.trial, { status: 'unavailable', reason: 'off' }, String(mode))
+    const r = await inlineClaim(w, key, 'alice', 'p1')
+    assert.equal(r.status, 404, String(mode))
+    assert.equal(r.body.reason, 'off')
+    assert.equal(claimsIn(w).length, 0)
+    // iOS keeps its own device gate (DeviceCheck) and isn't affected.
+    assert.equal((await claim(w, deviceKey(), 'bob', 'i1', { platform: 'ios', deviceToken: 'dev1:t' })).status, 200, String(mode))
+  }
 })
 
 test('Device Recall enforce: a reset phone whose recall bit is set gets no second trial; a grant writes the bit', async () => {
@@ -322,7 +342,10 @@ test('Device Recall enforce: a reset phone whose recall bit is set gets no secon
   w.env.DEVICE_RECALL = 'enforce'
   // The attestation-route verdict isn't enough with recall on: the claim needs its own token to write with.
   const key = deviceKey()
-  const viaRoute = await androidClaim(w, key, 'alice', 'p1', recalled(false))
+  const asked = await claim(w, key, 'alice', 'p1')
+  w.state.verdict = () => recalled(false)(asked.body.attestNonce)
+  assert.equal((await signedCall(w, key, '/v1/device/attest', idToken('alice'), { installId: 'p1', token: 'route' })).status, 200)
+  const viaRoute = await claim(w, key, 'alice', 'p1')
   assert.equal(viaRoute.status, 428)
   assert.equal(viaRoute.body.inline, true)
   w.state.verdict = () => recalled(false)(viaRoute.body.attestNonce)
@@ -335,22 +358,15 @@ test('Device Recall enforce: a reset phone whose recall bit is set gets no secon
   const reset = await inlineClaim(w, deviceKey(), 'bob', 'p2', recalled(true))
   assert.equal(reset.status, 403)
   assert.equal(reset.body.reason, 'device_used')
-  // Unevaluated recall (no Play-licensed account, say) is inconclusive: the strong verdict decides.
-  assert.equal((await inlineClaim(w, deviceKey(), 'carol', 'p3', recalled(null))).status, 200)
+  // Unevaluated recall (no Play-licensed account, say): a reinstall would look new, so no trial.
+  const unknown = await inlineClaim(w, deviceKey(), 'carol', 'p3', recalled(null))
+  assert.equal(unknown.status, 403)
+  assert.equal(unknown.body.reason, 'device_unverifiable')
   // Google can't record the bit: no trial yet, try later.
   w.state.recallDown = true
   const down = await inlineClaim(w, deviceKey(), 'dan', 'p4', recalled(false))
   assert.equal(down.status, 503)
   assert.equal(w.DB.rows("SELECT * FROM trial_claims WHERE installation_id = 'p4'").length, 0)
-})
-
-test('Device Recall shadow: grants as before, records what enforce would refuse', async () => {
-  const w = trialWorld()
-  w.env.DEVICE_RECALL = 'shadow'
-  const r = await inlineClaim(w, deviceKey(), 'bob', 'p2', recalled(true))
-  assert.equal(r.status, 200)
-  assert.equal(w.DB.rows("SELECT * FROM abuse_events WHERE kind = 'recall_shadow'").length, 1)
-  assert.equal(w.state.recallWrites.length, 1)
 })
 
 test('matrix: 90 strict minutes used, reinstall, same account: 30 minutes left, not a fresh 120', async () => {
@@ -367,4 +383,34 @@ test('matrix: 90 strict minutes used, reinstall, same account: 30 minutes left, 
   const synced = await sync(w, after, 'alice', 'new-install')
   assert.equal(synced.body.quota.remainingMs, 30 * 60_000)
   assert.equal(synced.body.quota.limitedBy, 'account')
+})
+
+test('App Attest enforce: an iOS claim must come from Aurora itself, over a one-use nonce', async () => {
+  const w = trialWorld()
+  Object.assign(w.env, { APP_ATTEST: 'enforce', APPLE_BUNDLE_ID: 'com.aagamjain.Aurora' })
+  const app = 'TEAM.com.aagamjain.Aurora'
+  const ios = (uid, installId, key, more = {}) => claim(w, key, uid, installId, { platform: 'ios', deviceToken: `dev-${installId}:t`, ...more })
+
+  // A DeviceCheck token alone is no longer enough: the server hands out a nonce to attest over.
+  const key = deviceKey()
+  const asked = await ios('alice', 'i1', key)
+  assert.equal(asked.status, 428)
+  assert.equal(asked.body.appAttest, true)
+  const proof = attestation(asked.body.attestNonce, app)
+  const ok = await ios('alice', 'i1', key, { appAttest: proof })
+  assert.equal(ok.status, 200, JSON.stringify(ok.body))
+  assert.equal(snapshot(ok).source, 'trial')
+
+  // The same attestation again, from another account on another phone: its nonce isn't this device's.
+  const k2 = deviceKey()
+  await ios('bob', 'i2', k2)
+  assert.equal((await ios('bob', 'i2', k2, { appAttest: proof })).status, 403)
+  assert.equal(w.DB.rows("SELECT COUNT(*) AS n FROM abuse_events WHERE kind = 'app_attest_failed'")[0].n, 1)
+  // That spent bob's nonce: the next try needs a new one, and an attestation for another app is refused.
+  const again = await ios('bob', 'i2', k2)
+  assert.equal(again.status, 428)
+  const other = await ios('bob', 'i2', k2, { appAttest: attestation(again.body.attestNonce, 'OTHER.com.example') })
+  assert.equal(other.body.reason, 'device_unverifiable')
+  // Nothing about App Attest touches Android or the DeviceCheck bit for a refused claim.
+  assert.equal(claimsIn(w).length, 1)
 })

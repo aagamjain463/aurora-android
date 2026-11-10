@@ -147,7 +147,7 @@ class AccountApi(private val transport: Transport, private val prove: DeviceProo
         call("/v1/lifetime/hold", token, buildJsonObject { put("installId", installId) }, HoldResponse.serializer())
 
     suspend fun sync(token: String, installId: String, label: String, zone: String) =
-        call("/v1/account/sync", token, buildJsonObject { put("installId", installId); put("label", label); put("zone", zone) }, SyncResponse.serializer())
+        call("/v1/account/sync", token, buildJsonObject { put("installId", installId); put("label", label); put("zone", zone); put("platform", "android") }, SyncResponse.serializer())
 
     suspend fun verify(token: String, purchaseToken: String, productId: String, installId: String, packageName: String) =
         call("/v1/verify", token, buildJsonObject { put("purchaseToken", purchaseToken); put("productId", productId); put("installId", installId); put("packageName", packageName) }, SignedEntitlement.serializer())

@@ -54,7 +54,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import app.aurora.account.RemoteTrial
-import app.aurora.account.TrialOutcome
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Space
@@ -96,23 +95,13 @@ fun PlusScreen(onBack: () -> Unit) {
     val remote by app.account.remote.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val colors = Aurora.colors
-    var trialMessage by remember { mutableStateOf<String?>(null) }
-    var trialBusy by remember { mutableStateOf(false) }
+    val trialClaim = rememberTrialClaim()
     var lifetimeMessage by remember { mutableStateOf<String?>(null) }
     // A trial is Plus, but not a purchase: the ways to buy stay open during it.
     val source = subscription?.source.takeIf { plan == Plan.Plus }
     val paid = source == "subscription" || source == "lifetime"
     val trial = remote?.trial
     val lifetimeOffer = remote?.lifetime?.offer
-    val trialRefusals = mapOf(
-        "account_used" to stringResource(R.string.trial_refused_used),
-        "device_used" to stringResource(R.string.trial_refused_used),
-        "not_new" to stringResource(R.string.trial_refused_not_new),
-        "purchased" to stringResource(R.string.trial_refused_purchased),
-        "device_unverifiable" to stringResource(R.string.trial_refused_device),
-        "device_ineligible" to stringResource(R.string.trial_refused_device),
-    )
-    val trialUnavailable = stringResource(R.string.trial_refused_other)
     val offlineText = stringResource(R.string.account_offline)
     val soldOutText = stringResource(R.string.lifetime_sold_out)
     // Only what Plus changes. Everything else is the same on both plans, so neither card repeats it.
@@ -176,7 +165,9 @@ fun PlusScreen(onBack: () -> Unit) {
                                 },
                                 Modifier.fillMaxWidth(), kind = ButtonKind.PlusQuiet,
                             )
+                            // Shown with the price, before the store sheet: what "lifetime" means (founder, 2026-11-10).
                             Text(stringResource(R.string.lifetime_terms), color = colors.textTertiary, style = AuroraType.Caption)
+                            Text(stringResource(R.string.lifetime_scope), color = colors.textTertiary, style = AuroraType.Caption)
                         } else if (lifetime != null && lifetimeOffer == "sold_out") {
                             Text(soldOutText, color = colors.textTertiary, style = AuroraType.Caption)
                         }
@@ -186,19 +177,7 @@ fun PlusScreen(onBack: () -> Unit) {
             }
         }
         item(key = "trial") {
-            TrialSection(trial, onTrial = source == "trial", free = plan != Plan.Plus, message = trialMessage) {
-                if (trialBusy) return@TrialSection
-                trialBusy = true
-                scope.launch {
-                    trialMessage = when (val r = app.account.claimTrial()) {
-                        is TrialOutcome.Granted -> null
-                        is TrialOutcome.Refused -> trialRefusals[r.reason] ?: trialUnavailable
-                        TrialOutcome.Unreachable -> offlineText
-                    }
-                    app.account.sync()
-                    trialBusy = false
-                }
-            }
+            TrialSection(trial, onTrial = source == "trial", free = plan != Plan.Plus, message = trialClaim.message, onStart = trialClaim.claim)
         }
         item(key = "free") {
             FreeCard(compare, current = plan != Plan.Plus, Modifier.padding(top = Space.L))
@@ -371,7 +350,7 @@ private fun PlanPill(modifier: Modifier = Modifier) {
     )
 }
 
-private fun dateOf(at: Long): String = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(at))
+internal fun dateOf(at: Long): String = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(at))
 
 private tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this

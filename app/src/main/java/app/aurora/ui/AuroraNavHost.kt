@@ -166,6 +166,7 @@ fun AuroraNavHost(startOnboarded: Boolean) {
                     onStartSession = { id -> nav.navigate("${Routes.Configure}?custom=true&config=${Uri.encode(id)}&saved=true") },
                     onOpenSaved = { nav.navigate(Routes.Saved) },
                     onOpenRun = { id -> nav.navigate("${Routes.Run}/${Uri.encode(id)}") },
+                    onOpenPlus = plus,
                 )
                 Routes.Shield -> ShieldLibraryScreen(
                     onCreate = { nav.navigate(Routes.ShieldEdit) },

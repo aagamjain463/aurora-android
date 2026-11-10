@@ -19,12 +19,13 @@ const YEAR = 365 * 86_400_000
 export const OID = { intermediate: '2a864886f76364060201', leaf: '2a864886f76364060b01' }
 
 /** An X.509 v3 ECDSA certificate. Its issuer's key signs it, as a real CA would. */
-export function certificate({ subject, issuer = subject, publicKey, signingKey, hash = 'sha256', ca = false, oids = [], notBefore = Date.now() - YEAR, notAfter = Date.now() + YEAR, critical = [] }) {
+export function certificate({ subject, issuer = subject, publicKey, signingKey, hash = 'sha256', ca = false, oids = [], notBefore = Date.now() - YEAR, notAfter = Date.now() + YEAR, critical = [], extra = [] }) {
   const algorithm = seq(oid(hash === 'sha384' ? '2a8648ce3d040303' : '2a8648ce3d040302'))
   const extensions = [
     extension('551d13', ca ? seq(tlv(0x01, Buffer.from([0xff]))) : seq(), true),
     ...oids.map((id) => extension(id, tlv(0x05))),
     ...critical.map((id) => extension(id, tlv(0x05), true)),
+    ...extra.map(([id, value]) => extension(id, value)),
   ]
   const tbs = seq(
     tlv(0xa0, tlv(0x02, Buffer.from([2]))), tlv(0x02, Buffer.from([1])), algorithm, name(issuer),

@@ -659,6 +659,15 @@ class ScreenshotTest(private val variant: Variant) {
     @Config(qualifiers = "w411dp-h2400dp-xxhdpi")
     @Test fun plus() = capture("plus") { app.aurora.ui.plus.PlusScreen(onBack = {}) }
     @Test fun plus_trial_offer() = capture("plus_trial_offer") { app.aurora.ui.plus.TrialSection(app.aurora.account.RemoteTrial("available", days = 14), onTrial = false, free = true, message = null) {} }
+    @Test fun home_trial_countdown() {
+        val end = 1_763_209_600_000
+        capture("home_trial_countdown") { app.aurora.ui.plus.TrialCountdown(end, end - 9 * 86_400_000L - 3_600_000L, onOpen = {}) }
+    }
+    @Test fun home_trial_last_day() {
+        val end = 1_763_209_600_000
+        capture("home_trial_last_day") { app.aurora.ui.plus.TrialCountdown(end, end - 3_600_000L, onOpen = {}) }
+    }
+    @Test fun onboarding_trial_offer() = capture("onboarding_trial_offer") { app.aurora.ui.plus.TrialOfferPage(message = null) }
     @Test fun plus_trial_active() = capture("plus_trial_active") { app.aurora.ui.plus.TrialSection(app.aurora.account.RemoteTrial("active", startedAt = 1_762_000_000_000, endsAt = 1_763_209_600_000), onTrial = true, free = false, message = null) {} }
 
     @Test fun login() {

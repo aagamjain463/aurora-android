@@ -41,7 +41,7 @@ const HASHES = { [OID.ecdsaSha256]: 'SHA-256', [OID.ecdsaSha384]: 'SHA-384' }
 const CURVES = { [OID.p256]: { namedCurve: 'P-256', size: 32 }, [OID.p384]: { namedCurve: 'P-384', size: 48 } }
 
 /** One DER element at [at]. Bounds are checked here, so a hostile length can't read past its parent. */
-function tlv(der, at, limit = der.length) {
+export function tlv(der, at, limit = der.length) {
   if (at + 2 > limit || (der[at] & 0x1f) === 0x1f) throw new AppleInvalid()
   let length = der[at + 1]
   let start = at + 2
@@ -55,7 +55,7 @@ function tlv(der, at, limit = der.length) {
   return { tag: der[at], at, start, end: start + length }
 }
 
-function children(der, node) {
+export function children(der, node) {
   const out = []
   for (let at = node.start; at < node.end;) {
     const child = tlv(der, at, node.end)
@@ -65,7 +65,7 @@ function children(der, node) {
   return out
 }
 
-const content = (der, node) => der.subarray(node.start, node.end)
+export const content = (der, node) => der.subarray(node.start, node.end)
 const element = (der, node) => der.subarray(node.at, node.end)
 
 function timeOf(der, node) {
@@ -76,7 +76,7 @@ function timeOf(der, node) {
   return Date.UTC(year, match[2] - 1, match[3], match[4], match[5], match[6])
 }
 
-function parseCertificate(der) {
+export function parseCertificate(der) {
   const certificate = tlv(der, 0)
   if (certificate.tag !== 0x30 || certificate.end !== der.length) throw new AppleInvalid()
   const [tbs, algorithm, signature, ...extra] = children(der, certificate)
@@ -112,7 +112,7 @@ function parseCertificate(der) {
   }
 }
 
-function isCa(certificate) {
+export function isCa(certificate) {
   const value = certificate.extensions.get(OID.basicConstraints)?.value
   if (!value) return false
   const [flag] = children(value, tlv(value, 0))
@@ -138,7 +138,7 @@ function rawSignature(der, size) {
   return out
 }
 
-async function assertIssued(child, parent) {
+export async function assertIssued(child, parent) {
   if (child.issuer !== parent.subject) throw new AppleInvalid()
   const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: child.hash }, await importKey(parent), rawSignature(child.signature, parent.curve.size), child.tbs)
   if (!ok) throw new AppleInvalid()
