@@ -217,6 +217,20 @@ export async function appleStatus(env, transactionId, fetcher, environment = 'Pr
   return { environment, body: await res.json() }
 }
 
+/**
+ * Apple's own signed record of one transaction (Get Transaction Info), verified: a one-time purchase has no
+ * subscription status to read. Null when Apple doesn't know it. Throws on an outage or anything unverifiable.
+ */
+export async function appleTransaction(env, transactionId, fetcher, environment = 'Production') {
+  if (!environmentAllowed(env, environment)) throw new Error('apple environment')
+  const host = environment === 'Sandbox' ? SANDBOX : PRODUCTION
+  const res = await fetcher(`${host}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`, { headers: { authorization: `Bearer ${await apiToken(env)}` } })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`apple ${res.status}`)
+  const tx = await verifySigned((await res.json())?.signedTransactionInfo)
+  return tx.environment === environment ? tx : null
+}
+
 const PLUS_STATUS = new Set([1, 4]) // 1 active, 4 billing grace period.
 const STATE = { 1: 'active', 2: 'expired', 3: 'on_hold', 4: 'in_grace_period', 5: 'revoked' }
 

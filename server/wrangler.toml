@@ -24,6 +24,12 @@ APP_CERT_SHA256 = ""
 # 14-day trial (docs/MONETIZATION_PLAN.md, 3.2): "on" or "off". Needs migration 0005 and the TRIAL_PEPPER secret; iOS
 # claims also need APPLE_TEAM_ID and the DeviceCheck key. Android claims need Play Integrity set up (stage 4 above).
 TRIAL = "off"
+# Founding Lifetime (docs/MONETIZATION_PLAN.md, 3.4): "on" opens holds and shows the offer. Verified purchases are
+# honored whatever this says. Needs migration 0006. The product must be a US-only one-time product in Play Console
+# (non-consumable in App Store Connect, US storefront only), and must be deactivated by hand when sales close.
+LIFETIME = "off"
+LIFETIME_PRODUCT_ID = "aurora_plus_lifetime_us"
+APPLE_LIFETIME_PRODUCT_ID = "aurora_plus_lifetime_us"
 APPLE_TEAM_ID = ""
 # "production" for App Store and TestFlight builds, "development" for Xcode-signed debug builds.
 DEVICECHECK_ENV = "production"

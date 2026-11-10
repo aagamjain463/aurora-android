@@ -9,9 +9,12 @@
 // APPLE_KEY_ID, APPLE_PRIVATE_KEY; the D1 database DB. Rollout flags: DEVICE_QUOTA (off, shadow, enforce; default
 // enforce), INTEGRITY (off, observe, enforce; default off), APP_CERT_SHA256 (Play's app signing certificate digests).
 
-import { appAccountToken, appleEntitlement, appleStatus, environmentAllowed, verifySigned } from './apple.js'
+import { appAccountToken, appleEntitlement, appleStatus, appleTransaction, environmentAllowed, verifySigned } from './apple.js'
 import { AuthError, bearer, isEmulated, verifyIdToken } from './auth.js'
 import { ATTEST_EVERY_MS, attestNonce, deviceOf, issueNonce, judgeIntegrity, licensedOf } from './device.js'
+import {
+  appleLifetimeId, commitSlot, holdSlot, lifetimeEntitlement, lifetimeOn, offerFor, playLifetimeFrom, playLifetimeId, refundStatements,
+} from './lifetime.js'
 import { fits, quotaZone, statusOf, validZone } from './quota.js'
 import {
   DeviceCheckInvalid, TRIAL_MS, TRIAL_NEW_ACCOUNT_MS, TRIAL_RETENTION_MS, androidVouches, deviceCheckReady, deviceCheckUsed, keyed, markDeviceCheck,
@@ -94,6 +97,15 @@ async function playSubscription(env, token, fetcher) {
   const url = `${PLAY}/applications/${env.PACKAGE_NAME}/purchases/subscriptionsv2/tokens/${encodeURIComponent(token)}`
   const res = await fetcher(url, { headers: { authorization: `Bearer ${access}` } })
   if (res.status === 404 || res.status === 410) return null // Google doesn't know it, or it expired long ago.
+  if (!res.ok) throw new Error(`play ${res.status}`)
+  return res.json()
+}
+
+async function playProduct(env, productId, token, fetcher) {
+  const access = await googleAccessToken(env.GOOGLE_SERVICE_ACCOUNT, 'https://www.googleapis.com/auth/androidpublisher', fetcher)
+  const url = `${PLAY}/applications/${env.PACKAGE_NAME}/purchases/products/${encodeURIComponent(productId)}/tokens/${encodeURIComponent(token)}`
+  const res = await fetcher(url, { headers: { authorization: `Bearer ${access}` } })
+  if (res.status === 404 || res.status === 410) return null
   if (!res.ok) throw new Error(`play ${res.status}`)
   return res.json()
 }
@@ -350,6 +362,7 @@ async function sync(request, env, fetcher) {
     quota: plus ? null : await quotaFor(env, account, installId, now, validZone(zone) ? zone : 'UTC'),
     devices: await devicesOf(env, account, installId),
     trial: await trialStatus(env, account, now),
+    lifetime: { offer: await offerFor(env, account, now) },
     device: { proved: here.proved, integrity: here.integrity, attestNonce: await attestNonce(env, here, now) },
     serverTime: now,
   })
@@ -393,6 +406,7 @@ async function verify(request, env, fetcher) {
   const now = Date.now()
   const account = await ensureAccount(env, claims, now)
   if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
+  if (productId === playLifetimeId(env)) return verifyPlayLifetime(env, fetcher, { claims, account, installId, purchaseToken, productId, now })
 
   let sub
   try {
@@ -477,6 +491,8 @@ async function verifyApple(request, env, fetcher) {
   const now = Date.now()
   const account = await ensureAccount(env, claims, now)
   if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
+  const claimed = await verifySigned(signedTransaction).catch(() => null)
+  if (claimed?.productId === appleLifetimeId(env) && claimed.bundleId === env.APPLE_BUNDLE_ID) return verifyAppleLifetime(env, fetcher, { claims, account, installId, claimed, now })
 
   const answer = await appleAnswer(env, signedTransaction, fetcher)
   if (answer.refused) return answer.refused
@@ -547,6 +563,17 @@ async function appleNotification(request, env, fetcher) {
   // hold was read from Apple after an event at least this recent.
   if (!known || known.store !== 'app_store' || known.environment !== data.environment || note.signedDate <= known.event_at) return ack()
   const checkedAt = Date.now()
+  if (tx.productId === appleLifetimeId(env)) {
+    let current
+    try {
+      current = await appleTransaction(env, tx.transactionId, fetcher, data.environment)
+    } catch {
+      return json(503, { error: 'try_again' })
+    }
+    // Apple's own record, not the notification's fields, decides. Only a revocation changes a lifetime purchase.
+    if (current && Number.isFinite(current.revocationDate)) await revokeLifetime(env, key, 'refunded', checkedAt)
+    return ack()
+  }
   let entitlement
   try {
     entitlement = await appleAsk(env, tx.originalTransactionId, fetcher, data.environment)
@@ -802,9 +829,12 @@ async function rtdn(request, env, fetcher) {
   } catch {
     return new Response(null, { status: 204 })
   }
+  if (note.packageName !== env.PACKAGE_NAME) return new Response(null, { status: 204 })
+  const oneTime = note.oneTimeProductNotification ?? note.voidedPurchaseNotification
+  if (oneTime?.purchaseToken) return rtdnOneTime(env, fetcher, note)
   const token = note.subscriptionNotification?.purchaseToken
-  // Test and one-time notifications: acknowledged, nothing to do.
-  if (!token || note.packageName !== env.PACKAGE_NAME) return new Response(null, { status: 204 })
+  // Test notifications: acknowledged, nothing to do.
+  if (!token) return new Response(null, { status: 204 })
   const key = await tokenKey(token)
   const known = await env.DB.prepare('SELECT * FROM purchases WHERE token_hash = ?').bind(key).first()
   // Nothing bound yet: the app's own verify will bind it. A message older than what we hold says nothing new.
@@ -821,6 +851,86 @@ async function rtdn(request, env, fetcher) {
   await env.DB.prepare('UPDATE purchases SET tier = ?, state = ?, paid_through = ?, auto_renewing = ?, product_id = COALESCE(?, product_id), checked_at = ?, event_at = ? WHERE token_hash = ?')
     .bind(e.tier, e.state, e.paidThrough, e.autoRenewing ? 1 : 0, e.productId, now, at, key).run()
   return new Response(null, { status: 204 })
+}
+
+// ---- Founding Lifetime --------------------------------------------------------------------------------------------
+
+/** Binds a verified lifetime purchase to the account, numbers its slot, and records what happened. Null on conflict. */
+async function grantLifetime(env, account, key, store, region, test, store_) {
+  if (!(await store_())) return null
+  const committed = await commitSlot(env, { key, accountId: account.id, store, region, test }, Date.now())
+  await entitlementEvent(env, account.id, `lifetime_${committed.status}`, committed.slot ? String(committed.slot) : region)
+  // Over the cap, outside the US, or bought twice: honored, and someone should look. Logged for alerting.
+  if (committed.status === 'overflow' || committed.status === 'duplicate') console.warn('lifetime_attention', committed.status)
+  return committed
+}
+
+/** Google Play's word on a one-time lifetime purchase, bound to the account that bought it. */
+async function verifyPlayLifetime(env, fetcher, { claims, account, installId, purchaseToken, productId, now }) {
+  let p
+  try {
+    p = playLifetimeFrom(await playProduct(env, productId, purchaseToken, fetcher))
+  } catch {
+    return json(503, { error: 'try_again' })
+  }
+  const snapshot = (extra) => accountSnapshot(env, account, claims.sub, installId, now, extra)
+  if (!p || !p.purchased) return json(200, await snapshot({ purchaseValid: false, pending: Boolean(p?.pending) }))
+  const key = await tokenKey(purchaseToken)
+  // A lifetime purchase is always made under the buyer's Aurora account id. One that isn't can't be claimed here.
+  if (!p.external) return json(200, { ...(await snapshot({ purchaseValid: true })), conflict: true, claimRequired: true })
+  const owner = await ownerConflict(env, account, claims.sub, { externalAccountIdentifiers: { obfuscatedExternalAccountId: p.external } }, key)
+  const committed = owner === null && (await grantLifetime(env, account, key, 'google_play', p.region, p.test,
+    () => storePurchase(env, account, key, lifetimeEntitlement(productId), now)))
+  if (!committed) {
+    const holder = owner && owner !== 'unknown' ? await env.DB.prepare('SELECT email FROM accounts WHERE id = ?').bind(owner).first() : null
+    return json(200, { ...(await snapshot({ purchaseValid: true })), conflict: true, conflictHint: maskEmail(holder?.email) })
+  }
+  return json(200, { ...(await snapshot({ purchaseValid: true })), lifetime: committed })
+}
+
+/** Apple's own record of a non-consumable lifetime purchase, read independently of what the app sent. */
+async function verifyAppleLifetime(env, fetcher, { claims, account, installId, claimed, now }) {
+  const snapshot = (extra) => accountSnapshot(env, account, claims.sub, installId, now, extra)
+  if (!environmentAllowed(env, claimed.environment)) return json(400, { error: 'wrong_environment' })
+  if (claimed.inAppOwnershipType !== 'PURCHASED') return json(403, { error: 'family_sharing_disabled' })
+  let tx
+  try {
+    tx = await appleTransaction(env, claimed.transactionId, fetcher, claimed.environment)
+  } catch {
+    return json(503, { error: 'try_again' })
+  }
+  const genuine = tx && tx.bundleId === env.APPLE_BUNDLE_ID && tx.productId === appleLifetimeId(env) && tx.type === 'Non-Consumable' && tx.inAppOwnershipType === 'PURCHASED'
+  if (!genuine || Number.isFinite(tx.revocationDate)) return json(200, await snapshot({ purchaseValid: false }))
+  // Bought under this account: the app sets appAccountToken from the signed-in UID; the server derives it again.
+  if (String(tx.appAccountToken ?? '').toLowerCase() !== (await appAccountToken(claims.sub))) return json(200, { ...(await snapshot({ purchaseValid: true })), conflict: true, claimRequired: true })
+  const key = await appleKey(tx.originalTransactionId, tx.environment)
+  const entitlement = lifetimeEntitlement(tx.productId, tx.environment)
+  const committed = await grantLifetime(env, account, key, 'app_store', tx.storefront, tx.environment !== 'Production',
+    () => storeApple(env, account, key, { id: tx.originalTransactionId, checkedAt: now, entitlement }))
+  if (!committed) {
+    const holder = await env.DB.prepare('SELECT a.email FROM purchases p JOIN accounts a ON a.id = p.account_id WHERE p.token_hash = ?').bind(key).first()
+    return json(200, { ...(await snapshot({ purchaseValid: true })), conflict: true, conflictHint: maskEmail(holder?.email) })
+  }
+  return json(200, { ...(await snapshot({ purchaseValid: true })), lifetime: committed })
+}
+
+/**
+ * Holds a founding slot for 15 minutes before the app opens the store sheet. No hold, no purchase button: the offer
+ * is never shown to more people than there are slots. A hold is not a promise; the slot is numbered at verification.
+ */
+async function lifetimeHold(request, env, fetcher) {
+  const claims = await authenticate(request, env, fetcher, { revocation: true })
+  const { installId } = await body(request)
+  if (!isId(installId)) return json(400, { error: 'bad_request' })
+  if (!(await allowed(env, `lifetime:${claims.sub}`, 20, 3600))) return json(429, { error: 'slow_down' })
+  const now = Date.now()
+  const account = await ensureAccount(env, claims, now)
+  if (account.status !== 'active') return json(403, { error: 'account_deleting' })
+  if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
+  const offer = await offerFor(env, account, now)
+  if (offer === 'off' || offer === 'owned') return json(200, { held: false, offer })
+  const until = await holdSlot(env, account, now)
+  return json(200, until ? { held: true, offer: 'held', expiresAt: until } : { held: false, offer: 'sold_out' })
 }
 
 // ---- Trial ------------------------------------------------------------------------------------------------------
@@ -935,6 +1045,39 @@ async function entitlementEvent(env, accountId, kind, detail = null) {
   }
 }
 
+/** Ends a lifetime purchase: refunded or revoked by the store. Its founding slot stays consumed. */
+async function revokeLifetime(env, key, state, now) {
+  const row = await env.DB.prepare('SELECT account_id FROM purchases WHERE token_hash = ?').bind(key).first()
+  await env.DB.batch(refundStatements(env, key, state, now))
+  await entitlementEvent(env, row?.account_id, 'lifetime_revoked', state)
+}
+
+/**
+ * Play's one-time product and voided-purchase notifications. A voided purchase (refund, chargeback) grants nothing;
+ * a cancellation is checked with Google before anything changes. Purchases nobody verified yet are left to the app.
+ */
+async function rtdnOneTime(env, fetcher, note) {
+  const done = new Response(null, { status: 204 })
+  const voided = note.voidedPurchaseNotification
+  const token = (voided ?? note.oneTimeProductNotification).purchaseToken
+  const key = await tokenKey(token)
+  const known = await env.DB.prepare('SELECT * FROM purchases WHERE token_hash = ?').bind(key).first()
+  if (!known || known.store === 'app_store' || known.state !== 'lifetime') return done
+  const now = Date.now()
+  if (voided) {
+    await revokeLifetime(env, key, 'refunded', now)
+    return done
+  }
+  let p
+  try {
+    p = playLifetimeFrom(await playProduct(env, known.product_id, token, fetcher))
+  } catch {
+    return json(503, { error: 'try_again' })
+  }
+  if (!p?.purchased) await revokeLifetime(env, key, 'canceled', now)
+  return done
+}
+
 /** Daily: finishes deletions past their grace, and drops what no longer serves a purpose. */
 export async function housekeeping(env, fetcher, now = Date.now()) {
   const { results } = await env.DB.prepare("SELECT id, firebase_uid FROM accounts WHERE status = 'deletion_requested' AND deletion_requested_at < ? LIMIT 100").bind(now - DELETION_GRACE_MS).all()
@@ -987,6 +1130,7 @@ const ROUTES = {
   '/v1/quota/import': importLedger,
   '/v1/device/attest': attest,
   '/v1/trial/claim': claimTrial,
+  '/v1/lifetime/hold': lifetimeHold,
   '/v1/rtdn': rtdn,
 }
 
