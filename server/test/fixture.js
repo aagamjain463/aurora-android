@@ -5,14 +5,15 @@ import { readFileSync, readdirSync } from 'node:fs'
 import worker from '../src/worker.js'
 
 const dir = new URL('../migrations/', import.meta.url)
-const MIGRATIONS = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().map((f) => readFileSync(new URL(f, dir), 'utf8'))
+const migrationNames = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
 const tick = () => new Promise((r) => setImmediate(r))
 
 export class FakeD1 {
-  constructor() {
+  /** [without]: migrations left out, to stand in for a database that hasn't had them yet. */
+  constructor(without = []) {
     this.db = new DatabaseSync(':memory:')
     this.db.exec('PRAGMA foreign_keys = ON')
-    for (const m of MIGRATIONS) this.db.exec(m)
+    for (const name of migrationNames.filter((f) => !without.includes(f))) this.db.exec(readFileSync(new URL(name, dir), 'utf8'))
   }
   prepare(sql) {
     const db = this.db
@@ -88,8 +89,8 @@ export function idToken(uid, over = {}, { key = firebaseKey.privateKey, kid = KI
 
 export const verifySignature = ({ payload, signature }) => createVerify('RSA-SHA256').update(payload).verify(signing.publicKey, signature, 'base64')
 
-export function world() {
-  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [] }
+export function world({ without } = {}) {
+  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [], apple: null }
   const fetcher = async (url, init) => {
     const u = String(url)
     if (u.includes('/jwk/securetoken')) {
@@ -123,9 +124,10 @@ export function world() {
       const sub = state.subs.get(token)
       return sub ? new Response(JSON.stringify(sub)) : new Response('{}', { status: 404 })
     }
+    if (u.includes('/inApps/v1/subscriptions/') && state.apple) return state.apple(u, init)
     throw new Error(`unexpected fetch ${u}`)
   }
-  const DB = new FakeD1()
+  const DB = new FakeD1(without)
   const account = JSON.stringify({ client_email: 'a@b.c', private_key: pem(service.privateKey) })
   const env = {
     DB, PACKAGE_NAME: 'app.aurora', PRODUCT_IDS: IDS.join(','), FIREBASE_PROJECT_ID: PROJECT, ENVIRONMENT: 'production',

@@ -1,0 +1,12 @@
+{
+  "androidHead": "af6fa0614dbb4cd32b5b976063e723d29ef43108",
+  "snapshotAtUTC": "2026-11-04T03:50:06.021769+00:00",
+  "source": "Complete anti-abuse working tree, including uncommitted phone helpers, revision and idempotency changes.",
+  "conflictsResolved": [
+    "Production-only purchase filtering with installation seats",
+    "Apple notification uses rawBody",
+    "Both notification paths keep existing unauthenticated routing",
+    "Apple rechecks run only when configured",
+    "Fixture supports optional migrations, Apple HTTP stubs and current phone/integrity state"
+  ]
+}

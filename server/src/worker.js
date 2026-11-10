@@ -1,13 +1,15 @@
 // Aurora's account service: a Cloudflare Worker with D1 and no dependencies (docs/ACCOUNT_SYSTEM.md, docs/BILLING.md).
 //
-// Every /v1 route but /v1/rtdn needs a verified Firebase ID token, and every query is scoped to that token's
-// account. What the app stores for offline use (Plus, a commitment's authorization) is signed with our private key.
+// Every /v1 route but the two store notifications needs a verified Firebase ID token, and every query is scoped to that
+// token's account. What the app stores for offline use (Plus, a commitment's authorization) is signed with our private key.
 // Free's allowance is held twice, by the account and by the installation (docs/ANTI_ABUSE.md).
 //
-// Environment: PACKAGE_NAME, PRODUCT_IDS, FIREBASE_PROJECT_ID; secrets GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT,
-// SIGNING_KEY, RTDN_TOKEN; the D1 database DB. Rollout flags: DEVICE_QUOTA (off, shadow, enforce; default enforce),
-// INTEGRITY (off, observe, enforce; default off), APP_CERT_SHA256 (Play's app signing certificate digests).
+// Environment: PACKAGE_NAME, PRODUCT_IDS (Google Play), APPLE_BUNDLE_ID, APPLE_PRODUCT_IDS, APPLE_ALLOW_SANDBOX (App Store),
+// FIREBASE_PROJECT_ID; secrets GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN, APPLE_ISSUER_ID,
+// APPLE_KEY_ID, APPLE_PRIVATE_KEY; the D1 database DB. Rollout flags: DEVICE_QUOTA (off, shadow, enforce; default
+// enforce), INTEGRITY (off, observe, enforce; default off), APP_CERT_SHA256 (Play's app signing certificate digests).
 
+import { appAccountToken, appleEntitlement, appleStatus, environmentAllowed, verifySigned } from './apple.js'
 import { AuthError, bearer, isEmulated, verifyIdToken } from './auth.js'
 import { ATTEST_EVERY_MS, attestNonce, deviceOf, judgeIntegrity } from './device.js'
 import { fits, quotaZone, statusOf, validZone } from './quota.js'
@@ -19,7 +21,6 @@ const PLUS_SEATS = 5
 const FRESH_AUTH_S = 10 * 60
 // The same 30 days the privacy policy, the deletion page and the app promise.
 export const DELETION_GRACE_MS = 30 * 86_400_000
-const TRANSFER_COOLDOWN_MS = 30 * 86_400_000
 const LOOK_AHEAD_MS = 12 * 3_600_000
 const LEDGER_LOOKBACK_MS = 3 * 86_400_000
 const LEDGER_RETENTION_MS = 35 * 86_400_000
@@ -205,14 +206,18 @@ async function seated(env, account, installId) {
 /** What the account's verified purchases grant this installation, ready to store. */
 async function accountSnapshot(env, account, uid, installId, now, extra = {}) {
   const { results: rows } = await env.DB.prepare('SELECT * FROM purchases WHERE account_id = ? ORDER BY paid_through DESC').bind(account.id).all()
-  const best = rows.find((r) => r.tier === 'plus' && r.paid_through > now)
+  const productionRows = rows.filter((r) => r.environment !== 'Sandbox')
+  const best = productionRows.find((r) => r.tier === 'plus' && r.paid_through > now)
+  const review = environmentAllowed(env, 'Sandbox') ? rows.find((r) => r.environment === 'Sandbox' && r.tier === 'plus' && r.paid_through > now) : null
   const seat = await seated(env, account, installId)
-  const shown = best ?? rows[0]
+  const shown = best ?? productionRows[0]
   const tier = best && seat ? 'plus' : 'free'
   return signed(env, {
     tier,
     state: best && !seat ? 'too_many_devices' : (shown?.state ?? 'none'),
     productId: shown?.product_id ?? null,
+    store: shown?.store ?? null,
+    iosSandbox: review && seat ?{ scope: 'ios_sandbox', productId: review.product_id, expiresAt: Math.min(review.paid_through, now + 15 * 60_000) } : null,
     paidThrough: shown?.paid_through ?? 0,
     autoRenewing: tier === 'plus' && Boolean(best.auto_renewing),
     issuedAt: now,
@@ -228,10 +233,12 @@ const devicesOf = async (env, account, installId) => {
   return results.map((d) => ({ id: d.id, label: d.label, registeredAt: d.registered_at, lastSeenAt: d.last_seen_at, current: d.id === installId }))
 }
 
-/** Plus here and now: a verified, paid-through purchase, on one of the account's seats. A sixth phone is Free. */
-const hasPlus = async (env, account, installId, now) =>
-  Boolean(await env.DB.prepare("SELECT 1 FROM purchases WHERE account_id = ? AND tier = 'plus' AND paid_through > ? LIMIT 1").bind(account.id, now).first()) &&
-  (await seated(env, account, installId))
+/** Plus here and now: a verified, paid-through production purchase, on one of the account's seats. A sixth phone is Free. */
+// Filtered here, not in SQL: this Worker must also run before migration 0004 adds the column.
+const hasPlus = async (env, account, installId, now) => {
+  const { results } = await env.DB.prepare("SELECT * FROM purchases WHERE account_id = ? AND tier = 'plus' AND paid_through > ?").bind(account.id, now).all()
+  return results.some((row) => row.environment !== 'Sandbox') && (await seated(env, account, installId))
+}
 
 async function ledgerOf(env, account, now) {
   const { results } = await env.DB.prepare("SELECT * FROM quota_reservations WHERE account_id = ? AND status <> 'released' AND end_at > ?").bind(account.id, now - LEDGER_LOOKBACK_MS).all()
@@ -383,32 +390,164 @@ async function verify(request, env, fetcher) {
   return json(200, await accountSnapshot(env, account, claims.sub, installId, now, { purchaseValid: true }))
 }
 
-/** The person moves a purchase they hold on this phone to this account: a recent sign-in, Google's word, and rarely. */
+/** Purchase tokens are replayable; a destination sign-in does not authorize reassignment. */
 async function transfer(request, env, fetcher) {
-  const claims = await authenticate(request, env, fetcher, { fresh: true, revocation: true })
-  const { purchaseToken, installId } = await body(request)
-  if (!text(purchaseToken, 4096) || !isId(installId)) return json(400, { error: 'bad_request' })
-  if (!(await allowed(env, `transfer:${claims.sub}`, 5, 3600))) return json(429, { error: 'slow_down' })
+  await authenticate(request, env, fetcher, { revocation: true })
+  return json(403, { error: 'transfer_disabled' })
+}
+
+// ---- App Store --------------------------------------------------------------------------------------------------
+// Only Apple-signed evidence plus an independent status read can bind a purchase to its verified Aurora account.
+// Sandbox grants separate, short-lived iOS review access. Purchase evidence never authorizes ownership transfers.
+const APPLE_SETTINGS = ['APPLE_BUNDLE_ID', 'APPLE_PRODUCT_IDS', 'APPLE_ISSUER_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY']
+const appleReady = (env) => APPLE_SETTINGS.every((name) => env[name])
+const appleConfig = (env) => ({ bundleId: env.APPLE_BUNDLE_ID, productIds: env.APPLE_PRODUCT_IDS.split(',').map((s) => s.trim()) })
+const appleKey = (id, environment) => tokenKey(`apple:${environment}:${id}`)
+const APPLE_LAPSE_RECHECK_MS = 6 * 3_600_000
+
+async function appleAsk(env, originalTransactionId, fetcher, environment = 'Production') {
+  return appleEntitlement(await appleStatus(env, originalTransactionId, fetcher, environment), originalTransactionId, appleConfig(env))
+}
+
+/** Apple's current answer about the transaction this app holds, or the response that refuses it. */
+async function appleAnswer(env, signedTransaction, fetcher) {
+  let claimed
+  try {
+    claimed = await verifySigned(signedTransaction)
+  } catch {
+    return { refused: json(400, { error: 'invalid_transaction' }) }
+  }
+  if (claimed.bundleId !== env.APPLE_BUNDLE_ID) return { refused: json(400, { error: 'wrong_package' }) }
+  if (!environmentAllowed(env, claimed.environment)) return { refused: json(400, { error: 'wrong_environment' }) }
+  if (claimed.inAppOwnershipType !== 'PURCHASED') return { refused: json(403, { error: 'family_sharing_disabled' }) }
+  const id = claimed.originalTransactionId
+  if (!text(id, 64)) return { refused: json(400, { error: 'invalid_transaction' }) }
+  const checkedAt = Date.now()
+  try {
+    const entitlement = await appleAsk(env, id, fetcher, claimed.environment)
+    if (entitlement.known && entitlement.ownership !== 'PURCHASED') return { refused: json(403, { error: 'family_sharing_disabled' }) }
+    return { id, checkedAt, entitlement: entitlement.environment === claimed.environment ? entitlement : { known: false } }
+  } catch {
+    return { refused: json(503, { error: 'try_again' }) } // Apple is unreachable, or said something unverifiable. We never guess.
+  }
+}
+
+/** Atomic on the purchase: simultaneous claims bind it once. An answer older than the stored one changes nothing. */
+async function storeApple(env, account, key, { id, checkedAt, entitlement: e }) {
+  const { meta } = await env.DB.prepare(
+    `INSERT INTO purchases (token_hash, account_id, product_id, tier, state, paid_through, auto_renewing, checked_at, event_at, bound_at, store, store_ref, environment)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?8, 'app_store', ?9, ?10)
+     ON CONFLICT (token_hash) DO UPDATE SET product_id = ?3, tier = ?4, state = ?5, paid_through = ?6, auto_renewing = ?7, checked_at = ?8,
+       account_id = COALESCE(purchases.account_id, ?2), store_ref = ?9, environment = ?10
+     WHERE (purchases.account_id IS NULL OR purchases.account_id = ?2) AND purchases.checked_at <= ?8`,
+  ).bind(key, account.id, e.productId, e.tier, e.state, e.paidThrough, e.autoRenewing ? 1 : 0, checkedAt, id, e.environment).run()
+  return meta.changes > 0
+}
+
+async function verifyApple(request, env, fetcher) {
+  const claims = await authenticate(request, env, fetcher, { revocation: true })
+  const { signedTransaction, installId, bundleId } = await body(request)
+  if (!text(installId, 64) || !text(bundleId) || !text(signedTransaction, 16384)) return json(400, { error: 'bad_request' })
+  if (!appleReady(env)) return json(503, { error: 'try_again' })
+  if (bundleId !== env.APPLE_BUNDLE_ID) return json(400, { error: 'wrong_package' })
+  if (!(await allowed(env, `verify:${claims.sub}`, 30, 60))) return json(429, { error: 'slow_down' })
   const now = Date.now()
   const account = await ensureAccount(env, claims, now)
   if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
-  let sub
+
+  const answer = await appleAnswer(env, signedTransaction, fetcher)
+  if (answer.refused) return answer.refused
+  const snapshot = (extra) => accountSnapshot(env, account, claims.sub, installId, now, extra)
+  if (!answer.entitlement.known) return json(200, await snapshot({ purchaseValid: false }))
+
+  const key = await appleKey(answer.id, answer.entitlement.environment)
+  const conflict = async (owner, extra = {}) => {
+    const holder = owner ? await env.DB.prepare('SELECT email FROM accounts WHERE id = ?').bind(owner).first() : null
+    return json(200, { ...(await snapshot({ purchaseValid: true })), conflict: true, conflictHint: maskEmail(holder?.email), ...extra })
+  }
+  const ownerOf = async () => (await env.DB.prepare('SELECT account_id FROM purchases WHERE token_hash = ?').bind(key).first())?.account_id
+  const owner = await ownerOf()
+  if (owner && owner !== account.id) return conflict(owner)
+  if (!owner) {
+    const token = answer.entitlement.appAccountToken
+    // Missing signed ownership requires original-account recovery, never an automatic claim.
+    if (!token || answer.entitlement.ownership !== 'PURCHASED') return conflict(null, { claimRequired: true })
+    if (token !== (await appAccountToken(claims.sub))) return conflict(null)
+  }
+  if (!(await storeApple(env, account, key, answer))) {
+    const holder = await ownerOf() // Lost the race, or a newer answer got there first.
+    if (holder !== account.id) return conflict(holder)
+  }
+  return json(200, await snapshot({ purchaseValid: true }))
+}
+
+/** A signed transaction is replayable evidence, not authority to change its owner. */
+async function transferApple(request, env, fetcher) {
+  await authenticate(request, env, fetcher, { revocation: true })
+  return json(403, { error: 'transfer_disabled' })
+}
+
+/** Writes Apple's current state over a purchase we already hold, and nothing about who owns it. */
+async function refreshApple(env, key, e, checkedAt, eventAt = 0) {
+  await env.DB.prepare(
+    `UPDATE purchases SET tier = ?1, state = ?2, paid_through = ?3, auto_renewing = ?4, product_id = COALESCE(?5, product_id), environment = COALESCE(?6, environment),
+       checked_at = ?7, event_at = MAX(event_at, ?8)
+     WHERE token_hash = ?9 AND checked_at <= ?7`,
+  ).bind(e.known ? e.tier : 'free', e.known ? e.state : 'unknown', e.known ? e.paidThrough : 0, e.autoRenewing ? 1 : 0, e.productId ?? null, e.environment ?? null, checkedAt, eventAt, key).run()
+}
+
+/**
+ * App Store Server Notifications V2. Anyone can reach this URL, so a notification only ever says "ask Apple again", and
+ * only once Apple's signature on it checks out. Its own fields never set a state, so order and replays can't either.
+ * 2xx acknowledges. Anything else, Apple sends again (after 1, 12, 24, 48 and 72 hours).
+ */
+async function appleNotification(request, env, fetcher) {
+  if (!appleReady(env)) return json(503, { error: 'try_again' })
+  const raw = await rawBody(request)
+  if (raw.length > 65_536) return json(413, { error: 'too_large' })
+  const ack = () => new Response(null, { status: 200 })
+  let note, tx
   try {
-    sub = await playSubscription(env, purchaseToken, fetcher)
+    note = await verifySigned(JSON.parse(raw)?.signedPayload)
+    if (note.data?.signedTransactionInfo) tx = await verifySigned(note.data.signedTransactionInfo)
+  } catch {
+    return json(403, { error: 'forbidden' })
+  }
+  // Test notifications and summaries name no transaction. Another app's or a disabled environment's are not ours to act on.
+  const data = note.data
+  if (!tx || data.bundleId !== env.APPLE_BUNDLE_ID || tx.bundleId !== env.APPLE_BUNDLE_ID) return ack()
+  if (!environmentAllowed(env, data.environment) || tx.environment !== data.environment) return ack()
+  if (!text(tx.originalTransactionId, 64)) return ack()
+  const key = await appleKey(tx.originalTransactionId, data.environment)
+  const known = await env.DB.prepare('SELECT event_at, store, environment FROM purchases WHERE token_hash = ?').bind(key).first()
+  // Nothing bound yet: the app's own verify will bind it. A repeat or a delayed message says nothing new: the state we
+  // hold was read from Apple after an event at least this recent.
+  if (!known || known.store !== 'app_store' || known.environment !== data.environment || note.signedDate <= known.event_at) return ack()
+  const checkedAt = Date.now()
+  let entitlement
+  try {
+    entitlement = await appleAsk(env, tx.originalTransactionId, fetcher, data.environment)
   } catch {
     return json(503, { error: 'try_again' })
   }
-  const entitlement = entitlementFrom(sub, productIdsOf(env), now)
-  if (!entitlement.known) return json(404, { error: 'not_found' })
-  const key = await tokenKey(purchaseToken)
-  const row = await env.DB.prepare('SELECT transferred_at FROM purchases WHERE token_hash = ?').bind(key).first()
-  if (row?.transferred_at && now - row.transferred_at < TRANSFER_COOLDOWN_MS) return json(429, { error: 'transfer_limit', retryAt: row.transferred_at + TRANSFER_COOLDOWN_MS })
-  await env.DB.prepare(
-    `INSERT INTO purchases (token_hash, account_id, product_id, tier, state, paid_through, auto_renewing, checked_at, bound_at, transferred_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?8)
-     ON CONFLICT (token_hash) DO UPDATE SET account_id = ?2, product_id = ?3, tier = ?4, state = ?5, paid_through = ?6, auto_renewing = ?7, checked_at = ?8, transferred_at = ?8`,
-  ).bind(key, account.id, entitlement.productId, entitlement.tier, entitlement.state, entitlement.paidThrough, entitlement.autoRenewing ? 1 : 0, now).run()
-  return json(200, await accountSnapshot(env, account, claims.sub, installId, now, { purchaseValid: true }))
+  await refreshApple(env, key, entitlement, checkedAt, note.signedDate)
+  return ack()
+}
+
+/** Daily: a renewing subscription that passed its date with no word from Apple. An Android phone can't ask StoreKit. */
+async function recheckLapsedApple(env, fetcher, now) {
+  // ponytail: 20 a day keeps a run under the free plan's 50 subrequests (two fetches each). Raise it with a paid plan.
+  const { results } = await env.DB.prepare(
+    "SELECT token_hash, store_ref, environment FROM purchases WHERE store = 'app_store' AND auto_renewing = 1 AND paid_through < ? AND checked_at < ? ORDER BY checked_at LIMIT 20",
+  ).bind(now, now - APPLE_LAPSE_RECHECK_MS).all()
+  for (const row of results) {
+    try {
+      const checkedAt = Date.now()
+      await refreshApple(env, row.token_hash, await appleAsk(env, row.store_ref, fetcher, row.environment), checkedAt)
+    } catch {
+      // Tomorrow's run tries again. The clock has already taken Plus away.
+    }
+  }
 }
 
 const MODES = new Set(['cooldown', 'always_block'])
@@ -646,7 +785,7 @@ async function rtdn(request, env, fetcher) {
   const known = await env.DB.prepare('SELECT * FROM purchases WHERE token_hash = ?').bind(key).first()
   // Nothing bound yet: the app's own verify will bind it. A message older than what we hold says nothing new.
   const at = Number(note.eventTimeMillis ?? 0)
-  if (!known || at < known.event_at) return new Response(null, { status: 204 })
+  if (!known || known.store === 'app_store' || at < known.event_at) return new Response(null, { status: 204 })
   let sub
   try {
     sub = await playSubscription(env, token, fetcher)
@@ -688,7 +827,11 @@ export async function housekeeping(env, fetcher, now = Date.now()) {
     // A device unseen for half a year has nothing left in any ledger; its key goes with it.
     env.DB.prepare('DELETE FROM devices WHERE last_seen_at < ?').bind(now - DEVICE_RETENTION_MS),
   ])
+  if (appleReady(env)) await recheckLapsedApple(env, fetcher, now)
 }
+
+// Store servers post these; their own signature or token is the check, not an IP budget.
+const NOTIFICATIONS = new Set(['/v1/rtdn', '/v1/apple/notifications'])
 
 const ROUTES = {
   '/v1/account/sync': sync,
@@ -696,7 +839,10 @@ const ROUTES = {
   '/v1/account/delete/cancel': cancelDeletion,
   '/v1/installations/remove': removeInstallation,
   '/v1/verify': verify,
+  '/v1/verify/apple': verifyApple,
   '/v1/purchases/transfer': transfer,
+  '/v1/purchases/transfer/apple': transferApple,
+  '/v1/apple/notifications': appleNotification,
   '/v1/quota/reserve': reserve,
   '/v1/quota/release': release,
   '/v1/quota/import': importLedger,
@@ -715,7 +861,7 @@ export default {
       if (Number(request.headers.get('content-length')) > MAX_BODY) return json(413, { error: 'too_large' })
       if ((await rawBody(request)).length > MAX_BODY) return json(413, { error: 'too_large' })
       const ip = request.headers.get('cf-connecting-ip')
-      if (path !== '/v1/rtdn' && ip && !(await allowed(env, `ip:${b64url(await sha256(ip))}`, 300, 60))) return json(429, { error: 'slow_down' })
+      if (!NOTIFICATIONS.has(path) && ip && !(await allowed(env, `ip:${b64url(await sha256(ip))}`, 300, 60))) return json(429, { error: 'slow_down' })
       return await route(request, env, fetcher)
     } catch (e) {
       if (e instanceof AuthError) return json(e.status, { error: e.code })

@@ -1,3 +1,5 @@
+> Security update (2026-11-04): automatic account reassignment is disabled for both Apple and Google Play. Both transfer endpoints return `403 transfer_disabled`. Earlier move/cooldown instructions below are historical, not the current contract. Recover the original account and restore there. See [APP_STORE_BILLING.md](APP_STORE_BILLING.md).
+
 # Billing and purchase verification
 
 Plus is unlocked by one thing: a snapshot signed by Aurora's verification server after verifying the purchase with Google Play. A flag on the phone, a purchase token alone, or Play's local purchase list cannot grant it. Entitlements belong to the verified Aurora account, not just a single device.
@@ -80,5 +82,7 @@ Rotating the key means a new app release: snapshots signed by the old key stop v
 
 Buy monthly and annual, slow-card pending (test card "Slow test card"), cancel, resubscribe, restore after reinstall,
 account hold, grace, expiry, refund from the console, airplane mode for more than 7 days.
+
+App Store purchases, the shared entitlement across stores and their setup: `docs/APP_STORE_BILLING.md`.
 
 See `docs/ACCOUNT_SYSTEM.md` for the complete specification of routes, payload schemas, and multi-device quota synchronization.

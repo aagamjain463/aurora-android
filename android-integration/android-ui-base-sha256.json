@@ -1,0 +1,6 @@
+{
+  "app/src/main/java/app/aurora/plan/Entitlement.kt": "8dab7243ffe6c93d85e0e8ddbe0b24ffea6e56ac9ca018e6f8068011c3d1d079",
+  "app/src/main/java/app/aurora/ui/plus/PlusScreen.kt": "a7b317c484d8170f68864e13d0bfea2d0535d68ff926add9186df8e345220a32",
+  "app/src/main/res/values/strings.xml": "f36f6a0cb289312852e7594fc00d9f6d519ce6edbcd7d8098b7e6bbe1aaa4d4b",
+  "app/src/test/java/app/aurora/plan/EntitlementTest.kt": "ad9ebc29e0790537655961a9edf0f1cc160994ef36b87c3c2c02db86b3151a57"
+}
