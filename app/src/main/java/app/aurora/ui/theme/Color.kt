@@ -8,8 +8,8 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * Raw palette: Aurora's finalized monochrome identity (brand/Aurora_Brand_Guidelines.md, 2026-11-07).
- * Obsidian night is the default; Porcelain day is the alternative. There is no accent hue: gold lives only inside the
- * approved logo asset and is never a colour here. Screens never use these directly; they read semantic [AuroraColors].
+ * Obsidian night is the default; Porcelain day is the alternative. There is no accent hue. Gold lives inside the
+ * approved logo and, by the founder's choice (2026-11-08), on Aurora Plus alone: its card, badge and actions. Screens never use these directly; they read semantic [AuroraColors].
  * Source of truth: brand/tokens/aurora.tokens.json (DesignTokensTest keeps the two in sync).
  */
 object Palette {
@@ -33,6 +33,13 @@ object Palette {
     val Paper2 = Color(0xFFECECE8)
     val Fog = Color(0xFFC9C9C5)
     val Smoke = Color(0xFF6B6C70)
+
+    // Aurora Plus only (founder, 2026-11-08): champagne gold, never on anything that isn't Plus.
+    val PlusGoldPale = Color(0xFFF3E3BE)
+    val PlusGold = Color(0xFFD6B57A)
+    val PlusGoldShade = Color(0xFFB8914F)
+    /** Gold ink by day: AA on Porcelain and White. */
+    val PlusGoldDeep = Color(0xFF84632A)
 
     // Danger only: ending something early, errors.
     val SignalDark = Color(0xFFF2726B)
@@ -68,6 +75,8 @@ data class AuroraColors(
     /** Fields, segmented tracks and secondary buttons: a step off the card. */
     val field: Color,
     val danger: Color,
+    /** Aurora Plus's gold ink: its name, badge and links. Never used for anything that isn't Plus. */
+    val plus: Color,
 )
 
 val DarkColors = AuroraColors(
@@ -90,6 +99,7 @@ val DarkColors = AuroraColors(
     headlineLead = Palette.Silver,
     field = Palette.Graphite2,
     danger = Palette.SignalDark,
+    plus = Palette.PlusGold,
 )
 
 val LightColors = AuroraColors(
@@ -112,6 +122,7 @@ val LightColors = AuroraColors(
     headlineLead = Palette.Stone,
     field = Palette.Paper2,
     danger = Palette.SignalLight,
+    plus = Palette.PlusGoldDeep,
 )
 
 /** Maps Aurora's semantics onto Material 3 so stock components (switch, text selection, ripples) match. */

@@ -1,6 +1,8 @@
 package app.aurora.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import app.aurora.ui.components.material
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import app.aurora.ui.theme.AuroraColors
@@ -24,20 +26,21 @@ class DesignTokensTest {
     fun contrastIsReadable() {
         for (c in listOf(DarkColors, LightColors)) {
             assertTrue("primary action (dark=${c.isDark})", contrast(c.onAccent, c.accent) >= 4.5f)
+            for (bg in listOf(c.background, c.surface)) assertTrue("Plus gold on $bg (dark=${c.isDark})", contrast(c.plus, bg) >= 4.5f)
             for (bg in listOf(c.background, c.surface)) for (fg in listOf(c.textPrimary, c.textSecondary, c.textTertiary, c.danger)) {
                 assertTrue("$fg on $bg (dark=${c.isDark}) is ${contrast(fg, bg)}", contrast(fg, bg) >= 4.5f)
             }
         }
     }
 
-    /** Gold lives only inside the approved logo. Every UI colour except danger is neutral: no hue to speak of. */
+    /** Gold lives inside the approved logo and on Aurora Plus alone. Every other UI colour except danger is neutral. */
     @Test
     fun paletteIsMonochrome() {
         val danger = setOf(Palette.SignalDark, Palette.SignalLight)
         Palette::class.java.declaredFields.filter { it.type == Long::class.javaPrimitiveType }.forEach { f ->
             f.isAccessible = true
             val color = Color(f.getLong(null).toULong())
-            if (color in danger) return@forEach
+            if (color in danger || f.name.startsWith("PlusGold")) return@forEach
             val spread = maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue)
             assertTrue("${f.name} has a hue (spread $spread)", spread <= 0.04f)
         }
@@ -59,6 +62,26 @@ class DesignTokensTest {
             checked++
         }
         assertEquals(tokens.size, checked)
+    }
+
+    /**
+     * Glass stays readable whatever scrolls beneath it. Over the page itself (background, card) every ink on a pane
+     * must reach AA 4.5, with or without blur. The worst passing moment, the opposite-theme primary button fully
+     * under a pane, must keep primary ink at 2.5 or better: it lasts only while that button scrolls past.
+     */
+    @Test
+    fun glassIsReadable() {
+        for (c in listOf(DarkColors, LightColors)) for (level in app.aurora.ui.components.Material.entries) {
+            val spec = c.material(level)
+            for (fill in listOf(spec.tint, spec.fallback)) {
+                for (page in listOf(c.background, c.surface)) {
+                    val pane = fill.compositeOver(page)
+                    for (fg in listOf(c.textPrimary, c.textSecondary)) assertTrue("$level on page (dark=${c.isDark}) ${contrast(fg, pane)}", contrast(fg, pane) >= 4.5f)
+                }
+                val worst = fill.compositeOver(c.accent)
+                assertTrue("$level primary over accent (dark=${c.isDark}) ${contrast(c.textPrimary, worst)}", contrast(c.textPrimary, worst) >= 2.5f)
+            }
+        }
     }
 
     @Suppress("unused") private val keep: AuroraColors = DarkColors

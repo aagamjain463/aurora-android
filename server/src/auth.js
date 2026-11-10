@@ -14,18 +14,21 @@ export class AuthError extends Error {
   }
 }
 
-// Keys rotate rarely. An unknown key id refetches, so a rotation can't lock anyone out.
-let jwks = { keys: new Map(), until: 0 }
+// Keys rotate rarely, and Google publishes a new key well before signing with it. An unknown key id refetches, so a
+// rotation can't lock anyone out, but at most once a minute: otherwise any made-up kid costs a fetch to Google.
+const REFETCH_MS = 60_000
+let jwks = { keys: new Map(), until: 0, fetchedAt: -Infinity }
 
 async function signingKey(kid, fetcher) {
-  if (jwks.keys.has(kid) && Date.now() < jwks.until) return jwks.keys.get(kid)
+  const fresh = Date.now() < jwks.until
+  if (fresh && (jwks.keys.has(kid) || Date.now() - jwks.fetchedAt < REFETCH_MS)) return jwks.keys.get(kid)
   const res = await fetcher(JWKS_URL)
   if (!res.ok) throw new AuthError(503, 'try_again')
   const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')?.[1] ?? 3600)
   const body = await res.json()
   const keys = new Map()
   for (const jwk of body.keys ?? []) keys.set(jwk.kid, await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']))
-  jwks = { keys, until: Date.now() + maxAge * 1000 }
+  jwks = { keys, until: Date.now() + maxAge * 1000, fetchedAt: Date.now() }
   return keys.get(kid)
 }
 
@@ -41,8 +44,9 @@ export async function verifyIdToken(token, env, fetcher) {
   } catch {
     throw bad
   }
-  // The Auth Emulator signs nothing. Only a local .dev.vars can turn this on, and production refuses it (wrangler.toml).
-  const emulated = env.FIREBASE_AUTH_EMULATOR === '1' && env.ENVIRONMENT !== 'production' && header.alg === 'none'
+  // The Auth Emulator signs nothing. Only a local .dev.vars can turn this on, and only in an environment explicitly
+  // named development: staging, production and a deploy whose vars were never set all refuse it.
+  const emulated = isEmulated(env) && header.alg === 'none'
   if (!emulated) {
     if (header.alg !== 'RS256' || typeof header.kid !== 'string') throw bad
     const key = await signingKey(header.kid, fetcher)
@@ -57,5 +61,7 @@ export async function verifyIdToken(token, env, fetcher) {
   if (!(claims.exp > now) || !(claims.iat <= now + SKEW_S) || !(claims.auth_time <= now + SKEW_S)) throw bad
   return claims
 }
+
+export const isEmulated = (env) => env.FIREBASE_AUTH_EMULATOR === '1' && env.ENVIRONMENT === 'development'
 
 export const bearer = (request) => /^Bearer (.+)$/.exec(request.headers.get('authorization') ?? '')?.[1]

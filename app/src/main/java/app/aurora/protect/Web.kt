@@ -124,6 +124,9 @@ private const val Suggested = "Suggested video - "
  */
 fun isVideoCard(label: String): Boolean = PlayEnding.containsMatchIn(label) || PlaylistCount.containsMatchIn(label)
 
+/** A playlist card: it names its owner, but the videos in it can be anyone's. */
+fun isPlaylistCard(label: String): Boolean = PlaylistCount.containsMatchIn(label)
+
 /**
  * The channel a page section names for the cards under it that don't name one themselves: a shelf ("Latest from
  * Veritasium") or a channel's page, whose header ("Subscribe to Veritasium.") stays at the top as it scrolls.
@@ -303,6 +306,8 @@ data class YouTubeScreen(
     val shorts: Boolean = false,
     /** The Shorts tab is the chosen tab (not a Short opened from Home, Search or a channel). */
     val shortsTab: Boolean = false,
+    /** The Shorts player's swipeable area: left, top, right, bottom. */
+    val shortsArea: List<Int>? = null,
     /** The Home tab's feed, top to bottom, when Home is the chosen tab. */
     val homeFeed: Pair<Int, Int>? = null,
     /** The list under (or beside) the open video: its details, comments, then every suggestion. */
@@ -340,42 +345,40 @@ sealed interface YouTubeVerdict {
 }
 
 /**
- * What Aurora does on this YouTube screen. [shorts]: the Shorts tab. [feed]: every Short, Home's feed and
- * everything YouTube suggests around a video; Subscriptions, Search and the video itself stay.
+ * What Aurora does on this YouTube screen. [shorts]: the Shorts tab. [feed]: the Shorts tab, Home's feed and
+ * everything YouTube suggests around a video; Subscriptions, Search, the video itself, its details and its comments
+ * stay. Under either, a Short opened any other way (Search, Subscriptions, a channel, Home) plays on its own, as a
+ * sent reel does on Instagram: it can't be swiped on to more Shorts.
  * [channels]: the channels key and its channels, when only those may play.
  */
 fun youTubeVerdict(s: YouTubeScreen, shorts: Boolean, feed: Boolean, channels: Pair<String, List<String>>?, screenWidth: Int, screenBottom: Int): YouTubeVerdict {
     val playing = s.shorts || s.watch != null
     return when {
-        s.shorts && shorts && s.shortsTab -> YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts)
-        s.shorts && feed -> YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts)
+        s.shorts && s.shortsTab && (shorts || feed) -> YouTubeVerdict.Leave(if (shorts) PartShorts else PartYouTubeFeed, R.string.part_no_shorts)
         // Judged only once the page names its channel for certain: while it loads (only a title, a view count,
         // an ad) an allowed video is never held back.
         // Only what names a channel counts: a title that mentions a chosen one ("Reacting to Veritasium") doesn't.
         channels != null && playing && channelsNamed(s.texts).let { it.isNotEmpty() && !fromChannels(it, channels.second) } ->
             YouTubeVerdict.NotFromChannel(channels.first, R.string.part_no_video)
-        // Under the video: its details and comments stay, every suggestion after them is blank, the playlist bar
-        // stays usable, and the list can't be scrolled. An open panel (description, comments) is left alone.
+        // One Short, no more: taps go through (like, comment, the channel), swipes to the next or last Short don't.
+        // An open panel (comments, the description) is left alone, so it scrolls and takes typing.
+        s.shorts && (shorts || feed) -> s.shortsArea?.takeUnless { s.panelOpen }
+            ?.let { YouTubeVerdict.Cover(emptyList(), if (shorts) PartShorts else PartYouTubeFeed, gate = it) } ?: YouTubeVerdict.Allow
+        // Under the video: its details and the comments row stay usable (taps go through), every suggestion is
+        // blank, and the list can't be scrolled at all, so no suggestion ever slides out from under its blank. The
+        // playlist bar stays usable. An open panel (description, comments) is left alone, so it scrolls and takes typing.
         feed && s.watchList != null && !s.panelOpen -> {
             val (left, top, right, bottom) = s.watchList
             val from = (s.suggestionsTop ?: bottom).coerceIn(top, bottom)
             val blank = s.playlistBar?.takeIf { it[1] < bottom && it[3] > from }?.let { bar ->
                 listOf(listOf(left, from, right, bar[1]), listOf(left, bar[3], right, bottom))
             } ?: listOf(listOf(left, from, right, bottom))
-            YouTubeVerdict.Cover(blank.filter { it[1] < it[3] } + s.related, PartYouTubeFeed, gate = listOf(left, top, right, from).takeIf { from > top })
+            YouTubeVerdict.Cover(blank.filter { it[1] < it[3] } + s.related, PartYouTubeFeed, gate = s.watchList)
         }
         feed && s.related.isNotEmpty() -> YouTubeVerdict.Cover(s.related, PartYouTubeFeed)
-        // An older YouTube without those views: whatever is below or beside the player. An open panel (the
-        // playlist, comments) is left alone.
-        feed && s.watch != null && !s.panelOpen -> {
-            val (_, _, right, bottom) = s.watch
-            when {
-                // Side by side (landscape, tablets): what's beside the video.
-                right < screenWidth * 4 / 5 -> YouTubeVerdict.Cover(listOf(listOf(right, 0, screenWidth, screenBottom)), PartYouTubeFeed)
-                bottom < screenBottom -> YouTubeVerdict.Cover(listOf(listOf(0, bottom, screenWidth, screenBottom)), PartYouTubeFeed)
-                else -> YouTubeVerdict.Allow
-            }
-        }
+        // No list in sight under the video: what's there is a panel (comments, the description, the playlist) or a
+        // page still loading, never a suggestion. It's never blanked: blanking "everything under the player" here is
+        // what hid the comments while they opened.
         // Home's feed is blank. Its header stays free, so it can be pulled down to show Home and Subscriptions.
         feed && s.homeFeed != null && s.homeFeed.first < s.homeFeed.second ->
             YouTubeVerdict.Cover(listOf(listOf(0, s.homeFeed.first, screenWidth, s.homeFeed.second)), PartYouTubeFeed)

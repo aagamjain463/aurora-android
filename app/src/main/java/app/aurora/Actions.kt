@@ -301,9 +301,12 @@ suspend fun AuroraApplication.endIntent(key: String, within: Boolean) {
  * front, or null when none is (a Shield, aurora, the screen off). Time counts only while an app with a
  * session is in front. Leaving an app ends its session: every opening is a fresh decision, with the pause
  * from the start (founder, 2026-11-04). [screenOff] is not leaving: the time pauses and the session stays.
+ * A website's session ("web:<domain>") is in front while a supported browser is.
  */
 suspend fun AuroraApplication.foregroundChanged(pkg: String?, screenOff: Boolean = false) {
     val now = now().wall
+    // ponytail: any tab of the browser counts as the site; leaving the browser ends it. Per-tab needs ContentService to report the open host.
+    fun inFront(key: String) = key == pkg || pkg != null && key.startsWith(app.aurora.protect.WebPrefix) && pkg in app.aurora.protect.BrowserAddressBars
     val ended = mutableListOf<Pair<String, IntentUse>>()
     val settled = mutableListOf<IntentUse>()
     runtime.update { r0 ->
@@ -313,12 +316,12 @@ suspend fun AuroraApplication.foregroundChanged(pkg: String?, screenOff: Boolean
         settled += (r0.intentUses - r.intentUses.keys).values
         val next = r.intentUses.mapValues { (key, use) ->
             when {
-                key == pkg && use.runningSince == null -> use.copy(runningSince = now)
-                key != pkg && use.runningSince != null -> use.copy(usedMs = use.used(now), runningSince = null)
+                inFront(key) && use.runningSince == null -> use.copy(runningSince = now)
+                !inFront(key) && use.runningSince != null -> use.copy(usedMs = use.used(now), runningSince = null)
                 else -> use
             }
         }.filter { (key, use) ->
-            val leave = key != pkg && !screenOff
+            val leave = !inFront(key) && !screenOff
             if (leave) ended += key to use
             !leave
         }

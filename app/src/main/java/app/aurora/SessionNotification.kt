@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import app.aurora.protect.ConfigRun
+import app.aurora.protect.shownMode
 import app.aurora.protect.Mode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -119,7 +120,7 @@ object SessionNotification {
     }
 
     /** The mode that decides, in the Shield's own precedence (docs/PRODUCT.md, Rule precedence). */
-    fun strongest(runs: List<ConfigRun>): Mode? = runs.mapNotNull { it.shield?.mode }.minByOrNull { listOf(Mode.AlwaysBlock, Mode.Flexible, Mode.Cooldown, Mode.Friction).indexOf(it) }
+    fun strongest(runs: List<ConfigRun>): Mode? = runs.mapNotNull { it.shownMode }.minByOrNull { listOf(Mode.AlwaysBlock, Mode.Flexible, Mode.Cooldown, Mode.Friction).indexOf(it) }
 
     fun modeName(m: Mode) = when (m) {
         Mode.Flexible -> R.string.mode_flexible

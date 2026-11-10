@@ -101,8 +101,8 @@ data class GoalProgress(
 const val RecordDays = 14
 const val RecordWeeks = 8
 
-/** A run still going, as Track reads it. */
-data class LiveRun(val configId: String, val start: Long, val plannedEnd: Long?, val shielded: Boolean)
+/** A run still going, as Track reads it, with its unlocks that stopped the timer so far. */
+data class LiveRun(val configId: String, val start: Long, val plannedEnd: Long?, val shielded: Boolean, val stopped: List<Pair<Long, Long>> = emptyList())
 
 /** [usage] is the goal's foreground time per ISO date. */
 fun goalProgress(
@@ -113,7 +113,10 @@ fun goalProgress(
     val first = goal.periodStart(goal.createdOn(zone))
     val current = goal.periodStart(today)
     val mine = records.filter { it.configId == goal.configId }
-    val windows = mine.map { it.start to it.end } + live.filter { it.configId == goal.configId }.map { it.start to now }
+    val going = live.filter { it.configId == goal.configId }
+    // A session counts only while it ran: ended early, it stops there; an unlock that stopped its timer isn't its time.
+    val stopped = mine.flatMap { it.stopped } + going.flatMap { it.stopped }
+    val windows = (mine.map { it.start to it.end } + going.map { it.start to now }).flatMap { (s, e) -> gaps(stopped, s, e) }
 
     fun valueIn(start: LocalDate): Long? {
         val from = start.atStartOfDay(zone).toInstant().toEpochMilli()

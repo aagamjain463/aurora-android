@@ -8,8 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.composed
@@ -17,7 +16,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -30,10 +28,12 @@ import app.aurora.ui.components.chipText
 import app.aurora.ui.components.minutesSpoken
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.auroraTween
-import kotlin.math.atan2
 import kotlin.math.roundToInt
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import app.aurora.ui.components.glassControl
 import androidx.compose.foundation.border
 import app.aurora.ui.components.ArtTier
 import androidx.compose.animation.AnimatedContent
@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -109,7 +110,7 @@ import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ChoicePills
 import app.aurora.ui.components.clockTime
-import app.aurora.ui.components.FocusDial
+import app.aurora.ui.components.FocusTimer
 import app.aurora.ui.components.Eyebrow
 import app.aurora.ui.components.StatusPill
 import app.aurora.ui.protect.rememberProtectionStatus
@@ -223,7 +224,12 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
         }
     }
 
+    val levelTarget = if (phase == Phase.Running && session != null) {
+        (session.remaining(s.time).toFloat() / session.durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+    } else 0f
+
     Box(Modifier.fillMaxSize().background(colors.background)) {
+    FocusLevel(levelTarget)
     Column(
         Modifier
             .fillMaxSize()
@@ -247,7 +253,10 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
             label = "phase",
         ) { p ->
             Column(Modifier.fillMaxSize()) {
-                BoxWithConstraints(Modifier.weight(1f)) {
+                // A running session fills the room: its name at the top, the time just above the middle.
+                if (p == Phase.Running) Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Space.Gutter)) {
+                    session?.let { Running(it, s) }
+                } else BoxWithConstraints(Modifier.weight(1f)) {
                     Column(
                         Modifier
                             .verticalScroll(rememberScrollState())
@@ -263,7 +272,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                                 protection, onEdit = { editing = it },
                                 onNew = { editing = FocusProfile(UUID.randomUUID().toString(), "", 25) },
                             )
-                            Phase.Running -> session?.let { Running(it, s) }
+                            Phase.Running -> Unit
                             Phase.Complete -> session?.let { Complete(it, s) }
                         }
                     }
@@ -274,7 +283,7 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                             vm.start(minutes, profile, intention)
                         }, Modifier.fillMaxWidth(), icon = AuroraIcons.Play)
-                        Phase.Running -> AuroraButton(stringResource(R.string.focus_end_session), { confirmEnd = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
+                        Phase.Running -> AuroraButton(stringResource(R.string.focus_end_session), { confirmEnd = true }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
                         Phase.Complete -> AuroraButton(stringResource(R.string.settings_done), { vm.done(onClose) }, Modifier.fillMaxWidth())
                     }
                 }
@@ -303,16 +312,16 @@ fun FocusScreen(onClose: () -> Unit, onPlus: () -> Unit = {}) {
     }
 }
 
-/** What Focus holds back, in words, and whether Shield can actually do it. */
+/** Why Focus can't hold anything back, if it can't; nothing when all is well. */
 @Composable
-private fun holds(s: FocusState, groupId: String?, protection: ProtectionStatus?): String {
+private fun holds(s: FocusState, groupId: String?, protection: ProtectionStatus?): String? {
     val keys = s.rules.cover(groupId, s.activeKeys)
     val group = groupId?.let { id -> s.rules.groups.find { it.id == id }?.name }
     return when {
-        keys.isEmpty() && s.activeKeys.isEmpty() -> stringResource(R.string.focus_holds_empty)
+        keys.isEmpty() && s.activeKeys.isEmpty() -> null
         keys.isEmpty() -> stringResource(R.string.focus_group_empty , group ?: stringResource(R.string.focus_this_group))
         protection != ProtectionStatus.Active -> stringResource(R.string.focus_holds_off)
-        else -> stringResource(R.string.focus_holds_on , group?.let { "$it · " }.orEmpty(), keys.size)
+        else -> null
     }
 }
 
@@ -339,10 +348,11 @@ private fun Setup(
         QuietIcon(AuroraIcons.Edit, stringResource(R.string.focus_edit_profile_label, profile.name), Modifier.padding(bottom = 10.dp)) { onEdit(profile) }
         QuietIcon(AuroraIcons.Plus, stringResource(R.string.focus_new_profile), Modifier.padding(bottom = 10.dp), onNew)
     }
-    // The dial at rest is the time chosen, on the instrument the session will run on. Turn it to set the length.
-    FocusDial(
-        minutes.coerceAtMost(DialMinutes) / DialMinutes.toFloat(), formatClock(minutes * 60_000L),
-        Modifier.padding(top = Space.L).fillMaxWidth(0.9f).dialInput(minutes, onMinutes),
+    // At rest the timer shows the length chosen, on the ring the session will run around. Turn around it to set it.
+    FocusTimer(
+        minutes.coerceAtMost(DialMinutes) / DialMinutes.toFloat(), "$minutes",
+        Modifier.padding(top = Space.XL).lengthInput(minutes, onMinutes),
+        unit = stringResource(R.string.duration_minutes),
         caption = stringResource(R.string.focus_ends_at, clockTime(System.currentTimeMillis() + minutes * 60_000L)),
         spoken = app.aurora.ui.components.minutesText(minutes),
         follow = tween(Motion.Standard, easing = Motion.Ease),
@@ -356,10 +366,9 @@ private fun Setup(
         modifier = Modifier.padding(top = Space.L),
     )
     GoalField(intention, onIntention, Modifier.padding(top = Space.L))
-    Text(
-        holds(s, profile.groupId, protection), Modifier.padding(top = Space.M),
-        color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center,
-    )
+    holds(s, profile.groupId, protection)?.let {
+        Text(it, Modifier.padding(top = Space.M), color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.Center)
+    }
     if (custom) {
         var typed by remember { mutableStateOf<Int?>(minutes) }
         AuroraDialog(
@@ -375,16 +384,16 @@ private fun Setup(
     }
 }
 
-/** The dial's scale while choosing: one turn is two hours. */
+/** The ring's scale while choosing: once round is two hours. */
 private const val DialMinutes = 120
 private const val Custom = -1
 
 /**
- * Turning the dial: a finger on the ring sets the length to where it points, in 5-minute steps, with a tick under
- * the finger at each one. It stops at the top instead of wrapping past it. The centre is left to the page, so the
- * screen still scrolls; TalkBack adjusts it as a slider.
+ * Turning a finger around the ring sets the length to where it points, clockwise from the top, in 5-minute steps,
+ * with a tick under the finger at each one. It never jumps across the top: past two hours it stays at two hours.
+ * TalkBack adjusts it as a slider.
  */
-private fun Modifier.dialInput(minutes: Int, onMinutes: (Int) -> Unit): Modifier = composed {
+private fun Modifier.lengthInput(minutes: Int, onMinutes: (Int) -> Unit): Modifier = composed {
     val haptics = LocalHapticFeedback.current
     val now by rememberUpdatedState(minutes)
     val set by rememberUpdatedState(onMinutes)
@@ -392,31 +401,24 @@ private fun Modifier.dialInput(minutes: Int, onMinutes: (Int) -> Unit): Modifier
         progressBarRangeInfo = ProgressBarRangeInfo(minutes.toFloat(), 5f..DialMinutes.toFloat(), steps = DialMinutes / 5 - 2)
         setProgress { set((it / 5).roundToInt().times(5).coerceIn(5, DialMinutes)); true }
     }.pointerInput(Unit) {
-        awaitEachGesture {
-            val down = awaitFirstDown()
-            val c = Offset(size.width / 2f, size.height / 2f)
-            if ((down.position - c).getDistance() < size.width * 0.28f) return@awaitEachGesture
-            var last = now
-            var change: PointerInputChange? = down
-            while (change != null && change.pressed) {
-                change.consume()
-                val v = change.position - c
-                val turn = ((Math.toDegrees(atan2(v.x, -v.y).toDouble()) + 360) % 360) / 360
-                var m = ((turn * DialMinutes / 5).roundToInt() * 5).coerceIn(5, DialMinutes)
-                if (last >= DialMinutes * 3 / 4 && m <= DialMinutes / 4) m = DialMinutes
-                if (last <= DialMinutes / 4 && m >= DialMinutes * 3 / 4) m = 5
-                if (m != last) {
-                    last = m
-                    set(m)
-                    haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                }
-                change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
-            }
+        var last = now
+        fun turn(p: androidx.compose.ui.geometry.Offset) {
+            val deg = Math.toDegrees(kotlin.math.atan2((p.x - size.width / 2f).toDouble(), (size.height / 2f - p.y).toDouble()))
+            val m = (((deg + 360) % 360 / 360 * DialMinutes / 5).roundToInt() * 5).coerceIn(5, DialMinutes)
+            // A jump of more than half the ring is the finger crossing the top: hold the end it came from.
+            if (m == last || kotlin.math.abs(m - last) > DialMinutes / 2) return
+            last = m
+            set(m)
+            haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+        }
+        detectDragGestures(onDragStart = { last = now; turn(it) }) { change, _ ->
+            change.consume()
+            turn(change.position)
         }
     }
 }
 
-/** Choices as words, the chosen one marked by a point of first light under it, as the dock marks its tab. */
+/** Choices as words, the chosen one marked by a small dot under it. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun <T> LightTabs(
@@ -498,44 +500,140 @@ private fun GoalField(value: String, onValueChange: (String) -> Unit, modifier: 
     )
 }
 
-/** What the session is called, if it has a profile, and the goal if one was typed, above the timer. Nothing else. */
 @Composable
-private fun Running(session: Session, s: FocusState) {
-    val remaining = session.remaining(s.time)
-    val progress = (1f - remaining.toFloat() / session.durationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
-    s.rules.profiles.find { it.id == session.profileId }?.let {
-        app.aurora.ui.components.Eyebrow(it.name, Modifier.padding(bottom = Space.S), textAlign = TextAlign.Center)
-    }
-    if (session.intention.isNotBlank()) app.aurora.ui.components.FocusGoal(session.intention, Modifier.padding(bottom = Space.XL))
-    FocusDial(
-        progress, formatClock(remaining), Modifier.fillMaxWidth(0.92f),
-        caption = stringResource(R.string.focus_ends_at, clockTime(session.endWall(s.time))),
-        spoken = stringResource(R.string.focus_spoken_remaining, spokenDuration(remaining)),
-        live = true,
-    )
-}
+private fun androidx.compose.foundation.layout.ColumnScope.Running(session: Session, s: FocusState) = FocusLevelRunning(
+    s.rules.profiles.find { it.id == session.profileId }?.name, session.intention, session.remaining(s.time), session.endWall(s.time),
+)
 
 @Composable
-private fun Complete(session: Session, s: FocusState) {
+private fun Complete(session: Session, s: FocusState) =
+    FocusLevelDone((session.durationMs / 60_000).toInt(), session.intention, s.rules.motivations.firstOrNull())
+
+/**
+ * The level: the time left, as water rising from the bottom of the page, below the top bar. It rises to full when a
+ * session begins, sinks as it runs and is gone when it ends. Two swells drift across its surface at different speeds,
+ * the near one with a lit crest (founder, 2026-11-08: water that moves). Solid fills, no gradient; with reduced
+ * motion the surface lies flat and still. Put it first inside the page's Box, behind everything. Shared by both Focus screens.
+ */
+@Composable
+internal fun FocusLevel(target: Float) {
     val colors = Aurora.colors
-    val minutes = session.durationMs / 60_000
-    // A closed ring of dawn.
-    FocusDial(1f, "$minutes", Modifier.padding(top = Space.L).fillMaxWidth(0.86f), caption = stringResource(R.string.focus_minutes_focused))
+    val reduced = Aurora.reducedMotion
+    val level = remember { androidx.compose.animation.core.Animatable(target) }
+    LaunchedEffect(target) {
+        // Beginning and ending move it the whole way, on the modal curve; a running clock glides with each second.
+        val whole = kotlin.math.abs(target - level.targetValue) > 0.05f
+        level.animateTo(
+            target,
+            when {
+                reduced -> androidx.compose.animation.core.snap()
+                whole -> tween(Motion.Gentle, easing = Motion.Ease)
+                else -> tween(1000, easing = androidx.compose.animation.core.LinearEasing)
+            },
+        )
+    }
+    // White by night, ink by day, both faint: clearly water, and the time over it keeps its contrast.
+    val water = if (colors.isDark) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.11f) else androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.07f)
+    val crest = if (colors.isDark) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.38f) else androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.22f)
+    // Read only while drawing, so the swells redraw each frame without recomposing the page.
+    val waves = androidx.compose.animation.core.rememberInfiniteTransition(label = "water")
+    val near = waves.animateFloat(0f, TwoPi, androidx.compose.animation.core.infiniteRepeatable(tween(4600, easing = androidx.compose.animation.core.LinearEasing)), label = "near")
+    val far = waves.animateFloat(TwoPi, 0f, androidx.compose.animation.core.infiniteRepeatable(tween(7400, easing = androidx.compose.animation.core.LinearEasing)), label = "far")
+    Column(Modifier.fillMaxSize()) {
+        Spacer(Modifier.statusBarsPadding().height(60.dp))
+        Box(
+            Modifier.weight(1f).fillMaxWidth().drawBehind {
+                val l = level.value
+                if (l <= 0f) return@drawBehind
+                val surface = size.height * (1f - l)
+                // The swells settle as the water drains away, so the last of it leaves calmly.
+                val calm = if (reduced) 0f else (l * 8f).coerceAtMost(1f)
+                val step = 4.dp.toPx()
+                fun swell(phase: Float, amp: Float, length: Float, closed: Boolean) = androidx.compose.ui.graphics.Path().apply {
+                    var x = 0f
+                    moveTo(0f, surface + amp * kotlin.math.sin(phase))
+                    while (x < size.width) {
+                        x = (x + step).coerceAtMost(size.width)
+                        lineTo(x, surface + amp * kotlin.math.sin(TwoPi * x / length + phase))
+                    }
+                    if (closed) { lineTo(size.width, size.height); lineTo(0f, size.height); close() }
+                }
+                val farPhase = if (reduced) 0f else far.value
+                val nearPhase = if (reduced) 0f else near.value
+                drawPath(swell(farPhase, 6.dp.toPx() * calm, size.width * 1.35f, true), water)
+                drawPath(swell(nearPhase, 8.dp.toPx() * calm, size.width * 0.85f, true), water)
+                drawPath(
+                    swell(nearPhase, 8.dp.toPx() * calm, size.width * 0.85f, false), crest,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                )
+            },
+        )
+    }
+}
+
+private const val TwoPi = (2 * Math.PI).toFloat()
+
+/**
+ * A running Focus over the level: its name and goal at the top; the time, large and bare, just above the middle.
+ * No ring: the level behind the page is the progress.
+ */
+@Composable
+internal fun androidx.compose.foundation.layout.ColumnScope.FocusLevelRunning(name: String?, goal: String, remainingMs: Long, endWall: Long) {
+    val colors = Aurora.colors
+    val clock = formatClock(remainingMs)
+    // The seconds sit small and quiet beside the rest, so the eye reads minutes.
+    val split = clock.lastIndexOf(':')
+    val lead = if (split > 0) clock.substring(0, split) else clock
+    val tail = if (split > 0) clock.substring(split + 1) else null
+    Column(Modifier.fillMaxWidth().padding(top = Space.L), horizontalAlignment = Alignment.CenterHorizontally) {
+        name?.let { app.aurora.ui.components.Eyebrow(it, Modifier.padding(bottom = Space.XS), textAlign = TextAlign.Center) }
+        if (goal.isNotBlank()) app.aurora.ui.components.FocusGoal(goal)
+    }
+    // Room above and below the time is 1 : 1.25, so it rests a little above the middle.
+    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.BiasAlignment(0f, -0.11f)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            val spoken = stringResource(R.string.focus_spoken_remaining, spokenDuration(remainingMs))
+            Row(Modifier.clearAndSetSemantics { contentDescription = spoken }, verticalAlignment = Alignment.Bottom) {
+                app.aurora.ui.components.RollingClock(lead, colors.textPrimary, AuroraType.Timer, Modifier.weight(1f, fill = false).alignByBaseline())
+                tail?.let {
+                    app.aurora.ui.components.RollingClock(it, colors.textTertiary, AuroraType.TimerTail, Modifier.padding(start = 6.dp).alignByBaseline())
+                }
+            }
+            Text(
+                stringResource(R.string.focus_ends_at, clockTime(endWall)), Modifier.padding(top = Space.XXS),
+                color = colors.textSecondary, style = AuroraType.Caption, textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** A finished Focus: the level has drained, leaving a clear page, a quiet mark and the time given. */
+@Composable
+internal fun FocusLevelDone(minutes: Int, goal: String, motivation: String?) {
+    val colors = Aurora.colors
+    Box(Modifier.size(56.dp).glassControl(CircleShape), contentAlignment = Alignment.Center) {
+        Icon(AuroraIcons.Check, null, tint = colors.textPrimary, modifier = Modifier.size(24.dp))
+    }
     Text(
-        stringResource(R.string.focus_time_well_spent), Modifier.padding(top = Space.XL).semantics { heading() },
+        "$minutes", Modifier.padding(top = Space.L + 4.dp),
+        color = colors.textPrimary, style = AuroraType.Timer, textAlign = TextAlign.Center,
+    )
+    Text(stringResource(R.string.focus_minutes_focused), color = colors.textSecondary, style = AuroraType.Caption, textAlign = TextAlign.Center)
+    Text(
+        stringResource(R.string.focus_time_well_spent), Modifier.padding(top = 40.dp).semantics { heading() },
         color = colors.textPrimary, style = AuroraType.Display, textAlign = TextAlign.Center,
     )
     Spacer(Modifier.height(Space.S))
     Text(
-        if (session.intention.isBlank()) stringResource(R.string.focus_complete_body , app.aurora.ui.components.minutesText(minutes.toInt()))
-        else stringResource(R.string.focus_complete_intention , app.aurora.ui.components.minutesText(minutes.toInt()), session.intention),
+        if (goal.isBlank()) stringResource(R.string.focus_complete_body, app.aurora.ui.components.minutesText(minutes))
+        else stringResource(R.string.focus_complete_intention, app.aurora.ui.components.minutesText(minutes), goal),
         color = colors.textSecondary,
         style = AuroraType.Body,
         textAlign = TextAlign.Center,
     )
-    s.rules.motivations.firstOrNull()?.let {
+    motivation?.let {
         Spacer(Modifier.height(Space.S))
-        Text(stringResource(R.string.focus_more_time_for , it.lowercase()), color = colors.textTertiary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+        Text(stringResource(R.string.focus_more_time_for, it.lowercase()), color = colors.textTertiary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
     }
 }
 

@@ -81,28 +81,33 @@ class WebTest {
     @Test
     fun youTubeWithoutRecommendations() {
         fun v(s: YouTubeScreen, shorts: Boolean = false, feed: Boolean = true) = youTubeVerdict(s, shorts, feed, null, screenWidth = 1080, screenBottom = 2400)
-        // The Shorts tab: only a Short in the Shorts tab leaves; one opened from Home or Search plays.
-        assertEquals(YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts), v(YouTubeScreen(shorts = true, shortsTab = true), shorts = true, feed = false))
-        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true), shorts = true, feed = false))
-        // Shorts, feed and recommendations: every Short leaves.
-        assertEquals(YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts), v(YouTubeScreen(shorts = true)))
-        // Under the video: details and comments stay (taps only, no scrolling), every suggestion is blank, and the
+        // Either part: the Shorts tab leaves; a Short opened from Home, Search or Subscriptions plays on its own, gated
+        // so it can't be swiped on to more; with comments open the gate is off.
+        val short = YouTubeScreen(shorts = true, shortsArea = listOf(0, 0, 1080, 2250))
+        assertEquals(YouTubeVerdict.Leave(PartShorts, R.string.part_no_shorts), v(short.copy(shortsTab = true), shorts = true, feed = false))
+        assertEquals(YouTubeVerdict.Leave(PartYouTubeFeed, R.string.part_no_shorts), v(short.copy(shortsTab = true)))
+        assertEquals(YouTubeVerdict.Cover(emptyList(), PartShorts, gate = listOf(0, 0, 1080, 2250)), v(short, shorts = true, feed = false))
+        assertEquals(YouTubeVerdict.Cover(emptyList(), PartYouTubeFeed, gate = listOf(0, 0, 1080, 2250)), v(short))
+        assertEquals(YouTubeVerdict.Allow, v(short.copy(panelOpen = true)))
+        assertEquals(YouTubeVerdict.Allow, v(short, feed = false))
+        // Under the video: details and comments stay usable, the list can't scroll, every suggestion is blank, and the
         // playlist bar stays usable. The "Suggested video" over the ended player is blank too.
-        val watchPage = YouTubeScreen(watch = listOf(0, 76, 1080, 684), watchList = listOf(0, 684, 1080, 2278), suggestionsTop = 1302)
+        val list = listOf(0, 684, 1080, 2278)
+        val watchPage = YouTubeScreen(watch = listOf(0, 76, 1080, 684), watchList = list, suggestionsTop = 1302)
         assertEquals(
-            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 2278)), PartYouTubeFeed, gate = listOf(0, 684, 1080, 1302)),
+            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 2278)), PartYouTubeFeed, gate = list),
             v(watchPage),
         )
         assertEquals(
-            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 1950), listOf(0, 2148, 1080, 2278)), PartYouTubeFeed, gate = listOf(0, 684, 1080, 1302)),
+            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 1950), listOf(0, 2148, 1080, 2278)), PartYouTubeFeed, gate = list),
             v(watchPage.copy(playlistBar = listOf(0, 1950, 1080, 2148))),
         )
         assertEquals(
-            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 2278), listOf(0, 76, 1080, 684)), PartYouTubeFeed, gate = listOf(0, 684, 1080, 1302)),
+            YouTubeVerdict.Cover(listOf(listOf(0, 1302, 1080, 2278), listOf(0, 76, 1080, 684)), PartYouTubeFeed, gate = list),
             v(watchPage.copy(related = listOf(listOf(0, 76, 1080, 684)))),
         )
-        // Before any suggestion loads, the whole list is gated, so it can't be scrolled to bring one in.
-        assertEquals(YouTubeVerdict.Cover(emptyList(), PartYouTubeFeed, gate = listOf(0, 684, 1080, 2278)), v(watchPage.copy(suggestionsTop = null)))
+        // Before any suggestion loads, nothing is blank, and the list already can't scroll.
+        assertEquals(YouTubeVerdict.Cover(emptyList(), PartYouTubeFeed, gate = list), v(watchPage.copy(suggestionsTop = null)))
         // A panel open over the page (the playlist, comments, the description) is left alone.
         assertEquals(YouTubeVerdict.Allow, v(watchPage.copy(panelOpen = true)))
         // Full screen: the row that slides up is covered, the video isn't.
@@ -110,12 +115,13 @@ class WebTest {
             YouTubeVerdict.Cover(listOf(listOf(130, 700, 2278, 1080)), PartYouTubeFeed),
             youTubeVerdict(YouTubeScreen(watch = listOf(0, 0, 2408, 1080), related = listOf(listOf(130, 700, 2278, 1080))), false, true, null, 2408, 1080),
         )
-        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(shorts = true), feed = false))
-        // Home's feed, under the video, beside it; full screen has nothing to cover.
+        // Home's feed is blank; full screen has nothing to cover.
         assertEquals(YouTubeVerdict.Cover(listOf(listOf(0, 300, 1080, 2250)), PartYouTubeFeed), v(YouTubeScreen(homeFeed = 300 to 2250)))
-        assertEquals(YouTubeVerdict.Cover(listOf(listOf(0, 700, 1080, 2400)), PartYouTubeFeed), v(YouTubeScreen(watch = listOf(0, 90, 1080, 700))))
-        assertEquals(YouTubeVerdict.Cover(listOf(listOf(640, 0, 1080, 2400)), PartYouTubeFeed), v(YouTubeScreen(watch = listOf(0, 0, 640, 400))))
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = listOf(0, 0, 1080, 2400))))
+        // The comments opening (the list under the video already hidden, the panel not yet in sight) or a page still
+        // loading: nothing under the player is ever blanked.
+        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = listOf(0, 90, 1080, 700))))
+        assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen(watch = listOf(0, 0, 640, 400))))
         // Subscriptions and Search: nothing to do.
         assertEquals(YouTubeVerdict.Allow, v(YouTubeScreen()))
     }

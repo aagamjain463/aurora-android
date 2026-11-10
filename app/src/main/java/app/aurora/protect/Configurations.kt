@@ -55,9 +55,10 @@ data class IntentPreset(
 data class FocusPlan(val task: String, val description: String = "", val goal: String = "", val minutes: Int? = null, val goalId: String? = null)
 
 /**
- * A complete setup made on Home. A custom configuration ([custom]) references saved presets by id and can
- * be linked to a Goal. A Normal Session carries its own copies of the presets ([shield], [intent]),
- * set for that use without changing the built-in defaults.
+ * A complete setup made on Home: a session. A saved one ([custom]) references saved presets by id, as many Shields
+ * ([shieldIds]) and Intents ([intentIds]) as the person wants, no app in two of them ([presetOverlap]), and can be linked
+ * to a habit. A Normal Session carries its own copies ([shield], [intent], with [intentConfigs] when several Intents are
+ * merged), set for that use without changing the presets. [unlocks] are the breaks it allows while it runs.
  */
 @Serializable
 data class UsageConfig(
@@ -72,7 +73,34 @@ data class UsageConfig(
     val createdAt: Long = 0,
     /** The person's own words for why this session matters, shown on every Shield it raises. Blank: none. */
     val note: String = "",
-)
+    /** How strict this session is. Null: older data, where the Shield preset said it ([Rules.modeOf]). */
+    val mode: Mode? = null,
+    /** The Friction challenge, for a Friction session. Null: the Shield preset's (older data). */
+    val friction: FrictionSettings? = null,
+    /** The Cooldown wait, for a Cooldown session. Null: the Shield preset's (older data). */
+    val cooldownWaitMinutes: Int? = null,
+    val shieldIds: List<String> = emptyList(),
+    val intentIds: List<String> = emptyList(),
+    val unlocks: List<SessionUnlock> = emptyList(),
+    /** With a carried [intent] merged from several: each app's own Intent settings. */
+    val intentConfigs: Map<String, IntentConfig> = emptyMap(),
+) {
+    /** Its Shields by id: the list, or (older data) the one. */
+    val allShieldIds: List<String> get() = shieldIds.ifEmpty { listOfNotNull(shieldId) }
+    val allIntentIds: List<String> get() = intentIds.ifEmpty { listOfNotNull(intentId) }
+}
+
+/** How strict [c] is: its own mode, else (older data) its Shield preset's, else Flexible. */
+fun Rules.modeOf(c: UsageConfig): Mode = c.mode ?: shieldOf(c)?.mode ?: Mode.Flexible
+fun Rules.frictionOf(c: UsageConfig): FrictionSettings = c.friction ?: shieldOf(c)?.friction ?: FrictionSettings()
+fun Rules.cooldownWaitOf(c: UsageConfig): Int = c.cooldownWaitMinutes ?: shieldOf(c)?.cooldownWaitMinutes ?: 1
+
+/** [c]'s Shield as it runs: the preset's apps and sites, with the session's strictness. */
+fun Rules.runningShield(c: UsageConfig): ShieldPreset? =
+    shieldOf(c)?.copy(mode = modeOf(c), friction = frictionOf(c), cooldownWaitMinutes = cooldownWaitOf(c))
+
+/** The mode to show for [this]: a run with a Shield, or a strict one with only an Intent. A relaxed Intent alone has none. */
+val ConfigRun.shownMode: Mode? get() = sessionMode.takeIf { shield != null || it.strict }
 
 /** When an activation applies. [Now] is only an instruction: it becomes a run at once and isn't stored. */
 @Serializable
@@ -103,6 +131,44 @@ data class Activation(
     val enabled: Boolean = true,
     val createdAt: Long = 0,
 )
+
+/**
+ * A break a session allows, set up beforehand: [partIds] (its Shields and Intents by id; empty: all of it) stop for
+ * [minutes], at most [times] per run. [focusRuns]: the Focus timer keeps running through it, and the time counts.
+ * [on]: checked in the session's list. Only checked unlocks can be used: a session keeps every break it could need, and
+ * each start picks the ones for this time.
+ */
+@Serializable
+data class SessionUnlock(
+    val id: String,
+    val name: String,
+    val partIds: List<String> = emptyList(),
+    val minutes: Int = 10,
+    val times: Int = 1,
+    val focusRuns: Boolean = false,
+    val on: Boolean = true,
+    /** Apps and sites it opens, picked one by one. Empty: [partIds] decide; both empty: everything. */
+    val keys: List<String> = emptyList(),
+)
+
+/**
+ * What a pass is for, read from what it does: a Break opens everything and pauses the timer; Work keeps the timer
+ * going; Other opens only the apps chosen and pauses it. Every pass is exactly one of these.
+ */
+enum class PassKind { Break, Work, Other }
+
+val SessionUnlock.opensAll: Boolean get() = partIds.isEmpty() && keys.isEmpty()
+val SessionUnlock.kind: PassKind get() = when {
+    focusRuns -> PassKind.Work
+    opensAll -> PassKind.Break
+    else -> PassKind.Other
+}
+
+/** An unlock in use: [keys] (empty: everything) stop from [start] to [end]. [focusRuns] as in [SessionUnlock]. */
+@Serializable
+data class UnlockUse(val unlockId: String, val start: Long, val end: Long, val keys: Set<String> = emptySet(), val focusRuns: Boolean = false) {
+    fun lifts(key: String): Boolean = keys.isEmpty() || canonicalKey(key) in keys
+}
 
 @Serializable
 enum class FocusOutcome { Completed, Partial, NotCompleted }
@@ -137,7 +203,16 @@ data class ConfigRun(
     val carried: Boolean = false,
     /** Frozen copy of [UsageConfig.note]. */
     val note: String = "",
+    /** Several Intents merged into [intent]: each app's own settings. */
+    val intentConfigs: Map<String, IntentConfig> = emptyMap(),
+    /** Frozen copy of [UsageConfig.unlocks]. */
+    val unlocks: List<SessionUnlock> = emptyList(),
+    /** The session's strictness, frozen when the run began. Null: older runs, where the Shield said it. */
+    val mode: Mode? = null,
 ) {
+    /** How strict this run is, whether or not it has a Shield. */
+    val sessionMode: Mode get() = mode ?: shield?.mode ?: Mode.Flexible
+
     fun startAt(t: DeviceTime): Long = time?.startedWall(t) ?: start
     fun endAt(t: DeviceTime): Long? = time?.endWall(t) ?: end
     fun isOver(t: DeviceTime): Boolean = time?.isOver(t) ?: (end != null && t.wall >= end)
@@ -149,8 +224,8 @@ data class ConfigRun(
      * Cooldown and Friction stays cancellable: a permanent commitment is never made by accident.
      */
     fun cancellable(t: DeviceTime): Boolean = when {
-        shield?.mode?.strict != true || end == null -> true
-        shield.mode == Mode.AlwaysBlock -> committedUntil?.let { t.wall >= it } == true
+        !sessionMode.strict || end == null -> true
+        sessionMode == Mode.AlwaysBlock -> committedUntil?.let { t.wall >= it } == true
         else -> false
     }
 
@@ -158,12 +233,28 @@ data class ConfigRun(
      * Friction and Cooldown end early only in Aurora, for the whole session: after the challenge, or after
      * the wait sat out on that screen. Never from the Shield. Strict has no early end.
      */
-    val endsAfterTask: Boolean get() = shield?.mode == Mode.Friction || shield?.mode == Mode.Cooldown
+    val endsAfterTask: Boolean get() = sessionMode == Mode.Friction || sessionMode == Mode.Cooldown
+
+    /** The unlock on at [now] out of [used] (this run's), if any. */
+    fun unlockedAt(used: List<UnlockUse>, now: Long): UnlockUse? = used.lastOrNull { now >= it.start && now < it.end }
+    /** How many more times [u] may be used. */
+    fun left(u: SessionUnlock, used: List<UnlockUse>): Int = (u.times - used.count { it.unlockId == u.id }).coerceAtLeast(0)
+    /** Time a Focus timer stood still (unlocks that stop it) up to [now]. */
+    fun stoppedMs(used: List<UnlockUse>, now: Long): Long = used.filterNot { it.focusRuns }.sumOf { (minOf(it.end, now) - it.start).coerceAtLeast(0) }
+    /**
+     * Time reclaimed (focused) so far: counted forward from 0 since the session began, standing still through a pass
+     * that pauses it (Break, Other), never through one that doesn't (Work). The session's own clock never stops.
+     */
+    fun focusedMs(t: DeviceTime, used: List<UnlockUse>): Long {
+        val now = minOf(t.wall, endAt(t) ?: t.wall)
+        return ((now - startAt(t)) - stoppedMs(used, now)).coerceAtLeast(0)
+    }
 
     fun restrictions(t: DeviceTime): List<Restriction> {
-        val s = shield ?: return emptyList()
         val from = startAt(t)
         val to = endAt(t) ?: Long.MAX_VALUE
+        // A strict session with only an Intent blocks nothing itself, yet locks like any other strict run.
+        val s = shield ?: return if (cancellable(t)) emptyList() else listOf(Restriction(sessionMode.reason, emptySet(), from, to, id, sessionId = id, label = name, locks = true))
         val base = Restriction(
             s.mode.reason, s.keys.toSet(), from, to, id,
             friction = s.friction, cooldownWaitMs = s.cooldownWaitMinutes * 60_000L, sessionId = id, label = name,
@@ -223,16 +314,39 @@ data class FreeKeep(val shield: Set<String> = emptySet(), val intent: Set<String
 /** One identity per target: "Www.Example.com" and "example.com" are the same site. */
 fun canonicalKey(key: String): String = itemOf(key)?.key ?: key
 
-private fun Rules.liveActivations(now: Long, zone: ZoneId) =
-    activations.filter { it.enabled && it.windows(now, zone).isNotEmpty() }.sortedBy { it.createdAt }
+/** Enabled activations with a window covering [at], oldest first. */
+private fun Rules.liveActivations(at: Long, zone: ZoneId) =
+    activations.filter { it.enabled && it.windowsIn(at, at + 1, zone).isNotEmpty() }.sortedBy { it.createdAt }
 
-/** Every Shield target the person has switched on, oldest first: enabled activations, then Daily Limits. */
+/** Every Shield target switched on at [now] (any time: what is on then), oldest first: activations covering it, then Daily Limits. */
 fun Rules.requestedShield(now: Long, zone: ZoneId): List<String> =
-    (liveActivations(now, zone).flatMap { a -> configs.find { it.id == a.configId }?.let { shieldOf(it)?.keys }.orEmpty() } + activeLimits().map { it.key })
+    (liveActivations(now, zone).flatMap { a -> configsOf(a).flatMap { shieldOf(it)?.keys.orEmpty() } } + activeLimits().map { it.key })
         .map(::canonicalKey).distinct()
 
 fun Rules.requestedIntent(now: Long, zone: ZoneId): List<String> =
-    liveActivations(now, zone).flatMap { a -> configs.find { it.id == a.configId }?.let { intentOf(it)?.keys }.orEmpty() }.distinct()
+    liveActivations(now, zone).flatMap { a -> configsOf(a).flatMap { intentOf(it)?.keys.orEmpty() } }.distinct()
+
+/** The session an activation runs. */
+fun Rules.configsOf(a: Activation): List<UsageConfig> = listOfNotNull(configs.find { it.id == a.configId })
+
+/** Apps and sites in more than one of these Shields and Intents: a session may hold each in one of them only. */
+fun Rules.presetOverlap(shieldIds: List<String>, intentIds: List<String>): Set<String> {
+    val parts = shieldIds.mapNotNull { id -> shields.find { it.id == id }?.keys } + intentIds.mapNotNull { id -> intentPresets.find { it.id == id }?.keys }
+    return parts.flatMap { it.map(::canonicalKey).toSet() }.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+}
+
+/** The names of [c]'s Shields and Intents by id. */
+fun Rules.partNames(c: UsageConfig): Map<String, String> =
+    c.allShieldIds.associateWith { id -> shields.find { it.id == id }?.name.orEmpty() } + c.allIntentIds.associateWith { id -> intentPresets.find { it.id == id }?.name.orEmpty() }
+
+/** The apps and sites of the Shields and Intents [ids] (of [c]), as an unlock lifts them. Empty [ids]: everything. */
+/** What [u] opens when used: its own apps, else its Shields and Intents' apps; empty is everything. */
+fun Rules.unlockKeys(c: UsageConfig?, u: SessionUnlock): Set<String> =
+    if (u.keys.isNotEmpty()) u.keys.map(::canonicalKey).toSet() else unlockKeys(c, u.partIds)
+
+fun Rules.unlockKeys(c: UsageConfig?, ids: List<String>): Set<String> =
+    if (ids.isEmpty()) emptySet()
+    else (ids.mapNotNull { id -> shields.find { it.id == id }?.keys ?: intentPresets.find { it.id == id }?.keys }.flatten()).map(::canonicalKey).toSet()
 
 /**
  * The targets [plan] enforces, or null for all of them. On Free: the person's choice first, then the oldest.
@@ -260,12 +374,14 @@ fun Rules.retainedIntent(plan: Plan, now: Long, zone: ZoneId): Set<String>? =
 fun Rules.entitledActivations(plan: Plan, now: Long, zone: ZoneId, reserved: Set<String> = emptySet()): Set<String> {
     val enabled = activations.filter { it.enabled }
     if (plan == Plan.Plus) return enabled.map { it.id }.toSet()
-    val shieldKeep = retainedShield(plan, now, zone, reserved).orEmpty()
-    val intentKeep = retainedIntent(plan, now, zone).orEmpty()
     return enabled.filter { a ->
-        val c = configs.find { it.id == a.configId } ?: return@filter false
-        val shield = shieldOf(c)?.keys.orEmpty()
-        val intent = intentOf(c)?.keys.orEmpty()
+        val cs = configsOf(a).ifEmpty { return@filter false }
+        // Each activation is judged at its own time: the window on now, or the next one to start.
+        val at = maxOf(now, a.windows(now, zone).firstOrNull()?.first ?: now)
+        val shieldKeep = retainedShield(plan, at, zone, reserved).orEmpty()
+        val intentKeep = retainedIntent(plan, at, zone).orEmpty()
+        val shield = cs.flatMap { shieldOf(it)?.keys.orEmpty() }
+        val intent = cs.flatMap { intentOf(it)?.keys.orEmpty() }
         (shield.isEmpty() && intent.isEmpty()) || shield.any { canonicalKey(it) in shieldKeep } || intent.any { it in intentKeep }
     }.map { it.id }.toSet()
 }
@@ -284,21 +400,53 @@ fun Rules.goalsReconciled(plan: Plan, now: Long): Rules {
     return if (next == trackGoals) this else copy(trackGoals = next)
 }
 
-fun Rules.shieldOf(c: UsageConfig): ShieldPreset? = c.shield ?: c.shieldId?.let { id -> shields.find { it.id == id } }
-fun Rules.intentOf(c: UsageConfig): IntentPreset? = c.intent ?: c.intentId?.let { id -> intentPresets.find { it.id == id } }
+/** [c]'s Shields as one: every app and site of them all, under their names. */
+fun Rules.shieldOf(c: UsageConfig): ShieldPreset? = c.shield ?: c.allShieldIds.mapNotNull { id -> shields.find { it.id == id } }.let { ps ->
+    when (ps.size) {
+        0 -> null
+        1 -> ps.single()
+        else -> ps.first().copy(name = ps.joinToString(" + ") { it.name }, keys = ps.flatMap { it.keys }.distinct())
+    }
+}
+
+/** [c]'s Intents as one: every app of them all ([intentConfigsOf] keeps each one's settings). */
+fun Rules.intentOf(c: UsageConfig): IntentPreset? = c.intent ?: c.allIntentIds.mapNotNull { id -> intentPresets.find { it.id == id } }.let { ps ->
+    when (ps.size) {
+        0 -> null
+        1 -> ps.single()
+        else -> ps.first().copy(name = ps.joinToString(" + ") { it.name }, keys = ps.flatMap { it.keys }.distinct())
+    }
+}
+
+/** Each app's own Intent settings when [c] has several Intents; empty with one. */
+fun Rules.intentConfigsOf(c: UsageConfig): Map<String, IntentConfig> = c.intentConfigs.ifEmpty {
+    val ps = c.allIntentIds.mapNotNull { id -> intentPresets.find { it.id == id } }
+    if (ps.size < 2) emptyMap() else ps.flatMap { p -> p.keys.map { it to p.config } }.toMap()
+}
 
 /** A run for the occurrence of [a] in [window], from the presets as they are now, over what [plan] retains. */
 fun Rules.runFor(a: Activation, window: Pair<Long, Long>, plan: Plan, now: Long, zone: ZoneId, reserved: Set<String> = emptySet()): ConfigRun? {
     val c = configs.find { it.id == a.configId } ?: return null
-    val shieldKeep = retainedShield(plan, now, zone, reserved)
-    val intentKeep = retainedIntent(plan, now, zone)
-    val shield = shieldOf(c)?.let { s -> if (shieldKeep == null) s else s.copy(keys = s.keys.filter { canonicalKey(it) in shieldKeep }) }?.takeIf { it.keys.isNotEmpty() || shieldOf(c)?.keys.isNullOrEmpty() }
+    return retainedRun(c, occurrenceId(a, window.first), a.id, window.first, window.second.takeIf { it != Long.MAX_VALUE }, plan, now, zone, reserved).copy(focus = c.focus)
+}
+
+/** A run of [c] from [start] to [end], frozen from the presets as they are now, over what [plan] retains. */
+private fun Rules.retainedRun(c: UsageConfig, id: String, activationId: String, start: Long, end: Long?, plan: Plan, now: Long, zone: ZoneId, reserved: Set<String>): ConfigRun {
+    // What Free keeps is judged at the time the run is on, not at the time it is computed.
+    val at = maxOf(start, now)
+    val shieldKeep = retainedShield(plan, at, zone, reserved)
+    val intentKeep = retainedIntent(plan, at, zone)
+    val shield = runningShield(c)?.let { s -> if (shieldKeep == null) s else s.copy(keys = s.keys.filter { canonicalKey(it) in shieldKeep }) }?.takeIf { it.keys.isNotEmpty() || shieldOf(c)?.keys.isNullOrEmpty() }
     val intent = intentOf(c)?.let { p -> if (intentKeep == null) p else p.copy(keys = p.keys.filter { it in intentKeep }) }?.takeIf { it.keys.isNotEmpty() || intentOf(c)?.keys.isNullOrEmpty() }
     return ConfigRun(
-        occurrenceId(a, window.first), c.id, c.name, a.id, c.custom, shield, intent, c.focus,
-        start = window.first, end = window.second.takeIf { it != Long.MAX_VALUE }, note = c.note,
+        id, c.id, c.name, activationId, c.custom, shield, intent, null, start = start, end = end, note = c.note, mode = modeOf(c),
+        intentConfigs = intentConfigsOf(c), unlocks = c.unlocks.filter { it.on },
     )
 }
+
+/** The runs of the occurrence of [a] in [window]: its session's, if that session is still saved. */
+fun Rules.runsFor(a: Activation, window: Pair<Long, Long>, plan: Plan, now: Long, zone: ZoneId, reserved: Set<String> = emptySet()): List<ConfigRun> =
+    listOfNotNull(runFor(a, window, plan, now, zone, reserved))
 
 /** A ledger entry for committed protection from [start] (at the earliest now) to [end], on the quota's clock and calendar. */
 fun Runtime.ledgerEntry(start: Long, end: Long, t: DeviceTime, zone: ZoneId): LedgerEntry {
@@ -325,14 +473,14 @@ private fun occurrences(rules: Rules, runtime: Runtime, plan: Plan, t: DeviceTim
             val id = occurrenceId(a, w.first)
             // A Phase 3 schedule migrated with its id: its committed Strict window is already a session.
             val legacy = runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }
-            if (id in known || legacy) null else rules.runFor(a, w, plan, t.wall, zone, reserved)
-        }
-    }.sortedBy { it.start }
+            if (id in known || legacy) null else rules.runsFor(a, w, plan, t.wall, zone, reserved)
+        }.flatten()
+    }.filter { it.id !in known && (it.end == null || it.end > t.wall) }.sortedBy { it.start }
     val allowed = mutableListOf<ConfigRun>()
     val refused = mutableListOf<ConfigRun>()
     var ledger = runtime.ledger
     for (run in due) {
-        if (plan == Plan.Plus || run.shield?.mode?.usesQuota != true) {
+        if (plan == Plan.Plus || !run.sessionMode.usesQuota) {
             allowed += run
             continue
         }
@@ -397,11 +545,14 @@ fun occurrencesToAuthorize(rules: Rules, runtime: Runtime, plan: Plan, t: Device
     val reserved = runtime.carriedShield(t)
     val entitled = rules.entitledActivations(plan, t.wall, zone, reserved)
     return rules.activations.filter { it.id in entitled }.flatMap { a ->
-        a.windows(t.wall, zone).filter { it.first <= t.wall + lookAheadMs && it.second != Long.MAX_VALUE }.mapNotNull { w ->
-            val run = rules.runFor(a, w, plan, t.wall, zone, reserved) ?: return@mapNotNull null
-            val mode = run.shield?.mode?.takeIf { it.usesQuota } ?: return@mapNotNull null
-            if (run.id in known || runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }) return@mapNotNull null
-            PendingOccurrence(run, ((w.second - w.first) / 60_000).toInt(), mode)
+        a.windows(t.wall, zone).filter { it.second != Long.MAX_VALUE && occurrenceId(a, it.first) !in known }.flatMap { w ->
+            rules.runsFor(a, w, plan, t.wall, zone, reserved).mapNotNull { run ->
+                val mode = run.sessionMode.takeIf { it.usesQuota } ?: return@mapNotNull null
+                val end = run.end ?: return@mapNotNull null
+                if (run.start > t.wall + lookAheadMs || end <= t.wall) return@mapNotNull null
+                if (run.id in known || runtime.sessions.any { it.scheduleId == a.id && !it.time.isOver(t) && it.time.startWall >= w.first }) return@mapNotNull null
+                PendingOccurrence(run, ((end - run.start) / 60_000).toInt(), mode)
+            }
         }
     }.sortedBy { it.run.start }
 }
@@ -431,7 +582,7 @@ fun intentsNow(runs: List<ConfigRun>, t: DeviceTime): Map<String, IntentConfig> 
     for (r in runs) {
         if (!r.covers(t)) continue
         val p = r.intent ?: continue
-        for (k in p.keys) out[k] = out[k]?.let { stricter(it, p.config) } ?: p.config
+        for (k in p.keys) (r.intentConfigs[k] ?: p.config).let { cfg -> out[k] = out[k]?.let { stricter(it, cfg) } ?: cfg }
     }
     return out
 }
@@ -442,14 +593,17 @@ enum class ActivationProblem {
     /** Free's allowance is the server's to give, and it can't be reached. Nothing started; existing commitments are untouched. */
     NeedsConnection,
 
-    /** One session at a time: another is running now. Nothing started; the running one is untouched. */
-    SessionRunning;
+    /** One session at a time: another is running now. Only legacy Focus still answers this. */
+    SessionRunning,
+
+    /** The same app, a task, or other sessions are already on at that time ([Refusal.conflict] says which). */
+    Conflict;
 
     val overLimit: Boolean get() = this == OverItems || this == OverIntentApps || this == OverCommittedAllowance
 }
 
 /** A refused operation: nothing changed. [decision] says why, for plan limits. */
-data class Refusal(val problem: ActivationProblem, val decision: LimitDecision? = null)
+data class Refusal(val problem: ActivationProblem, val decision: LimitDecision? = null, val conflict: Conflict? = null)
 
 /** The targets holding a slot: what is running, and what [plan] retains of what is switched on. [focusKeys] are a running Focus's. */
 data class ActiveTargets(val shield: Set<String>, val intent: Set<String>)
@@ -482,11 +636,10 @@ fun Rules.problem(c: UsageConfig, timing: Timing, plan: Plan, runtime: Runtime, 
     val shield = shieldOf(c)
     val intent = intentOf(c)
     if ((shield == null || shield.keys.isEmpty()) && (intent == null || intent.keys.isEmpty()) && c.focus == null) return Refusal(ActivationProblem.Empty)
-    if (timing is Timing.Always && shield?.mode?.strict == true) return Refusal(ActivationProblem.AlwaysWithAlwaysBlock)
+    if (timing is Timing.Always && modeOf(c).strict) return Refusal(ActivationProblem.AlwaysWithAlwaysBlock)
     when (timing) {
         is Timing.Now -> {
             if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
-            if (sessionRunning(this, runtime, plan, t, zone)) return Refusal(ActivationProblem.SessionRunning)
         }
         is Timing.Later -> {
             if (timing.minutes <= 0) return Refusal(ActivationProblem.TooShort)
@@ -498,8 +651,8 @@ fun Rules.problem(c: UsageConfig, timing: Timing, plan: Plan, runtime: Runtime, 
         }
         Timing.Always -> Unit
     }
-    targetsRefusal(plan, activeTargets(this, runtime, t, zone, plan, focusKeys), shield?.keys.orEmpty(), intent?.keys.orEmpty())?.let { return it }
-    if (shield?.mode?.usesQuota != true) return null
+    sessionLimitRefusal(c, timing, plan, runtime, t, zone, focusKeys = focusKeys)?.let { return it }
+    if (!modeOf(c).usesQuota) return null
     val minutes = when (timing) {
         is Timing.Now -> timing.minutes
         is Timing.Later -> timing.minutes
@@ -525,4 +678,144 @@ fun Rules.overlaps(c: UsageConfig, running: List<ConfigRun>): Set<String> {
     val inside = shieldOf(c)?.keys.orEmpty().toSet() intersect intentOf(c)?.keys.orEmpty().toSet()
     val others = running.flatMap { it.shield?.keys.orEmpty() + it.intent?.keys.orEmpty() }.toSet()
     return inside + (mine intersect others)
+}
+
+// ---- Unlocks ----------------------------------------------------------------------------------------
+
+/** [r] without the spans in [lifted]: the pieces before, between and after them, each keeping its id. */
+fun Restriction.without(lifted: List<Pair<Long, Long>>): List<Restriction> =
+    app.aurora.progress.gaps(lifted, start, end).map { (s, e) -> copy(start = s, end = e) }
+
+/**
+ * [r] (one of [run]'s) with [used] unlocks lifted: each app and site loses the spans of the unlocks that open it, and keeps
+ * the rest, so it is blocked again the moment an unlock ends.
+ */
+fun Restriction.lifted(used: List<UnlockUse>): List<Restriction> {
+    if (used.isEmpty()) return listOf(this)
+    // A strict Intent-only lock has no keys: it lifts with an unlock of everything.
+    if (keys.isEmpty()) return without(used.filter { it.keys.isEmpty() }.map { it.start to it.end })
+    return keys.groupBy { k -> used.filter { it.lifts(k) }.map { it.start to it.end } }.flatMap { (spans, ks) ->
+        copy(keys = ks.toSet()).without(spans)
+    }
+}
+
+// ---- Conflicts ---------------------------------------------------------------------------------------
+// ---- Conflicts ---------------------------------------------------------------------------------------
+
+/**
+ * Why a session can't be saved or run as asked. [Inside]: an app in one of its Shields and one of its Intents. [Plan]: an app
+ * in two of its Shields or Intents. [Sessions]: another session at that time (one runs at a time). [keys] are the apps.
+ */
+enum class ConflictKind { Inside, Plan, Sessions, Apps }
+
+data class Conflict(val kind: ConflictKind, val keys: Set<String> = emptySet(), val name: String = "", val start: Long = 0, val end: Long = 0)
+
+/** How far ahead schedules are compared: two weeks covers every weekly pattern. */
+private const val ConflictHorizonMs = 15 * 86_400_000L
+
+private fun overlap(a: Pair<Long, Long>, b: Pair<Long, Long>) = a.first < b.second && b.first < a.second
+
+/** Every window of [this] that is not over by [from] and starts before [to]. */
+fun Activation.windowsIn(from: Long, to: Long, zone: ZoneId): List<Pair<Long, Long>> = when (val t = timing) {
+    is Timing.Now -> listOf(from to from + t.minutes * 60_000L)
+    is Timing.Later -> listOf(t.start to t.start + t.minutes * 60_000L)
+    is Timing.Always -> listOf((if (createdAt > 0) createdAt else from) to Long.MAX_VALUE)
+    is Timing.Recurring -> {
+        val last = t.until?.let { LocalDate.parse(it) }
+        t.asSchedule(id).windowsBetween(from, to, zone).filter { (start, _) ->
+            start >= createdAt && (last == null || !Instant.ofEpochMilli(start).atZone(zone).toLocalDate().isAfter(last))
+        }
+    }
+}.filter { it.second > from && it.first < to }
+
+private enum class Occupies { Session }
+
+/** Something on, or to come: its name, what it covers (Shield and Intent apart), and when. */
+private data class Occupant(
+    val holds: Occupies, val name: String, val shield: Set<String>, val windows: List<Pair<Long, Long>>, val always: Boolean = false,
+    val intent: Set<String> = emptySet(), val carried: Boolean = false,
+) {
+    val keys: Set<String> get() = shield + intent
+}
+
+private fun Rules.shieldKeysOf(c: UsageConfig): Set<String> = shieldOf(c)?.keys.orEmpty().map(::canonicalKey).toSet()
+private fun Rules.intentKeysOf(c: UsageConfig): Set<String> = intentOf(c)?.keys.orEmpty().map(::canonicalKey).toSet()
+private fun Rules.keysOf(c: UsageConfig): Set<String> = shieldKeysOf(c) + intentKeysOf(c)
+private fun ConfigRun.shieldKeys() = shield?.keys.orEmpty().map(::canonicalKey).toSet()
+private fun ConfigRun.intentKeys() = intent?.keys.orEmpty().map(::canonicalKey).toSet()
+
+/**
+ * Everything that will be on from now on: running sessions, and every enabled session and task with its windows.
+ * Commitments carried from another account are included, marked [Occupant.carried]: they hold slots, not apps.
+ */
+private fun Rules.held(runtime: Runtime, t: DeviceTime, zone: ZoneId, excluding: String?, plan: Plan = Plan.Plus): List<Occupant> {
+    val to = t.wall + ConflictHorizonMs
+    val live = runtime.runs.filter { !it.isOver(t) }
+    fun window(r: ConfigRun) = listOf(r.startAt(t) to (r.endAt(t) ?: Long.MAX_VALUE))
+    val running = live.map { r ->
+        Occupant(Occupies.Session, r.name, r.shieldKeys(), window(r), r.endAt(t) == null, r.intentKeys(), r.carried)
+    }
+    val stored = runtime.runs.map { it.id }.toSet()
+    val planned = activations.filter { it.enabled && it.id != excluding }.flatMap { a ->
+        // A turned-off or already running occurrence is counted once, from its run (or not at all).
+        val windows = a.windowsIn(t.wall, to, zone).filter { occurrenceId(a, it.first).let { id -> id !in runtime.closed && id !in stored } }
+        if (windows.isEmpty()) return@flatMap emptyList()
+        configs.find { it.id == a.configId }?.let { listOf(Occupant(Occupies.Session, it.name, shieldKeysOf(it), windows, a.timing is Timing.Always, intentKeysOf(it))) }.orEmpty()
+    }
+    // On Free, what a schedule would run is only what Free keeps at its time: a target paused by the plan isn't on.
+    val kept = if (plan == Plan.Plus) planned else planned.map { o ->
+        val at = maxOf(t.wall, o.windows.firstOrNull()?.first ?: t.wall)
+        val shieldKeep = retainedShield(plan, at, zone, runtime.carriedShield(t))
+        val intentKeep = retainedIntent(plan, at, zone)
+        o.copy(shield = shieldKeep?.let { k -> o.shield.filter { it in k }.toSet() } ?: o.shield, intent = intentKeep?.let { k -> o.intent.filter { it in k }.toSet() } ?: o.intent)
+    }
+    return running + kept
+}
+
+/**
+ * Free's app limits, counted over what is on at the same time: for each window of each candidate part, the Shield (and
+ * Intent) targets of everything overlapping it, plus the part's own. Over the limit: the plan's refusal, as before.
+ * [parts] are the candidate's pieces (one for a session, one per block for a task): Shield keys, Intent keys, windows.
+ */
+private fun Rules.limitRefusal(plan: Plan, parts: List<Occupant>, runtime: Runtime, t: DeviceTime, zone: ZoneId, excluding: String?, focusKeys: Set<String> = emptySet()): Refusal? {
+    if (plan == Plan.Plus) return null
+    val others = held(runtime, t, zone, excluding, plan)
+    for (part in parts) for (w in part.windows) {
+        val with = others.filter { o -> o.windows.any { overlap(it, w) } } + parts.filter { p -> p !== part && p.windows.any { overlap(it, w) } }
+        val nowKeys = if (w.first <= t.wall && t.wall < w.second) focusKeys.map(::canonicalKey) else emptyList()
+        val s = EntitlementPolicy.canActivateShieldTarget(plan, with.flatMap { it.shield }.toSet() + nowKeys, part.shield)
+        if (!s.allowed) return Refusal(ActivationProblem.OverItems, s)
+        val i = EntitlementPolicy.canActivateIntentApp(plan, with.flatMap { it.intent }.toSet(), part.intent)
+        if (!i.allowed) return Refusal(ActivationProblem.OverIntentApps, i)
+    }
+    return null
+}
+
+/** Free's app limits for session [c] at [timing], beside what is on then. */
+fun Rules.sessionLimitRefusal(c: UsageConfig, timing: Timing, plan: Plan, runtime: Runtime, t: DeviceTime, zone: ZoneId, excluding: String? = null, focusKeys: Set<String> = emptySet()): Refusal? {
+    val windows = Activation("candidate", c.id, timing, createdAt = t.wall).windowsIn(t.wall, t.wall + ConflictHorizonMs, zone)
+    return limitRefusal(plan, listOf(Occupant(Occupies.Session, c.name, shieldKeysOf(c), windows, intent = intentKeysOf(c))), runtime, t, zone, excluding, focusKeys)
+}
+
+/**
+ * Why session [c] can't be saved or run at [timing], or null. Checked when the person confirms: an app in two of its
+ * Shields and Intents, or another session at that time: one session runs at a time. [excluding] is the activation this
+ * one replaces.
+ */
+fun Rules.sessionConflict(c: UsageConfig, timing: Timing, runtime: Runtime, t: DeviceTime, zone: ZoneId, excluding: String? = null): Conflict? {
+    sessionClash(c)?.let { return it }
+    val mine = Activation("candidate", c.id, timing, createdAt = t.wall).windowsIn(t.wall, t.wall + ConflictHorizonMs, zone)
+    for (h in held(runtime, t, zone, excluding)) {
+        if (h.carried) continue
+        val w = h.windows.firstOrNull { o -> mine.any { overlap(it, o) } } ?: continue
+        return Conflict(ConflictKind.Sessions, name = h.name, start = w.first, end = w.second)
+    }
+    return null
+}
+
+/** An app in two of [c]'s Shields and Intents, or null. A session holds each app in one of them only. */
+fun Rules.sessionClash(c: UsageConfig): Conflict? {
+    val inside = shieldOf(c)?.keys.orEmpty().map(::canonicalKey).toSet() intersect intentOf(c)?.keys.orEmpty().map(::canonicalKey).toSet()
+    if (inside.isNotEmpty()) return Conflict(ConflictKind.Inside, inside, c.name)
+    return presetOverlap(c.allShieldIds, c.allIntentIds).takeIf { it.isNotEmpty() }?.let { Conflict(ConflictKind.Plan, it, c.name) }
 }

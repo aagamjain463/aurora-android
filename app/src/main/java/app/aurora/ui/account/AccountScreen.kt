@@ -1,5 +1,6 @@
 package app.aurora.ui.account
 
+import app.aurora.ui.components.PlusBadge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -127,7 +128,8 @@ fun AccountScreen(onBack: () -> Unit, onPlus: () -> Unit) {
                 AuroraRow(
                     title = stringResource(R.string.account_manage_plus),
                     subtitle = stringResource(if (plan == Plan.Plus) R.string.plus_name else R.string.settings_aurora_free),
-                    icon = AuroraIcons.Lock, onClick = onPlus, trailing = { Chevron() },
+                    icon = AuroraIcons.Lock, onClick = onPlus,
+                    trailing = { if (plan == Plan.Plus) PlusBadge(); Chevron() },
                 )
                 RowDivider()
                 AuroraRow(
@@ -140,7 +142,6 @@ fun AccountScreen(onBack: () -> Unit, onPlus: () -> Unit) {
                     },
                 )
             }
-            Text(stringResource(R.string.account_play_note), Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S), color = colors.textTertiary, style = AuroraType.Caption)
         }
         item(key = "devices") {
             SectionLabel(stringResource(R.string.account_devices))
@@ -159,7 +160,6 @@ fun AccountScreen(onBack: () -> Unit, onPlus: () -> Unit) {
                     )
                 }
             }
-            Text(stringResource(R.string.account_devices_note), Modifier.padding(horizontal = Space.Gutter).padding(top = Space.S), color = colors.textTertiary, style = AuroraType.Caption)
         }
         item(key = "legal") {
             SectionLabel(stringResource(R.string.account_legal))

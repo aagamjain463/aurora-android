@@ -8,7 +8,7 @@
 // SIGNING_KEY, RTDN_TOKEN; the D1 database DB. Rollout flags: DEVICE_QUOTA (off, shadow, enforce; default enforce),
 // INTEGRITY (off, observe, enforce; default off), APP_CERT_SHA256 (Play's app signing certificate digests).
 
-import { AuthError, bearer, verifyIdToken } from './auth.js'
+import { AuthError, bearer, isEmulated, verifyIdToken } from './auth.js'
 import { ATTEST_EVERY_MS, attestNonce, deviceOf, judgeIntegrity } from './device.js'
 import { fits, quotaZone, statusOf, validZone } from './quota.js'
 
@@ -29,6 +29,9 @@ const DEVICE_RETENTION_MS = 180 * 86_400_000
 const MAX_BODY = 64 * 1024
 // More accounts than this on one installation in a month is worth a look. It is never refused for it.
 const ACCOUNTS_PER_DEVICE = 3
+// What one account may import from phones that predate its ledger. A real import is the last few days of one phone.
+const MAX_IMPORTED = 400
+const IMPORT_HORIZON_MS = 86_400_000
 
 const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
 const b64url = (bytes) => b64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -52,8 +55,16 @@ async function signed(env, body) {
   return { payload, signature: b64(await sign(unb64(env.SIGNING_KEY), payload)) }
 }
 
+// Google's OAuth tokens last an hour. Minting one per request cost an RSA signature and a round trip to Google on
+// every call, and counts against Google's token quota. Kept per isolate, and dropped five minutes before it expires.
+// ponytail: a token Google revokes early is used until then; drop the entry on a 401 if that ever happens.
+const accessTokens = new Map()
+
 async function googleAccessToken(serviceAccount, scope, fetcher) {
   const account = JSON.parse(serviceAccount)
+  const cacheKey = `${account.client_email}\n${scope}`
+  const cached = accessTokens.get(cacheKey)
+  if (cached && Date.now() < cached.until) return cached.token
   const now = Math.floor(Date.now() / 1000)
   const claims = { iss: account.client_email, scope, aud: TOKEN_URL, iat: now, exp: now + 3600 }
   const unsigned = `${b64url(utf8(JSON.stringify({ alg: 'RS256', typ: 'JWT' })))}.${b64url(utf8(JSON.stringify(claims)))}`
@@ -65,7 +76,10 @@ async function googleAccessToken(serviceAccount, scope, fetcher) {
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }),
   })
   if (!res.ok) throw new Error(`token ${res.status}`)
-  return (await res.json()).access_token
+  const { access_token: token, expires_in: life } = await res.json()
+  if (typeof token !== 'string' || !token) throw new Error('token missing')
+  accessTokens.set(cacheKey, { token, until: Date.now() + (Number(life) > 0 ? Number(life) : 3600) * 1000 - 5 * 60_000 })
+  return token
 }
 
 // ---- Google Play ----------------------------------------------------------------------------------------
@@ -106,7 +120,7 @@ const productIdsOf = (env) => env.PRODUCT_IDS.split(',').map((s) => s.trim())
 
 /** Whether Firebase still honours this sign-in: the user exists, isn't disabled, and hasn't been revoked since. */
 async function assertNotRevoked(claims, env, fetcher) {
-  if (env.FIREBASE_AUTH_EMULATOR === '1' && env.ENVIRONMENT !== 'production') return
+  if (isEmulated(env)) return
   if (!env.FIREBASE_SERVICE_ACCOUNT) throw new AuthError(503, 'try_again')
   let user
   try {
@@ -517,14 +531,18 @@ async function importLedger(request, env, fetcher) {
   // Imported time lands on this installation's ledger too, so only the installation itself may add it.
   if (!(await device(request, env, installId, now))) return deviceRefused()
   const account = await ensureAccount(env, claims, now)
+  const { n: imported } = await env.DB.prepare("SELECT COUNT(*) AS n FROM quota_reservations WHERE account_id = ? AND status = 'migrated'").bind(account.id).first()
   const statements = []
   for (const e of entries) {
     if (!Number.isFinite(e?.start) || !Number.isFinite(e?.end) || e.end <= e.start || !validZone(e.zone)) return json(400, { error: 'bad_request' })
-    if (e.end <= now - LEDGER_LOOKBACK_MS || e.start > now + 86_400_000) continue
+    if (e.end <= now - LEDGER_LOOKBACK_MS || e.start > now + IMPORT_HORIZON_MS) continue
+    // Bounded, so every row ages out with housekeeping and one account can't grow the database without end.
+    if (imported + statements.length >= MAX_IMPORTED) break
+    const end = Math.min(e.end, now + IMPORT_HORIZON_MS)
     statements.push(env.DB.prepare(
       `INSERT OR IGNORE INTO quota_reservations (id, account_id, installation_id, idempotency_key, commitment_id, mode, start_at, end_at, zone, status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'migrated', ?)`,
-    ).bind(crypto.randomUUID(), account.id, installId, `import:${installId}:${e.start}`, `import:${e.start}`, e.mode === 'cooldown' ? 'cooldown' : 'always_block', e.start, e.end, e.zone, now))
+    ).bind(crypto.randomUUID(), account.id, installId, `import:${installId}:${e.start}`, `import:${e.start}`, e.mode === 'cooldown' ? 'cooldown' : 'always_block', e.start, end, e.zone, now))
   }
   if (statements.length) {
     await env.DB.batch([
@@ -693,6 +711,8 @@ export default {
     const route = ROUTES[path]
     if (!route) return json(404, { error: 'not_found' })
     try {
+      // A declared size is refused before anything is read; a body without one is still measured after.
+      if (Number(request.headers.get('content-length')) > MAX_BODY) return json(413, { error: 'too_large' })
       if ((await rawBody(request)).length > MAX_BODY) return json(413, { error: 'too_large' })
       const ip = request.headers.get('cf-connecting-ip')
       if (path !== '/v1/rtdn' && ip && !(await allowed(env, `ip:${b64url(await sha256(ip))}`, 300, 60))) return json(429, { error: 'slow_down' })

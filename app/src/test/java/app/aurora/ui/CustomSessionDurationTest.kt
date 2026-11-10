@@ -79,7 +79,7 @@ class CustomSessionDurationTest {
     }
 
     @Test
-    fun newSessionAsksForANameAndWhetherToSave() {
+    fun newSessionAsksOnlyForAName() {
         rule.setContent {
             AuroraTheme(reduceMotion = true) {
                 ConfigureScreen(
@@ -91,10 +91,11 @@ class CustomSessionDurationTest {
             }
         }
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("Name this session")).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithText("Save this session").assertIsDisplayed()
+        // A new session from Home is never kept: saving lives under Saved sessions.
+        rule.onNodeWithText("Save this session").assertDoesNotExist()
         rule.onNodeWithText("Next").assertIsNotEnabled()
         rule.onNode(hasSetTextAction()).performTextReplacement("Deep work")
         rule.onNodeWithText("Next").assertIsEnabled().performClick()
-        rule.onNodeWithText("At most one Shield and one Intent.").assertIsDisplayed()
+        rule.onNodeWithText("As many Shields and Intents as you need. Each app can be in only one of them.").assertIsDisplayed()
     }
 }

@@ -1,5 +1,8 @@
 package app.aurora.ui.plus
 
+import app.aurora.ui.components.glassCard
+import app.aurora.ui.components.glassFill
+import androidx.compose.foundation.layout.fillMaxHeight
 import app.aurora.ui.components.Eyebrow
 import android.app.Activity
 import android.content.Context
@@ -24,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,13 +67,19 @@ import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.glass
 import app.aurora.ui.theme.Radius
-import androidx.compose.ui.draw.shadow
+import androidx.compose.runtime.CompositionLocalProvider
+import app.aurora.ui.theme.DarkColors
+import app.aurora.ui.theme.LocalAuroraColors
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextDecoration
 import app.aurora.ui.components.HeroHeadline
 import app.aurora.ui.components.LitBadge
+import app.aurora.ui.components.PlusBadge
+import app.aurora.ui.components.PlusGoldBrush
+import app.aurora.ui.components.PlusSurface
+import app.aurora.ui.theme.clipShape
 
 /**
  * Aurora Plus. Calm and honest: what Free already includes, what Plus adds, prices exactly as Google Play
@@ -89,17 +99,14 @@ fun PlusScreen(onBack: () -> Unit) {
     val limitText = stringResource(R.string.plus_conflict_limit)
     val failedText = stringResource(R.string.plus_conflict_failed)
     val offlineText = stringResource(R.string.account_offline)
+    // Only what Plus changes. Everything else is the same on both plans, so neither card repeats it.
     val compare = listOf(
-    Triple(stringResource(R.string.plus_compare_items), "${FreeLimits.getValue(Allowance.ProtectedItems)}", stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_intent), "${FreeLimits.getValue(Allowance.IntentApps)}", stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_goals), "${FreeLimits.getValue(Allowance.ActiveGoals)}", stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_always), minutesText(FreeLimits.getValue(Allowance.CommittedMinutesPerDay)), stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_modes), stringResource(R.string.plus_unlimited), stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_profiles), stringResource(R.string.plus_unlimited), stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_rules), stringResource(R.string.plus_unlimited), stringResource(R.string.plus_unlimited)),
-    Triple(stringResource(R.string.plus_compare_included), stringResource(R.string.plus_included), stringResource(R.string.plus_included)),
-    Triple(stringResource(R.string.tab_insights), stringResource(R.string.plus_period_week), stringResource(R.string.plus_period_month)),
-)
+        Triple(stringResource(R.string.plus_compare_items), "${FreeLimits.getValue(Allowance.ProtectedItems)}", stringResource(R.string.plus_unlimited)),
+        Triple(stringResource(R.string.plus_compare_intent), "${FreeLimits.getValue(Allowance.IntentApps)}", stringResource(R.string.plus_unlimited)),
+        Triple(stringResource(R.string.plus_compare_goals), "${FreeLimits.getValue(Allowance.ActiveGoals)}", stringResource(R.string.plus_unlimited)),
+        Triple(stringResource(R.string.plus_compare_always), minutesText(FreeLimits.getValue(Allowance.CommittedMinutesPerDay)), stringResource(R.string.plus_unlimited)),
+        Triple(stringResource(R.string.tab_insights), stringResource(R.string.plus_period_week), stringResource(R.string.plus_period_month)),
+    )
 
 
     LaunchedEffect(Unit) { app.billing.connect() }
@@ -110,31 +117,32 @@ fun PlusScreen(onBack: () -> Unit) {
         art = ArtTier.Balanced,
         header = {
             // One line, then the two plans: nothing to read past them.
-            Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.XL, bottom = Space.L)) {
-                if (plan == Plan.Plus) Text(stringResource(R.string.plus_you_have_aurora_plus), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Display)
-                else TwoToneHeadline(stringResource(R.string.plus_more_room_for_every_part_of_your_day), tailWords = 5, style = AuroraType.Display)
+            Column(Modifier.fillMaxWidth().padding(horizontal = Space.Gutter).padding(top = Space.S, bottom = Space.XL)) {
+                val style = AuroraType.HeroBold.copy(fontSize = 34.sp, lineHeight = 38.sp)
+                if (plan == Plan.Plus) Text(stringResource(R.string.plus_you_have_aurora_plus), Modifier.semantics { heading() }, color = colors.textPrimary, style = style)
+                else TwoToneHeadline(stringResource(R.string.plus_more_room_for_every_part_of_your_day), tailWords = 5, style = style)
             }
         },
     ) {
         item(key = "plus") {
-            PlusCard(compare.filter { it.second != it.third }, current = plan == Plan.Plus) {
+            PlusCard(compare, current = plan == Plan.Plus) {
                 when {
                     plan == Plan.Plus || subscription?.state == "on_hold" -> AuroraButton(stringResource(R.string.plus_manage_in_google_play), { openSubscriptionSettings(context, subscription?.productId) }, Modifier.fillMaxWidth(), kind = ButtonKind.Secondary)
-                    billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = colors.textSecondary, style = AuroraType.Secondary)
-                    billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = colors.textSecondary, style = AuroraType.Secondary)
+                    billing.connection == BillingState.Connection.Connecting -> Text(stringResource(R.string.plus_checking_google_play), color = Aurora.colors.textSecondary, style = AuroraType.Secondary)
+                    billing.offers.isEmpty() -> Text(stringResource(R.string.plus_unavailable), color = Aurora.colors.textSecondary, style = AuroraType.Secondary)
                     else -> billing.offers.sortedByDescending { it.yearly }.forEach { offer ->
                         AuroraButton(
                             stringResource(if (offer.yearly) R.string.plus_year_price else R.string.plus_month_price, offer.price),
                             { context.activity()?.let { app.billing.buy(it, offer) } },
                             Modifier.fillMaxWidth(),
-                            kind = if (offer.yearly) ButtonKind.Primary else ButtonKind.Secondary,
+                            kind = if (offer.yearly) ButtonKind.Plus else ButtonKind.Secondary,
                         )
                     }
                 }
             }
         }
         item(key = "free") {
-            FreeCard(compare, current = plan != Plan.Plus, Modifier.padding(top = Space.M))
+            FreeCard(compare, current = plan != Plan.Plus, Modifier.padding(top = Space.L))
         }
         item(key = "buy") {
             if (plan == Plan.Plus) SectionLabel(stringResource(R.string.plus_your_subscription))
@@ -195,85 +203,115 @@ fun PlusScreen(onBack: () -> Unit) {
 }
 
 /**
- * Free: the quiet card. Its four limits read first as light figures in a two-by-two grid; everything Free
- * keeps open follows as plain lines. No dividers between rows: one hairline parts the two halves.
+ * Free, as a quiet twin of the Plus card: the mark and the plan, the name set large, then its limits as four wells
+ * of plain tabular figures, and Insights' reach on one line under them. Monochrome glass only; gold stays with Plus.
  */
 @Composable
 private fun FreeCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
-    val (limits, open) = rows.partition { (_, free, plus) -> free != plus && free.first().isDigit() }
-    Column(modifier.padding(horizontal = Space.Gutter).fillMaxWidth().glass(colors).padding(horizontal = Space.L, vertical = Space.L)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.plus_free_name), Modifier.weight(1f).semantics { heading() }, color = colors.textPrimary, style = AuroraType.DisplayS.copy(fontSize = 28.sp, lineHeight = 32.sp))
-            if (current) PlanPill()
-        }
-        Column(Modifier.padding(top = 22.dp, bottom = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            limits.chunked(2).forEach { pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(Space.M)) {
-                    pair.forEach { (feature, free, _) ->
-                        Column(Modifier.weight(1f).semantics(mergeDescendants = true) { }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(free, color = colors.textPrimary, style = AuroraType.Metric.copy(fontSize = 34.sp, lineHeight = 38.sp))
-                            Text(feature, color = colors.textTertiary, style = AuroraType.Caption)
-                        }
-                    }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-        RowDivider()
-        Column(Modifier.padding(top = Space.M), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-            open.forEach { (feature, free, _) ->
-                Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
-                    Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textSecondary, style = AuroraType.Secondary)
-                    Text(free, color = colors.textTertiary, style = AuroraType.Caption, textAlign = TextAlign.End)
-                }
-            }
-        }
-    }
-}
-
-/**
- * Plus: the dawn card, the one object on the page that catches the sunrise. It sits on the deepest tone, its edge lit
- * in gold from above and fading down the sides; a single thread of dawn runs under the name. The lit mark and the lit
- * word "Plus" carry the brand. Each row says what Plus opens up (Free's limits are on its own card), then the way to
- * get it ([actions]).
- */
-@Composable
-private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier, actions: @Composable () -> Unit) {
-    val colors = Aurora.colors
-    Column(
-        modifier.padding(horizontal = Space.Gutter).fillMaxWidth()
-            .glass(colors, Radius.L)
-            .padding(horizontal = Space.L, vertical = Space.L),
-    ) {
+    val limits = rows.dropLast(1)
+    val insights = rows.last()
+    Column(modifier.padding(horizontal = Space.Gutter).fillMaxWidth().glassCard(colors, Radius.L).padding(horizontal = 24.dp).padding(top = 26.dp, bottom = 24.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             AuroraMark(40.dp)
             Spacer(Modifier.weight(1f))
             if (current) PlanPill()
         }
-        HeroHeadline(stringResource(R.string.plus_name), Modifier.padding(top = Space.L), style = AuroraType.DisplayXL)
-        Box(Modifier.padding(vertical = Space.L).fillMaxWidth().height(1.dp).background(colors.hairline))
-        Eyebrow(stringResource(R.string.plus_everything_in_free), Modifier.padding(bottom = Space.XS), color = colors.textTertiary)
-        rows.forEach { (feature, free, plus) ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics(mergeDescendants = true) { }, verticalAlignment = Alignment.CenterVertically) {
-                LitBadge(AuroraIcons.Check, Modifier.padding(end = Space.S), size = 26)
-                Text(feature, Modifier.weight(1f).padding(end = Space.S), color = colors.textPrimary, style = AuroraType.Secondary)
-                Text(plus, color = colors.accent, style = AuroraType.BodyStrong, textAlign = TextAlign.End)
+        Text(
+            stringResource(R.string.plus_free_name), Modifier.padding(top = 22.dp).semantics { heading() },
+            color = colors.textPrimary, style = AuroraType.DisplayXL.copy(fontSize = 30.sp, lineHeight = 36.sp),
+        )
+        Text(stringResource(R.string.plus_free_summary), Modifier.padding(top = 4.dp), color = colors.textTertiary, style = AuroraType.Secondary)
+        // Two by two: each limit a well, its figure large and its meaning small under it.
+        Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            limits.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    pair.forEach { (label, free, _) -> LimitWell(free, label, Modifier.weight(1f).fillMaxHeight()) }
+                }
             }
         }
-        Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) { actions() }
+        Row(
+            Modifier.padding(top = 18.dp).fillMaxWidth().padding(horizontal = 4.dp).semantics(mergeDescendants = true) {},
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S),
+        ) {
+            Icon(AuroraIcons.Insights, null, tint = colors.textTertiary, modifier = Modifier.size(16.dp))
+            Text(insights.first, Modifier.weight(1f), color = colors.textSecondary, style = AuroraType.Secondary)
+            Text(insights.second, color = colors.textPrimary, style = AuroraType.Secondary.copy(fontWeight = FontWeight(500)), textAlign = TextAlign.End)
+        }
     }
 }
 
-/** The day theme's warm shadow, as on [glass]: paper on paper. */
+/** One plan limit: the figure in tabular Inter, the words under it. [gold]: Plus's, the figure in gold on a gold-lit well. */
+@Composable
+private fun LimitWell(figure: String, label: String, modifier: Modifier = Modifier, gold: Boolean = false) {
+    val colors = Aurora.colors
+    val figureStyle = AuroraType.Metric.copy(fontSize = 26.sp, lineHeight = 30.sp)
+    Column(
+        modifier
+            .then(
+                if (gold) Modifier.clip(Radius.M.clipShape).background(colors.plus.copy(alpha = 0.07f), Radius.M).border(1.dp, colors.plus.copy(alpha = 0.24f), Radius.M)
+                else Modifier.glassCard(colors, Radius.M, fill = colors.glassFill(field = true)),
+            )
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            figure, style = if (gold) figureStyle.copy(brush = PlusGoldBrush) else figureStyle.copy(color = colors.textPrimary), maxLines = 1,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 16.sp, maxFontSize = 26.sp),
+        )
+        Text(label, color = colors.textSecondary, style = AuroraType.Caption)
+    }
+}
+
+/**
+ * Plus, laid out as the Free card's twin so the two compare at a glance: the mark and the plan, the name set large in
+ * gold, then what Plus lifts as four gold-lit wells, Insights' reach on one line, and the ways to buy it.
+ */
+@Composable
+private fun PlusCard(rows: List<Triple<String, String, String>>, current: Boolean, modifier: Modifier = Modifier, actions: @Composable () -> Unit) {
+    PlusSurface(modifier.padding(horizontal = Space.Gutter).fillMaxWidth()) {
+        val colors = Aurora.colors
+        val limits = rows.dropLast(1)
+        val insights = rows.last()
+        Column(Modifier.padding(horizontal = 24.dp).padding(top = 26.dp, bottom = 24.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                AuroraMark(40.dp)
+                Spacer(Modifier.weight(1f))
+                PlusBadge(text = stringResource(if (current) R.string.plus_your_plan else R.string.plus_badge))
+            }
+            Text(
+                stringResource(R.string.plus_name), Modifier.padding(top = 22.dp).semantics { heading() },
+                style = AuroraType.DisplayXL.copy(fontSize = 30.sp, lineHeight = 36.sp, brush = PlusGoldBrush),
+            )
+            Text(stringResource(R.string.plus_everything_in_free), Modifier.padding(top = 4.dp), color = colors.textTertiary, style = AuroraType.Secondary)
+            Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                limits.chunked(2).forEach { pair ->
+                    Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        pair.forEach { (label, _, plus) -> LimitWell(plus, label, Modifier.weight(1f).fillMaxHeight(), gold = true) }
+                    }
+                }
+            }
+            Row(
+                Modifier.padding(top = 18.dp).fillMaxWidth().padding(horizontal = 4.dp).semantics(mergeDescendants = true) {},
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.S),
+            ) {
+                Icon(AuroraIcons.Insights, null, tint = colors.plus, modifier = Modifier.size(16.dp))
+                Text(insights.first, Modifier.weight(1f), color = colors.textSecondary, style = AuroraType.Secondary)
+                Text(insights.third, color = colors.plus, style = AuroraType.Secondary.copy(fontWeight = FontWeight(500)), textAlign = TextAlign.End)
+            }
+            Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(Space.S)) { actions() }
+        }
+    }
+}
 
 @Composable
 private fun PlanPill(modifier: Modifier = Modifier) {
     val colors = Aurora.colors
     Eyebrow(
         stringResource(R.string.plus_your_plan),
-        modifier.clip(Radius.Pill).background(colors.accentSoft).border(1.dp, colors.accent.copy(alpha = 0.35f), Radius.Pill).padding(horizontal = Space.S, vertical = 6.dp),
-        color = colors.accent,
+        modifier.clip(Radius.Pill).glass(colors, Radius.Pill).padding(horizontal = Space.S, vertical = 6.dp),
+        color = colors.textSecondary,
     )
 }
 

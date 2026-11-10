@@ -66,8 +66,7 @@ fun <T> ChipFlow(
                 Modifier
                     .heightIn(min = 40.dp)
                     .clip(Radius.Pill)
-                    .background(bg)
-                    .then(if (on) Modifier else Modifier.border(1.dp, colors.hairlineStrong, Radius.Pill))
+                    .then(if (on) Modifier.background(bg).glassShine(colors, Radius.Pill) else Modifier.glassCard(colors, Radius.Pill))
                     .toggleable(on, role = Role.Checkbox, onValueChange = { onToggle(option) })
                     .padding(horizontal = 16.dp, vertical = 10.dp)
                     .semantics { contentDescription = spokenLabel(option) },
@@ -90,7 +89,7 @@ fun RadioRow(title: String, subtitle: String?, selected: Boolean, onClick: () ->
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.M),
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                 Text(title, color = colors.textPrimary, style = AuroraType.BodyStrong)
                 if (badge != null) Tag(badge)
@@ -145,13 +144,13 @@ fun MetricGrid(cells: List<Pair<String?, String>>, modifier: Modifier = Modifier
     }
 }
 
-/** A thin progress line. Warm for goals met; never red. */
+/** A thin progress line in Aurora gold, filling toward its bright end. Warm (muted) for goals missed; never red. */
 @Composable
 fun ProgressLine(fraction: Float, modifier: Modifier = Modifier, warm: Boolean = false) {
     val colors = Aurora.colors
     val f by rememberFill(fraction.coerceIn(0f, 1f))
     Box(modifier.fillMaxWidth().height(4.dp).clip(Radius.Pill).background(colors.hairline)) {
-        Box(Modifier.fillMaxWidth(f).height(4.dp).clip(Radius.Pill).background(if (warm) colors.muted else colors.accent))
+        Box(Modifier.fillMaxWidth(f).height(4.dp).clip(Radius.Pill).then(if (warm) Modifier.background(colors.muted) else Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(colors.plus.copy(alpha = 0.55f), colors.plus)))))
     }
 }
 
@@ -179,15 +178,9 @@ fun Modifier.bleed(by: Dp) = layout { measurable, constraints ->
  */
 @Composable
 fun LitBadge(icon: ImageVector, modifier: Modifier = Modifier, lit: Boolean = true, tint: Color = Aurora.colors.accent, size: Int = 56) {
-    val colors = Aurora.colors
-    val ring = if (lit) tint.copy(alpha = 0.55f) else colors.hairline
-    Box(
-        modifier.size(size.dp).clip(Radius.Pill)
-            .background(if (lit) tint.copy(alpha = 0.10f) else colors.field)
-            .border(1.dp, ring, Radius.Pill),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, null, tint = if (lit) tint else colors.textSecondary, modifier = Modifier.size((size * 0.46f).dp))
+    // The glyph in a round glass well.
+    Box(modifier.size(size.dp).glassCard(Aurora.colors, Radius.Pill), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = if (lit) tint else Aurora.colors.textSecondary, modifier = Modifier.size((size * 0.46f).dp))
     }
 }
 

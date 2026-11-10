@@ -20,7 +20,7 @@ Do not introduce additional slogans. Functional UI labels are permitted.
 ## Logo — source of truth
 `Aurora_Final_Approved_Logo.png` is the original approved A12-inspired logo asset. Preserve it unchanged, including its subtle champagne-gold detail. Do not redraw or regenerate from the brand board.
 
-**Gold is allowed ONLY inside this approved logo asset.** No gold anywhere else in product or brand graphics.
+**Gold is allowed ONLY inside this approved logo asset, and on Aurora Plus** (founder, 2026-11-08: the Plus card, badge, name and the actions that open Plus, in the `plus-gold-*` tokens). No gold anywhere else in product or brand graphics.
 
 ## Palette
 - Obsidian `#0B0B0D`
@@ -37,7 +37,7 @@ Dark default; fully developed light theme. Use semantic design tokens. Typeface:
 ## Visual language
 Use precise geometric components, intentional negative space, crisp typography, clear hierarchy, subtle neutral surface elevation, and restrained purposeful motion. The brand should feel premium through craftsmanship, not decoration.
 
-**Prohibited:** northern lights, mountains, celestial scenery, glowing horizons, luminous arcs, atmospheric light ribbons, nature photography, and any visuals that imply aurora borealis. No extra gold outside the approved logo.
+**Prohibited:** northern lights, mountains, celestial scenery, glowing horizons, luminous arcs, atmospheric light ribbons, nature photography, and any visuals that imply aurora borealis. No extra gold outside the approved logo and Aurora Plus.
 
 ## Product surfaces
 Apply consistently across splash, onboarding, Home, Shields, Intentional Use, Focus Sessions, Progress, blocking screens, Settings, subscriptions, website, app-store assets, and marketing.

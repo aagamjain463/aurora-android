@@ -12,6 +12,6 @@
     android:canRetrieveWindowContent="true"
     android:description="@string/content_service_description"
     android:isAccessibilityTool="false"
-    android:notificationTimeout="100"
+    android:notificationTimeout="40"
     android:packageNames="com.android.chrome,com.chrome.beta,com.sec.android.app.sbrowser,org.mozilla.firefox,com.microsoft.emmx,com.brave.browser,com.opera.browser,com.duckduckgo.mobile.android,com.google.android.youtube,com.instagram.android"
     tools:ignore="UnusedAttribute" />

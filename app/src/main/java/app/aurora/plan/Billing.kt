@@ -65,11 +65,25 @@ data class BillingState(
 data class PurchaseConflict(val hint: String?, internal val token: String)
 
 /** This install's random id, in storage no backup or transfer copies: a snapshot restored from elsewhere doesn't match it. */
-fun installId(context: Context): String {
+fun installId(context: Context): String = synchronized(InstallIdLock) {
     val file = File(context.noBackupFilesDir, "install_id")
-    if (!file.exists()) file.writeText(UUID.randomUUID().toString())
-    return file.readText()
+    // The account and billing read this from different threads; a process killed mid-write left an empty file,
+    // which every account-service route refuses. Anything not shaped like an id is made again, and written whole.
+    runCatching { file.readText() }.getOrNull()?.takeIf { InstallIdShape.matches(it) }?.let { return it }
+    val id = UUID.randomUUID().toString()
+    val partial = File(file.parentFile, "install_id.partial")
+    partial.writeText(id)
+    if (!partial.renameTo(file)) {
+        file.writeText(id)
+        partial.delete()
+    }
+    id
 }
+
+private val InstallIdLock = Any()
+
+/** What the account service accepts as an install id (server/src/worker.js, isId). */
+private val InstallIdShape = Regex("[A-Za-z0-9_-]{1,64}")
 
 /**
  * Google Play Billing for aurora plus. Play sells it and reports purchases; the verification server asks

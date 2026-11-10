@@ -1,5 +1,6 @@
 package app.aurora.protect
 
+import app.aurora.ui.components.glassCard
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -208,13 +209,19 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, on
         androidx.compose.foundation.layout.BoxWithConstraints(
             Modifier
                 .align(Alignment.TopCenter)
-                .widthIn(max = ContentMaxWidth)
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .imePadding(),
         ) {
+        // A phone on its side: two panes, so every moment fits on one screen without scrolling.
+        if (maxWidth > maxHeight && maxHeight < 520.dp) {
+            Landscape(label, icon, showName, onClose, maxHeight, shown.value, content)
+            return@BoxWithConstraints
+        }
         Column(
             Modifier
+                .align(Alignment.TopCenter)
+                .widthIn(max = ContentMaxWidth)
                 .verticalScroll(rememberScrollState())
                 .fillMaxWidth()
                 .heightIn(min = maxHeight)
@@ -224,10 +231,10 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, on
         ) {
             if (start) {
                 Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AppTile(label, icon, 44.dp, 13.dp)
+                    AppTile(label, icon, 52.dp, 15.dp)
                     Spacer(Modifier.weight(1f))
                     Box(
-                        Modifier.size(42.dp).clip(CircleShape).background(colors.elevated)
+                        Modifier.size(42.dp).glassCard(colors, CircleShape)
                             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = stringResource(LocalLeave.current), onClick = onClose!!),
                         contentAlignment = Alignment.Center,
                     ) { androidx.compose.material3.Icon(AuroraIcons.Close, stringResource(LocalLeave.current), tint = colors.textPrimary, modifier = Modifier.size(18.dp)) }
@@ -238,8 +245,11 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, on
                 Spacer(Modifier.height((30.dp - navInset).coerceAtLeast(Space.M)))
             } else {
                 app.aurora.ui.components.AuroraMark(26.dp, Modifier.padding(top = 34.dp))
-                Spacer(Modifier.weight(0.62f).heightIn(min = Space.L))
-                AppTile(label, icon, 64.dp, 18.dp)
+                Spacer(Modifier.weight(0.5f).heightIn(min = Space.L))
+                // The app held at the centre of the seal: Aurora's instrument, the brand in every block.
+                // Large text needs the room: the seal steps down so the words stay on the first screen.
+                val roomy = androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.3f
+                app.aurora.ui.components.Seal(if (roomy) 172.dp else 132.dp) { AppTile(label, icon, if (roomy) 68.dp else 52.dp, if (roomy) 19.dp else 15.dp) }
                 // The icon names an app; a website has only its name.
                 if (showName) Text(label, Modifier.padding(top = Space.S), color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(22.dp))
@@ -253,6 +263,79 @@ private fun ShieldFrame(label: String, icon: ImageBitmap?, showName: Boolean, on
     }
 }
 
+/** Set in landscape: the words step down a size and the actions sit side by side, so nothing has to scroll. */
+private val LocalLandscape = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/** In landscape the reflection pause is drawn round the app on the left ([PauseRing] hands it over): left, total. */
+private val LocalPause = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.MutableState<Pair<Long, Long>?>?> { null }
+
+/**
+ * The Shield on a phone on its side. The left pane holds who this is about (the seal and the app, or on the Intent
+ * page the app, its pause ring and the close button); the right pane holds the moment, its actions at the foot.
+ * Sized to fit the height, so it never scrolls; only an open keyboard can push it.
+ */
+@Composable
+private fun Landscape(
+    label: String, icon: ImageBitmap?, showName: Boolean, onClose: (() -> Unit)?, height: androidx.compose.ui.unit.Dp, shown: Float,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val colors = Aurora.colors
+    val start = onClose != null
+    val pause = remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalLandscape provides true, LocalPause provides pause) {
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = Space.Gutter)
+                .graphicsLayer { alpha = shown; translationY = (1f - shown) * 12.dp.toPx() },
+            horizontalArrangement = Arrangement.spacedBy(Space.XL),
+        ) {
+            Box(Modifier.weight(0.4f).fillMaxSize()) {
+                if (start) Box(
+                    Modifier.padding(top = Space.M).size(42.dp).glassCard(colors, CircleShape)
+                        .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = stringResource(LocalLeave.current), onClick = onClose!!),
+                    contentAlignment = Alignment.Center,
+                ) { androidx.compose.material3.Icon(AuroraIcons.Close, stringResource(LocalLeave.current), tint = colors.textPrimary, modifier = Modifier.size(18.dp)) }
+                else app.aurora.ui.components.AuroraMark(22.dp, Modifier.align(Alignment.TopCenter).padding(top = Space.M))
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    val seal = if (height < 360.dp) 128.dp else 152.dp
+                    if (start) Box(Modifier.size(seal), contentAlignment = Alignment.Center) {
+                        pause.value?.let { (left, total) -> Ring(if (total <= 0) 1f else (1f - left.toFloat() / total).coerceIn(0f, 1f), Modifier.fillMaxSize()) }
+                        AppTile(label, icon, 64.dp, 18.dp)
+                    } else app.aurora.ui.components.Seal(seal) { AppTile(label, icon, 56.dp, 16.dp) }
+                    val seconds = pause.value?.let { ((it.first + 999) / 1000).toInt() }?.takeIf { it > 0 }
+                    when {
+                        seconds != null -> Text("${seconds}s", Modifier.padding(top = Space.S).semantics { liveRegion = LiveRegionMode.Polite }, color = colors.textPrimary, style = AuroraType.Title)
+                        showName -> Text(label, Modifier.padding(top = Space.S), color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+            Column(
+                Modifier.weight(0.6f).widthIn(max = 520.dp).verticalScroll(rememberScrollState()).heightIn(min = height)
+                    .padding(top = Space.L, bottom = Space.M),
+                horizontalAlignment = if (start) Alignment.Start else Alignment.CenterHorizontally,
+            ) {
+                // A block's few words sit in the middle of the pane, its actions at the foot.
+                if (!start) Spacer(Modifier.weight(1f))
+                content()
+            }
+        }
+    }
+}
+
+/** The pause's ring of light, closing as [fraction] goes from 0 to 1. */
+@Composable
+private fun Ring(fraction: Float, modifier: Modifier) {
+    val colors = Aurora.colors
+    androidx.compose.foundation.Canvas(modifier) {
+        val stroke = 4.dp.toPx()
+        val inset = stroke / 2 + 2.dp.toPx()
+        val box = androidx.compose.ui.geometry.Size(size.width - 2 * inset, size.height - 2 * inset)
+        val tl = androidx.compose.ui.geometry.Offset(inset, inset)
+        drawArc(colors.hairline, 0f, 360f, false, tl, box, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+        drawArc(colors.accent, -90f, 360f * (1f - fraction), false, tl, box,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+    }
+}
+
 /** The app in question: its icon, or a website's first letter, on a tile. */
 @Composable
 private fun AppTile(label: String, icon: ImageBitmap?, size: androidx.compose.ui.unit.Dp, corner: androidx.compose.ui.unit.Dp) {
@@ -261,7 +344,7 @@ private fun AppTile(label: String, icon: ImageBitmap?, size: androidx.compose.ui
     if (icon != null) {
         Image(icon, label, Modifier.size(size).clip(shape))
     } else {
-        Box(Modifier.size(size).clip(shape).background(colors.elevated).border(1.dp, colors.hairline, shape), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(size).glassCard(colors, shape), contentAlignment = Alignment.Center) {
             Text(label.firstOrNull()?.uppercase().orEmpty(), color = colors.textPrimary, style = AuroraType.Display.copy(fontSize = (size.value * 0.4f).sp))
         }
     }
@@ -271,16 +354,16 @@ private fun AppTile(label: String, icon: ImageBitmap?, size: androidx.compose.ui
 @Composable
 private fun EndsPill(text: String) {
     Text(
-        text, Modifier.fillMaxWidth().padding(top = 14.dp),
-        color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = TextAlign.Center,
+        text, Modifier.fillMaxWidth().padding(top = if (LocalLandscape.current) 8.dp else 14.dp),
+        color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = if (LocalStartAligned.current) TextAlign.Start else TextAlign.Center,
     )
 }
 
-/** A small-capital label over a part of the Intent page ("YOUR REASON"). */
+/** A section label over a part of the Intent page ("Your reason"), in sentence case. */
 @Composable
 private fun PartLabel(text: String) {
     Text(
-        text.uppercase(), Modifier.padding(start = 4.dp, top = 26.dp, bottom = 10.dp).clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
+        text, Modifier.padding(start = 4.dp, top = if (LocalLandscape.current) 14.dp else 26.dp, bottom = if (LocalLandscape.current) 8.dp else 10.dp).clearAndSetSemantics { heading(); this.text = androidx.compose.ui.text.AnnotatedString(text) },
         color = Aurora.colors.textTertiary, style = AuroraType.Eyebrow,
     )
 }
@@ -292,7 +375,12 @@ private fun Headline(text: String, highlight: String? = null) {
     val start = LocalStartAligned.current
     Text(
         text, Modifier.fillMaxWidth().semantics { heading() }, color = Aurora.colors.textPrimary,
-        style = if (start) AuroraType.Display else AuroraType.Display.copy(fontSize = 42.sp, lineHeight = 46.sp),
+        style = when {
+            LocalLandscape.current && start -> AuroraType.HeroBold.copy(fontSize = 26.sp, lineHeight = 30.sp)
+            LocalLandscape.current -> AuroraType.Display.copy(fontSize = 30.sp, lineHeight = 34.sp)
+            start -> AuroraType.HeroBold.copy(fontSize = 36.sp, lineHeight = 40.sp)
+            else -> AuroraType.Display.copy(fontSize = 42.sp, lineHeight = 46.sp)
+        },
         textAlign = if (start) TextAlign.Start else TextAlign.Center,
     )
     LocalSessionNote.current?.let { SessionNote(it) }
@@ -306,9 +394,9 @@ private fun SessionNote(text: String) {
     val label = stringResource(R.string.session_note_label)
     Text(
         "\u201C" + text + "\u201D",
-        Modifier.padding(top = 26.dp).fillMaxWidth().semantics { contentDescription = "$label: $text" },
+        Modifier.padding(top = if (LocalLandscape.current) 10.dp else 26.dp).fillMaxWidth().semantics { contentDescription = "$label: $text" },
         color = colors.textPrimary,
-        style = AuroraType.DisplayS.copy(fontSize = 22.sp, lineHeight = 28.sp),
+        style = if (LocalLandscape.current) AuroraType.DisplayS.copy(fontSize = 17.sp, lineHeight = 22.sp) else AuroraType.DisplayS.copy(fontSize = 22.sp, lineHeight = 28.sp),
         textAlign = if (start) TextAlign.Start else TextAlign.Center,
     )
 }
@@ -319,7 +407,8 @@ private fun Body(text: String) {
     Text(
         text,
         // Centred as a block too, not just its lines: the column around it may align to the start.
-        if (start) Modifier.fillMaxWidth().padding(top = 8.dp) else Modifier.fillMaxWidth().padding(top = 22.dp).wrapContentWidth().widthIn(max = 270.dp),
+        if (start) Modifier.fillMaxWidth().padding(top = 8.dp)
+        else Modifier.fillMaxWidth().padding(top = if (LocalLandscape.current) 10.dp else 22.dp).wrapContentWidth().widthIn(max = if (LocalLandscape.current) 400.dp else 270.dp),
         color = Aurora.colors.textSecondary, style = AuroraType.Body, textAlign = if (start) TextAlign.Start else TextAlign.Center,
     )
 }
@@ -327,6 +416,12 @@ private fun Body(text: String) {
 /** The reflection pause: a small ring of light that closes as the seconds pass. */
 @Composable
 private fun PauseRing(leftMs: Long, totalMs: Long) {
+    // In landscape the ring goes round the app on the left, where there's room for it.
+    LocalPause.current?.let { pause ->
+        androidx.compose.runtime.SideEffect { pause.value = leftMs to totalMs }
+        androidx.compose.runtime.DisposableEffect(Unit) { onDispose { pause.value = null } }
+        return
+    }
     val colors = Aurora.colors
     val fraction = if (totalMs <= 0) 1f else (1f - leftMs.toFloat() / totalMs).coerceIn(0f, 1f)
     val seconds = ((leftMs + 999) / 1000).toInt().coerceAtLeast(0)
@@ -348,8 +443,8 @@ private fun PauseRing(leftMs: Long, totalMs: Long) {
 @Composable
 private fun Countdown(until: Long, now: Long, caption: String) {
     val colors = Aurora.colors
-    Column(Modifier.padding(top = Space.M, bottom = Space.S), horizontalAlignment = Alignment.CenterHorizontally) {
-        RollingClock(formatClock(until - now), colors.textPrimary, AuroraType.Hero, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+    Column(Modifier.padding(top = if (LocalLandscape.current) Space.XS else Space.M, bottom = Space.S), horizontalAlignment = Alignment.CenterHorizontally) {
+        RollingClock(formatClock(until - now), colors.textPrimary, if (LocalLandscape.current) AuroraType.Headline else AuroraType.Hero, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         Text(caption, color = colors.textSecondary, style = AuroraType.Secondary, textAlign = TextAlign.Center)
     }
 }
@@ -369,8 +464,24 @@ private fun RestartNote(text: String = stringResource(R.string.shield_restart_no
 /** The moment's actions, at the foot of the page. */
 @Composable
 private fun androidx.compose.foundation.layout.ColumnScope.Actions(content: @Composable () -> Unit) {
+    if (LocalLandscape.current) {
+        Spacer(Modifier.weight(1f).heightIn(min = Space.M))
+        SideBySide(content)
+        return
+    }
     Spacer(Modifier.weight(1f).heightIn(min = Space.L))
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+}
+
+/** Actions in one row of equal widths, the first (the main one) on the right where the thumb rests. */
+@Composable
+private fun SideBySide(content: @Composable () -> Unit) = androidx.compose.ui.layout.Layout(content, Modifier.fillMaxWidth()) { items, c ->
+    val gap = Space.S.roundToPx()
+    val n = items.size.coerceAtLeast(1)
+    val w = ((c.maxWidth - gap * (n - 1)) / n).coerceAtLeast(0)
+    val placed = items.map { it.measure(androidx.compose.ui.unit.Constraints.fixedWidth(w)) }
+    val h = placed.maxOfOrNull { it.height } ?: 0
+    layout(c.maxWidth, h) { placed.asReversed().forEachIndexed { i, p -> p.place(i * (w + gap), (h - p.height) / 2) } }
 }
 
 // ---- Blocks: no way through -------------------------------------------------------------------
@@ -518,9 +629,8 @@ fun EndSession(app: AuroraApplication, run: ConfigRun, host: androidx.lifecycle.
                 Body(stringResource(R.string.end_session_body, run.name))
                 val s = shield.friction
                 when {
-                    s.task == FrictionTask.Intention && s.phrase.isNotBlank() -> PhraseTask(s.phrase, onDone = onEnd)
-                    // Shields made before the words were set beforehand.
-                    s.task == FrictionTask.Intention -> IntentionTask(stringResource(R.string.end_session_intention_prompt), onDone = onEnd)
+                    // Always exact words, always shown. A Shield saved before they were asked for gets fixed ones.
+                    s.task == FrictionTask.Intention -> PhraseTask(s.phrase.ifBlank { stringResource(R.string.friction_phrase_default) }, onDone = onEnd)
                     else -> MathTask(s.difficulty, onSolved = onEnd, onMiss = {})
                 }
                 Actions { AuroraButton(stringResource(R.string.action_cancel), onCancel, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet) }
@@ -611,9 +721,7 @@ internal fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () -
             "${problem.text} = ?",
             Modifier
                 .fillMaxWidth()
-                .clip(Radius.L)
-                .background(colors.elevated)
-                .border(1.dp, colors.hairline, Radius.L)
+                .glassCard(colors, Radius.L, edge = false)
                 .padding(Space.L),
             color = colors.textPrimary,
             style = AuroraType.Headline,
@@ -631,39 +739,6 @@ internal fun MathTask(difficulty: Difficulty, onSolved: () -> Unit, onMiss: () -
     }
 }
 
-/** A written intention: what the person means to do, read back to them before they go on. */
-@Composable
-internal fun IntentionTask(prompt: String, onDone: () -> Unit) {
-    val colors = Aurora.colors
-    var text by remember { mutableStateOf("") }
-    var confirming by remember { mutableStateOf(false) }
-    // Two words or more: a reason, not a keystroke. No character counts to pad out.
-    val meaningful = text.trim().split(Regex("\\s+")).count { it.length > 1 } >= 2
-    Column(Modifier.padding(top = Space.L), verticalArrangement = Arrangement.spacedBy(Space.S)) {
-        if (!confirming) {
-            Text(prompt, color = colors.textPrimary, style = AuroraType.Title)
-            AuroraTextField(
-                text, { text = it.take(200) },
-                placeholder = stringResource(R.string.friction_intention_placeholder),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                singleLine = false,
-            )
-            AuroraButton(stringResource(R.string.friction_intention_next), { confirming = true }, Modifier.fillMaxWidth(), enabled = meaningful)
-        } else {
-            BackHandler { confirming = false }
-            Text(stringResource(R.string.friction_intention_readback), color = colors.textSecondary, style = AuroraType.BodyStrong)
-            Text(
-                "“${text.trim()}”",
-                Modifier.fillMaxWidth().clip(Radius.L).background(colors.elevated).padding(Space.L),
-                color = colors.textPrimary,
-                style = AuroraType.Title,
-            )
-            AuroraButton(stringResource(R.string.friction_intention_confirm), onDone, Modifier.fillMaxWidth())
-            AuroraButton(stringResource(R.string.friction_intention_edit), { confirming = false }, Modifier.fillMaxWidth(), kind = ButtonKind.Quiet)
-        }
-    }
-}
-
 /** The words set when the Shield was made, typed out exactly (case and extra spaces aside). */
 @Composable
 internal fun PhraseTask(phrase: String, onDone: () -> Unit) {
@@ -674,7 +749,7 @@ internal fun PhraseTask(phrase: String, onDone: () -> Unit) {
         Text(stringResource(R.string.friction_phrase_prompt), color = colors.textSecondary, style = AuroraType.BodyStrong)
         Text(
             phrase,
-            Modifier.fillMaxWidth().clip(Radius.L).background(colors.elevated).border(1.dp, colors.hairline, Radius.L).padding(Space.L),
+            Modifier.fillMaxWidth().glassCard(colors, Radius.L, edge = false).padding(Space.L),
             color = colors.textPrimary,
             style = AuroraType.Title,
         )

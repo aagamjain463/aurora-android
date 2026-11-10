@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { entitlementFrom, housekeeping } from '../src/worker.js'
-import { IDS, PAST, FUTURE, PROJECT, activeSub, idToken, otherKey, sha256Hex, verifySignature, world } from './fixture.js'
+import { IDS, PAST, FUTURE, PROJECT, activeSub, idToken, insideOneWindow, otherKey, sha256Hex, verifySignature, world } from './fixture.js'
 
 const UTC = 'UTC'
 const sync = (w, uid, installId = 'i1', over = {}) => w.call('/v1/account/sync', idToken(uid), { installId, zone: UTC, ...over })
@@ -367,6 +367,7 @@ test('import adds an existing phone\'s time once, and only adds', async () => {
 test('rate limit answers 429', async () => {
   const w = world()
   let last
+  await insideOneWindow()
   for (let i = 0; i < 31; i++) last = await reserve(w, 'alice', 121)
   assert.equal(last.status, 429)
 })

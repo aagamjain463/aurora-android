@@ -55,4 +55,14 @@ class FrictionTest {
         val hard = (1..100).map { mathProblem(Difficulty.Hard, random).answer }.average()
         assertTrue(hard > easy * 3)
     }
+
+    @Test
+    fun writtenIntentionNeedsItsWords() {
+        // No words, no Shield: the editor won't save one, so no Shield ends with just any text.
+        assertFalse(FrictionSettings(task = FrictionTask.Intention).ready)
+        assertFalse(FrictionSettings(task = FrictionTask.Intention, phrase = "   ").ready)
+        assertTrue(FrictionSettings(task = FrictionTask.Intention, phrase = "I choose my time").ready)
+        assertTrue(FrictionSettings(task = FrictionTask.Math).ready)
+        assertFalse(phraseMatches("I choose my time", "any two words"))
+    }
 }

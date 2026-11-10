@@ -41,6 +41,9 @@ import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.auroraSurface
+import app.aurora.ui.components.glassCard
+import androidx.compose.ui.text.withStyle
+import app.aurora.ui.components.glassFill
 import app.aurora.ui.components.ModeGlyph
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
@@ -97,10 +100,9 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
             .padding(horizontal = Space.Gutter)
             .fillMaxWidth()
             .auroraSurface(colors, warm = !good)
-            .padding(Space.L),
+            .padding(horizontal = Space.Inner, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(Space.XS),
     ) {
-        if (!good) app.aurora.ui.components.LitBadge(app.aurora.ui.components.AuroraIcons.Protect, size = 44, tint = colors.textSecondary)
         Text(title, Modifier.semantics { heading() }, color = colors.textPrimary, style = if (good) AuroraType.Title else AuroraType.Headline)
         Text(body, color = if (good) colors.textSecondary else colors.textPrimary, style = if (good) AuroraType.Secondary else AuroraType.Body)
         when (status) {
@@ -114,41 +116,193 @@ fun ShieldStatusCard(status: ProtectionStatus, count: Int, onTurnOn: () -> Unit,
     }
 }
 
+/** The permissions [ShieldGate] would still ask for: only the ones not yet allowed. */
+@Composable
+private fun gateMissing(hasSites: Boolean): List<Access> = listOfNotNull(
+    Access.Accessibility.takeIf { rememberAccess(it) != AccessState.Granted },
+    Access.Content.takeIf { hasSites && rememberAccess(it) != AccessState.Granted },
+)
+
 /** Whether [ShieldGate] has something to say. */
 @Composable
-fun shieldGateNeeded(hasSites: Boolean): Boolean {
-    val connected by ShieldService.connected.collectAsStateWithLifecycle()
-    return rememberAccess(Access.Accessibility) != AccessState.Granted || !connected || (hasSites && rememberAccess(Access.Content) != AccessState.Granted)
+fun shieldGateNeeded(hasSites: Boolean): Boolean = gateMissing(hasSites).isNotEmpty()
+
+/** Before anything starts: only the permissions still off that it needs, in the one permission card. */
+@Composable
+fun ShieldGate(hasSites: Boolean) {
+    val missing = gateMissing(hasSites)
+    if (missing.isNotEmpty()) PermissionCard(missing)
+}
+
+/** How a permission is named and why, in a few words, wherever it is asked for. */
+val Access.icon: androidx.compose.ui.graphics.vector.ImageVector
+    get() = when (this) {
+        Access.Accessibility -> app.aurora.ui.components.AuroraIcons.Protect
+        Access.Content -> app.aurora.ui.components.AuroraIcons.Globe
+        Access.Usage -> app.aurora.ui.components.AuroraIcons.Insights
+        Access.Notifications -> app.aurora.ui.components.AuroraIcons.Bell
+    }
+
+@Composable
+fun Access.name(): String = when (this) {
+    Access.Accessibility -> stringResource(R.string.onb_shield_eyebrow)
+    Access.Content -> stringResource(R.string.onb_permission_web_title)
+    else -> title
+}
+
+@Composable
+fun Access.line(): String = stringResource(
+    when (this) {
+        Access.Accessibility -> R.string.onb_permission_apps
+        Access.Content -> R.string.onb_permission_web
+        Access.Usage -> R.string.onb_permission_usage
+        Access.Notifications -> R.string.onb_permission_notifications
+    },
+)
+
+/** What a permission's disclosure says: one or two short sentences, what is read, why, and that it stays on the phone. */
+private val Access.disclosure: Int
+    get() = when (this) {
+        Access.Accessibility -> R.string.perm_ask_accessibility
+        Access.Content -> R.string.perm_ask_content
+        Access.Usage -> R.string.perm_ask_usage
+        Access.Notifications -> R.string.perm_ask_notifications
+    }
+
+/**
+ * Asking for a permission, everywhere: first a short disclosure (Google Play's prominent disclosure: what is read,
+ * why, that it stays on the phone), then on Continue the switch itself. Notifications are asked in place once on
+ * Android 13+; after that, and for everything else, the switch lives in Settings.
+ */
+@Composable
+fun rememberPermissionRequest(): (Access) -> Unit {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var asked by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var asking by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<Access?>(null) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    asking?.let { access ->
+        val viaAccessibility = access == Access.Accessibility || access == Access.Content
+        PermissionAsk(
+            stringResource(R.string.perm_ask_title, access.name()), stringResource(access.disclosure), access.icon, onDismiss = { asking = null },
+            confirm = stringResource(if (viaAccessibility) R.string.disclosure_confirm else R.string.action_continue),
+            guide = if (viaAccessibility) ({ SettingsPath(access) }) else null,
+        ) {
+            asking = null
+            if (access == Access.Notifications && Build.VERSION.SDK_INT >= 33 && !asked) {
+                asked = true
+                runCatching { launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS) }.onFailure { openAccessSettings(context, access) }
+            } else openAccessSettings(context, access)
+        }
+    }
+    return { asking = it }
+}
+
+/** A tap that asks for [access]: its disclosure first, then its switch. */
+@Composable
+fun askFor(access: Access): () -> Unit {
+    val ask = rememberPermissionRequest()
+    return { ask(access) }
+}
+
+/** Uninstall protection's disclosure, then Android's own device admin screen through [launch]. */
+@Composable
+fun rememberUninstallRequest(launch: () -> Unit): () -> Unit {
+    var asking by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (asking) PermissionAsk(
+        stringResource(R.string.perm_ask_title, stringResource(R.string.strict_admin_title)), stringResource(R.string.perm_ask_uninstall),
+        app.aurora.ui.components.AuroraIcons.Lock, onDismiss = { asking = false },
+    ) { asking = false; launch() }
+    return { asking = true }
+}
+
+/** The one disclosure dialog: an icon, "Allow …", one short line, Continue or Not now. */
+@Composable
+private fun PermissionAsk(
+    title: String, body: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onDismiss: () -> Unit,
+    confirm: String = stringResource(R.string.action_continue), guide: (@Composable () -> Unit)? = null, onContinue: () -> Unit,
+) {
+    AuroraDialog(
+        title = title, onDismiss = onDismiss,
+        confirmLabel = confirm, onConfirm = onContinue,
+        body = body, dismissLabel = stringResource(R.string.action_not_now), icon = icon, content = guide,
+    )
 }
 
 /**
- * Before anything starts: what would stop it being enforced, and the one step that fixes it. Screens
- * refuse to start without the Accessibility switch; a service still connecting only gets a note, since a
- * fresh process reads as not connected for a moment.
+ * Where the switch is, before Accessibility settings opens: Android lists apps from outside the system under
+ * "Downloaded apps" (some makers say "Installed apps"), and people get lost in the long list above it. Three numbered
+ * steps on a quiet glass well, the words to look for set in bold, then the way past a greyed-out switch.
  */
 @Composable
-fun ShieldGate(hasSites: Boolean, onOpenWeb: () -> Unit) {
+private fun SettingsPath(access: Access) {
     val colors = Aurora.colors
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val access = rememberAccess(Access.Accessibility)
-    val connected by ShieldService.connected.collectAsStateWithLifecycle()
-    val content = rememberAccess(Access.Content)
-    var disclosure by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(Space.S)) {
-        if (access != AccessState.Granted) GateCard(R.string.status_permission_title, R.string.status_permission_body, R.string.status_turn_on, primary = true) { disclosure = true }
-        else if (!connected) GateCard(R.string.status_not_running_title, if (isXiaomi) R.string.status_not_running_body_xiaomi else R.string.status_not_running_body, R.string.status_open_accessibility, onAction = { openAccessSettings(context, Access.Accessibility) })
-        if (hasSites && content != AccessState.Granted) GateCard(R.string.gate_sites_title, R.string.gate_sites_body, R.string.web_turn_on, onAction = onOpenWeb)
+    val service = stringResource(if (access == Access.Content) R.string.content_service_label else R.string.shield_service_label)
+    val steps = listOf(
+        bold(stringResource(R.string.perm_path_open), stringResource(R.string.perm_path_downloaded)) to stringResource(R.string.perm_path_open_note),
+        bold(stringResource(R.string.perm_path_tap), service) to null,
+        bold(stringResource(R.string.perm_path_turn_on), stringResource(R.string.perm_allow)) to null,
+    )
+    Column(
+        // Room below for the shadow: the dialog's scroll would cut it flat.
+        Modifier.padding(bottom = Space.S).fillMaxWidth().glassCard(colors, Radius.L, fill = colors.glassFill(field = true), edge = true).padding(horizontal = 18.dp, vertical = Space.M),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(stringResource(R.string.perm_path_eyebrow), color = colors.textTertiary, style = AuroraType.Eyebrow)
+        steps.forEachIndexed { i, (line, note) ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.foundation.layout.Box(
+                    Modifier.size(24.dp).clip(Radius.Pill).background(colors.accent.copy(alpha = 0.12f)).border(1.dp, colors.accent.copy(alpha = 0.35f), Radius.Pill),
+                    contentAlignment = Alignment.Center,
+                ) { Text("${i + 1}", color = colors.accent, style = AuroraType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)) }
+                Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(line, color = colors.textSecondary, style = AuroraType.Secondary)
+                    if (note != null) Text(note, color = colors.textTertiary, style = AuroraType.Subtext)
+                }
+            }
+        }
+        app.aurora.ui.components.RowDivider(0.dp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
+            androidx.compose.material3.Icon(app.aurora.ui.components.AuroraIcons.Lock, null, Modifier.padding(top = 1.dp).size(16.dp), tint = colors.textTertiary)
+            Text(stringResource(R.string.perm_path_restricted), color = colors.textTertiary, style = AuroraType.Subtext)
+        }
     }
-    if (disclosure) ShieldDisclosure(onContinue = { disclosure = false; openAccessSettings(context, Access.Accessibility) }, onDismiss = { disclosure = false })
 }
 
+/** [template] with its one %1$s filled by [word] in the strong weight and primary colour. */
 @Composable
-private fun GateCard(title: Int, body: Int, action: Int, primary: Boolean = false, onAction: () -> Unit) {
+private fun bold(template: String, word: String) = androidx.compose.ui.text.buildAnnotatedString {
+    val at = template.indexOf("%1\$s")
+    if (at < 0) return@buildAnnotatedString append(template)
+    append(template.substring(0, at))
+    withStyle(androidx.compose.ui.text.SpanStyle(color = Aurora.colors.textPrimary, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)) { append(word) }
+    append(template.substring(at + 4))
+}
+
+/**
+ * The one way a permission that is off is shown, everywhere: one glass card, a row per permission (its badge, name,
+ * one line) and Allow beside it. Only permissions still off are passed in; allowed ones are never shown or asked for.
+ */
+@Composable
+fun PermissionCard(missing: List<Access>, modifier: Modifier = Modifier) {
     val colors = Aurora.colors
-    Column(Modifier.fillMaxWidth().auroraSurface(colors, warm = true).padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
-        Text(stringResource(title), Modifier.semantics { heading() }, color = colors.textPrimary, style = AuroraType.Title)
-        Text(stringResource(body), color = colors.textSecondary, style = AuroraType.Secondary)
-        AuroraButton(stringResource(action), onAction, Modifier.padding(top = Space.XS).fillMaxWidth(), kind = if (primary) ButtonKind.Primary else ButtonKind.Secondary, compact = true)
+    val request = rememberPermissionRequest()
+    val allow = stringResource(R.string.perm_allow)
+    Column(modifier.fillMaxWidth().auroraSurface(colors).padding(vertical = Space.XS)) {
+        missing.forEachIndexed { i, access ->
+            if (i > 0) app.aurora.ui.components.RowDivider(76.dp)
+            Row(
+                Modifier.fillMaxWidth().padding(start = Space.Inner, end = 14.dp, top = 14.dp, bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                app.aurora.ui.components.LitBadge(access.icon, size = 44, lit = false)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(access.name(), color = colors.textPrimary, style = AuroraType.Title)
+                    Text(access.line(), color = colors.textSecondary, style = AuroraType.Secondary)
+                }
+                AuroraButton(allow, { request(access) }, kind = ButtonKind.Secondary, compact = true)
+            }
+        }
     }
 }
 
@@ -164,6 +318,7 @@ fun LimitNoticeDialog(vm: ProtectModel, onPlus: (() -> Unit)?) {
             { vm.dismissNotice(); plus?.invoke() },
             n.body,
             if (plus != null) stringResource(R.string.action_not_now) else null,
+            plus = plus != null,
         )
     }
 }
@@ -186,23 +341,6 @@ fun openAppInfo(context: Context) {
     } catch (_: ActivityNotFoundException) {
         context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
-}
-
-/**
- * The prominent disclosure shown before aurora sends the person to Accessibility settings. It says what
- * the service reads, what it doesn't, where data goes, and how to turn it off. Play's declaration uses
- * the same words (docs/SHIELD.md).
- */
-@Composable
-fun ShieldDisclosure(onContinue: () -> Unit, onDismiss: () -> Unit) {
-    AuroraDialog(
-        title = stringResource(R.string.disclosure_title),
-        body = stringResource(R.string.disclosure_body),
-        confirmLabel = stringResource(R.string.disclosure_confirm),
-        onConfirm = onContinue,
-        dismissLabel = stringResource(R.string.action_not_now),
-        onDismiss = onDismiss,
-    )
 }
 
 /**

@@ -1,9 +1,9 @@
 <resources>
     <style name="Theme.Aurora" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/aurora_window</item>
-        <!-- Android 12+ splash: the approved logo on Obsidian, at once. -->
+        <!-- Android 12+ splash: the approved mark alone, off its tile, on black at once. -->
         <item name="android:windowSplashScreenBackground">@color/aurora_splash</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_logo</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/aurora_glyph</item>
     </style>
 
     <!-- Reduced motion uses the same still splash. -->

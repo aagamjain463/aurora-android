@@ -160,8 +160,14 @@ data class RunRecord(
     val intentRelapses: Int = 0,
     /** The Shield was switched off from outside Aurora during the run ([bypassed]). */
     val bypassed: Boolean = false,
+    /** Unlocks that stopped its Focus timer: time that isn't the session's. */
+    val stopped: List<Pair<Long, Long>> = emptyList(),
 ) {
     val hasFocus: Boolean get() = focusTask != null
+    /** How long it was meant to run; null for one that ran until turned off. */
+    val plannedMs: Long? get() = plannedEnd?.let { (it - start).coerceAtLeast(0) }
+    /** Time reclaimed: how long it held, less the passes that paused it (Break, Other). */
+    val reclaimedMs: Long get() = ((end - start) - stopped.sumOf { (s, e) -> (minOf(e, end) - maxOf(s, start)).coerceAtLeast(0) }).coerceAtLeast(0)
     val outcome: Outcome get() = combine(listOfNotNull(protection, intent, if (hasFocus) focus.outcome() else null))
 
     /** Focus time unless the run broke: the planned length, cut short if the run was. */
@@ -181,6 +187,7 @@ fun record(
     start: Long, plannedEnd: Long?, end: Long, spans: List<ServiceSpan>, turnedOff: Boolean,
     focusTask: String?, focusPlannedMs: Long, overruns: Int,
     grants: Int = 0, relapses: Int = 0, usage: List<UsageInterval>? = null,
+    stopped: List<Pair<Long, Long>> = emptyList(),
 ): RunRecord {
     val planned = (plannedEnd ?: end) - start
     val verified = verifiedWithin(spans, start, end)
@@ -200,6 +207,7 @@ fun record(
         protection = protection, intent = intent,
         focusTask = focusTask, focusPlannedMs = focusPlannedMs, focus = focus, intentOverruns = overruns,
         accessGrants = grants, intentRelapses = relapses, bypassed = bypass,
+        stopped = stopped,
     )
 }
 

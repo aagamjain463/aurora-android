@@ -68,11 +68,10 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
     val connected by ContentService.connected.collectAsStateWithLifecycle()
     var domain by rememberSaveable { mutableStateOf("") }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
-    var disclosure by rememberSaveable { mutableStateOf(false) }
     val colors = Aurora.colors
     val d = data
 
-    AuroraScreen(title = stringResource(R.string.web_title), subtitle = stringResource(R.string.web_subtitle), onBack = onBack) {
+    AuroraScreen(title = stringResource(R.string.web_title), onBack = onBack) {
         item(key = "service") {
             val on = access == AccessState.Granted
             Column(
@@ -99,7 +98,7 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
                     color = colors.textSecondary,
                     style = AuroraType.Secondary,
                 )
-                if (!on) AuroraButton(stringResource(R.string.web_turn_on), { disclosure = true }, Modifier.padding(top = Space.XS))
+                if (!on) AuroraButton(stringResource(R.string.web_turn_on), askFor(Access.Content), Modifier.padding(top = Space.XS))
                 else if (!connected) AuroraButton(stringResource(R.string.web_open_accessibility), { openAccessSettings(context, Access.Content) }, Modifier.padding(top = Space.XS), kind = ButtonKind.Secondary)
             }
         }
@@ -142,19 +141,8 @@ fun WebScreen(onBack: () -> Unit, onOpenItem: (String) -> Unit, onPlus: () -> Un
         item(key = "parts") { WebHint(stringResource(R.string.web_parts_moved)) }
     }
 
-    if (disclosure) AuroraDialog(
-        title = stringResource(R.string.web_disclosure_title),
-        body = stringResource(R.string.web_disclosure_body),
-        confirmLabel = stringResource(R.string.web_open_settings),
-        onConfirm = {
-            disclosure = false
-            openAccessSettings(context, Access.Content)
-        },
-        dismissLabel = stringResource(R.string.action_not_now),
-        onDismiss = { disclosure = false },
-    )
     notice?.let { n ->
-        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) stringResource(R.string.web_see_plus) else stringResource(R.string.action_ok), { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) stringResource(R.string.action_not_now) else null)
+        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) stringResource(R.string.web_see_plus) else stringResource(R.string.action_ok), { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) stringResource(R.string.action_not_now) else null, plus = n.plus)
     }
 }
 

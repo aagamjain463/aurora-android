@@ -1,5 +1,6 @@
 package app.aurora.ui.insights
 
+import app.aurora.ui.components.glassCard
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.sp
 import app.aurora.ui.components.auroraSurface
@@ -49,6 +50,10 @@ import app.aurora.plan.EntitlementPolicy
 import app.aurora.plan.Plan
 import app.aurora.protect.key
 import app.aurora.ui.components.AuroraButton
+import app.aurora.ui.components.AuroraScreen
+import app.aurora.ui.components.ButtonKind
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.aurora.ui.components.AuroraIcons
 import app.aurora.ui.components.ChoicePills
 import app.aurora.ui.components.EmptyState
@@ -60,12 +65,14 @@ import app.aurora.ui.theme.Palette
 import app.aurora.ui.theme.AuroraType
 import app.aurora.ui.theme.Radius
 import app.aurora.ui.theme.Space
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.TextStyle
 
@@ -101,25 +108,28 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             val period = _state.value.period
-            val access = app.access.isGranted(Access.Usage)
-            val protectedKeys = app.protectedList.filterNotNull().first().active(app.plan).map { it.key }.toSet()
-            val today = LocalDate.now()
-            val perDay = (period.days - 1 downTo 0).map { back ->
-                val date = today.minusDays(back.toLong())
-                date to if (access) app.screenTime.day(date) else null
-            }
-            val days = perDay.map { (date, usage) -> DayUsage(date, usage?.values?.sum(), usage?.filterKeys { it in protectedKeys }?.values?.sum()) }
-            val rows = when {
-                !access -> emptyList()
-                period == Period.Today -> appRows(app.screenTime.today(), protectedKeys)
-                // Each app's average over the days Android has records for, so a missing day doesn't pull it down.
-                else -> perDay.mapNotNull { it.second }.let { known ->
-                    val totals = mutableMapOf<String, Long>()
-                    known.forEach { day -> day.forEach { (pkg, ms) -> totals[pkg] = (totals[pkg] ?: 0L) + ms } }
-                    if (known.isEmpty()) emptyList() else appRows(totals.mapValues { it.value / known.size }, protectedKeys)
+            _state.value = withContext(Dispatchers.Default) {
+                val access = app.access.isGranted(Access.Usage)
+                val protectedKeys = app.protectedList.filterNotNull().first().active(app.plan).map { it.key }.toSet()
+                val now = System.currentTimeMillis()
+                val today = LocalDate.now()
+                val perDay = (period.days - 1 downTo 0).map { back ->
+                    val date = today.minusDays(back.toLong())
+                    date to if (access) app.screenTime.day(date, now) else null
                 }
+                val days = perDay.map { (date, usage) -> DayUsage(date, usage?.values?.sum(), usage?.filterKeys { it in protectedKeys }?.values?.sum()) }
+                val rows = when {
+                    !access -> emptyList()
+                    period == Period.Today -> appRows(perDay.single().second.orEmpty(), protectedKeys)
+                    // Each app's average over the days Android has records for, so a missing day doesn't pull it down.
+                    else -> perDay.mapNotNull { it.second }.let { known ->
+                        val totals = mutableMapOf<String, Long>()
+                        known.forEach { day -> day.forEach { (pkg, ms) -> totals[pkg] = (totals[pkg] ?: 0L) + ms } }
+                        if (known.isEmpty()) emptyList() else appRows(totals.mapValues { it.value / known.size }, protectedKeys)
+                    }
+                }
+                InsightsState(access, loading = false, period = period, rows = rows, days = days, plan = app.plan)
             }
-            _state.value = InsightsState(access, loading = false, period = period, rows = rows, days = days, plan = app.plan)
         }
     }
 
@@ -141,13 +151,13 @@ class InsightsViewModel(private val app: AuroraApplication) : ViewModel() {
 /**
  * Track's Usage: where time goes, measured by Android. Days without records show as "—", never as zero.
  */
-fun LazyListScope.usageSection(state: InsightsState, vm: InsightsViewModel, onMonthLocked: () -> Unit) {
+fun LazyListScope.usageSection(state: InsightsState, vm: InsightsViewModel, onByApp: (Period) -> Unit, onMonthLocked: () -> Unit) {
     item(key = "period") {
         val resources = LocalResources.current
         ChoicePills(
             Period.entries, state.period,
             { p -> if (p == Period.Month && !EntitlementPolicy.canAccessAdvancedAnalytics(state.plan).allowed) onMonthLocked() else vm.select(p) },
-            label = { resources.getString(it.label) }, fill = true, segmented = true,
+            label = { resources.getString(it.label) }, quiet = true, quietSize = 14.sp,
             modifier = Modifier.padding(horizontal = Space.Gutter),
         )
     }
@@ -158,15 +168,14 @@ fun LazyListScope.usageSection(state: InsightsState, vm: InsightsViewModel, onMo
     if (!state.access) item(key = "permission") {
         val context = LocalContext.current
         EmptyState(
-            icon = AuroraIcons.Insights,
             title = stringResource(R.string.insights_see_where_your_time_goes),
             body = stringResource(R.string.insights_with_usage_access_aurora_can_show_how_long_you_spend_in_each_app),
-            action = { AuroraButton(stringResource(R.string.today_metric_allow), { openUsageAccessSettings(context) }) },
+            action = { AuroraButton(stringResource(R.string.today_metric_allow), app.aurora.ui.protect.askFor(app.aurora.data.Access.Usage)) },
         )
     } else item(key = "total") {
         val colors = Aurora.colors
         val known = state.days.mapNotNull { it.total }
-        Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.M).fillMaxWidth().auroraSurface(colors).padding(horizontal = 22.dp, vertical = 20.dp)) {
+        Column(Modifier.padding(horizontal = Space.Gutter).padding(top = Space.L).fillMaxWidth().auroraSurface(colors).padding(24.dp)) {
             val metric = AuroraType.Metric.copy(fontSize = 40.sp, lineHeight = 46.sp)
             if (state.period == Period.Today) {
                 Text(stringResource(R.string.insights_screen_time_since_midnight), color = colors.textTertiary, style = AuroraType.Caption)
@@ -180,13 +189,25 @@ fun LazyListScope.usageSection(state: InsightsState, vm: InsightsViewModel, onMo
         }
     }
 
-    if (state.access) {
-        if (state.days.none { it.total != null }) item(key = "unavailable") {
-            EmptyState(icon = AuroraIcons.Insights, title = stringResource(R.string.usage_records_unavailable_title), body = stringResource(R.string.usage_records_unavailable_body))
-        } else if (state.rows.isEmpty() && state.period == Period.Today) item(key = "quiet") {
-            EmptyState(icon = AuroraIcons.Today, title = stringResource(R.string.insights_a_quiet_day_so_far), body = stringResource(R.string.insights_there_s_no_screen_time_to_show_since_midnight_yet))
-        } else if (state.rows.isNotEmpty()) {
-            item(key = "label") { SectionLabel(stringResource(if (state.period == Period.Today) R.string.insights_most_used else R.string.usage_most_used_per_day)) }
+    // The per-app split lives on its own page; with nothing to split, nothing is said here.
+    if (state.access && state.rows.isNotEmpty()) item(key = "by-app") {
+        AuroraButton(stringResource(R.string.usage_by_app), { onByApp(state.period) }, Modifier.padding(horizontal = Space.Gutter, vertical = Space.M).fillMaxWidth(), kind = ButtonKind.Secondary, icon = AuroraIcons.Layers)
+    }
+}
+
+/** Each app's share of [period], most used first. */
+@Composable
+fun AppUsageScreen(period: Period, onBack: () -> Unit) {
+    val vm = app.aurora.auroraViewModel { InsightsViewModel(it) }
+    val state by vm.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(period) {
+        vm.select(period)
+        onPauseOrDispose { }
+    }
+    AuroraScreen(title = stringResource(R.string.usage_by_app), onBack = onBack) {
+        if (state.loading) item(key = "loading") { SkeletonRows(6) }
+        else if (state.rows.isNotEmpty()) {
+            item(key = "label") { SectionLabel(stringResource(if (period == Period.Today) R.string.insights_most_used else R.string.usage_most_used_per_day)) }
             item(key = "most-used") {
                 val max = state.rows.maxOfOrNull { it.ms } ?: 1L
                 Column(Modifier.padding(horizontal = Space.Gutter).fillMaxWidth().auroraSurface(Aurora.colors)) {
@@ -247,7 +268,7 @@ private fun UsageBar(row: UsageRow, fraction: Float) {
         Modifier
             .fillMaxWidth()
             .heightIn(min = 58.dp)
-            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .padding(horizontal = Space.Inner, vertical = 10.dp)
             .semantics(mergeDescendants = true) {
                 contentDescription = "${row.label}, ${formatDuration(row.ms)}" + if (row.onList) protectedSuffix else ""
             },
@@ -257,7 +278,7 @@ private fun UsageBar(row: UsageRow, fraction: Float) {
         if (row.icon != null) {
             Image(row.icon, null, Modifier.size(32.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp)))
         } else {
-            Box(Modifier.size(32.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp)).background(colors.elevated))
+            Box(Modifier.size(32.dp).glassCard(colors, androidx.compose.foundation.shape.RoundedCornerShape(9.dp)))
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

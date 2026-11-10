@@ -89,14 +89,18 @@ export function idToken(uid, over = {}, { key = firebaseKey.privateKey, kid = KI
 export const verifySignature = ({ payload, signature }) => createVerify('RSA-SHA256').update(payload).verify(signing.publicKey, signature, 'base64')
 
 export function world() {
-  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, verdict: null, integrityDown: false, decoded: [] }
+  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [] }
   const fetcher = async (url, init) => {
     const u = String(url)
     if (u.includes('/jwk/securetoken')) {
+      state.jwksFetches++
       const jwk = firebaseKey.publicKey.export({ format: 'jwk' })
       return new Response(JSON.stringify({ keys: [{ ...jwk, kid: KID, alg: 'RS256', use: 'sig' }] }), { headers: { 'cache-control': 'public, max-age=3600' } })
     }
-    if (u.includes('oauth2')) return new Response(JSON.stringify({ access_token: 't' }))
+    if (u.includes('oauth2')) {
+      state.accessTokens++
+      return new Response(JSON.stringify({ access_token: 't', expires_in: 3599 }))
+    }
     if (u.endsWith('accounts:lookup')) {
       state.lookups++
       const uid = JSON.parse(init.body).localId[0]
@@ -159,4 +163,13 @@ export function deviceKey() {
 export const signedCall = (w, key, path, token, body = {}) => {
   const raw = JSON.stringify(body)
   return w.call(path, token, raw, key.proof(path, token, raw))
+}
+
+/**
+ * Rate limits count in fixed windows. A loop that straddles a window edge starts a fresh count halfway and never
+ * reaches the limit, so tests that count up to it start well inside a window.
+ */
+export async function insideOneWindow(windowMs = 60_000, marginMs = 5_000) {
+  const left = windowMs - (Date.now() % windowMs)
+  if (left < marginMs) await new Promise((resolve) => setTimeout(resolve, left + 50))
 }

@@ -1,7 +1,23 @@
 {
-  "$description": "Aurora design tokens (2026-11-07): the finalized monochrome identity. Source: brand/Aurora_Brand_Guidelines.md. Dark (Obsidian) is the default, Light (Porcelain) is fully developed. Gold exists only inside brand/Aurora_Final_Approved_Logo.png and is never a token. Typeface: Inter.",
+  "$description": "Aurora design tokens (2026-11-07): the finalized monochrome identity. Source: brand/Aurora_Brand_Guidelines.md. Dark (Obsidian) is the default, Light (Porcelain) is fully developed. Gold exists inside brand/Aurora_Final_Approved_Logo.png and, since 2026-11-08 (founder), on Aurora Plus alone (plus-gold-*). Typeface: Inter.",
   "color": {
     "palette": {
+      "plus-gold-pale": {
+        "$type": "color",
+        "$value": "#F3E3BE"
+      },
+      "plus-gold": {
+        "$type": "color",
+        "$value": "#D6B57A"
+      },
+      "plus-gold-shade": {
+        "$type": "color",
+        "$value": "#B8914F"
+      },
+      "plus-gold-deep": {
+        "$type": "color",
+        "$value": "#84632A"
+      },
       "obsidian": {
         "$type": "color",
         "$value": "#0B0B0D"
@@ -111,6 +127,7 @@
       700
     ],
     "scale-sp": {
+      "focus-timer": 112,
       "timer": 64,
       "metric": 48,
       "display": 40,
@@ -119,9 +136,12 @@
       "card-title": 17,
       "body": 16,
       "secondary": 14,
+      "subtext": 13,
       "caption": 13,
       "eyebrow": 12
     },
+    "line-height-sp": { "body": 24, "body-strong": 21, "secondary": 20, "subtext": 18, "caption": 18 },
+    "brand-line": { "use": "Take back control.", "cut": "Inter display (opsz 32)", "size-sp": 66, "weight": 600, "tracking-em": -0.015, "line-height-em": 1.02 },
     "numerals": "tabular (tnum) for timers and statistics"
   },
   "radius-dp": {
@@ -137,17 +157,27 @@
     "xxs": 4,
     "xs": 8,
     "s": 12,
+    "inner": 20,
     "m": 16,
     "l": 24,
     "xl": 32,
     "xxl": 48,
-    "gutter": 20
+    "gutter": 24,
+    "card-gap": 20
   },
   "motion-ms": {
     "micro": 160,
     "standard": 240,
     "modal": 280,
     "easing": "cubic-bezier(0.2, 0, 0, 1)"
+  },
+  "material": {
+    "$description": "Founder, 2026-11-07: clearly visible, Apple-like glass. 'tint' is the fill over a real backdrop blur (API 31+); 'fallback' is the fill without blur. Backdrop gets saturation 1.35 (vibrancy), then on API 33+ an AGSL lens bends it along the rim. Rim: 1dp light, bright top-left fading round, over a 1dp neutral edge. Sheen: light across the top 55%.",
+    "solid-premium": { "use": "cards, rows, fields, forms, charts, timers, Focus, the Shield", "dark": "graphite + 1dp graphite-3 edge", "light": "white + 1dp rule edge" },
+    "glass-control": { "use": "secondary buttons, segmented tracks, round icon buttons (no blur: page behind)", "dark": "porcelain 6% + rim + sheen", "light": "white 60% + rim (white top, ink 11% far edge) + sheen white 95% + shadow ink 6% 10dp y+2" },
+    "glass-subtle": { "use": "top bar once content scrolls beneath", "blur-dp": 18, "dark": { "tint": "obsidian 55%", "fallback": "obsidian 94%" }, "light": { "tint": "porcelain 60%", "fallback": "porcelain 95%" } },
+    "glass-standard": { "use": "floating dock, pinned flow action (float: shadow 28dp, y+10)", "blur-dp": 12, "lens-dp": 14, "dark": { "tint": "graphite 46%", "fallback": "graphite 92%", "rim": "porcelain 55% to 8%", "shadow": "black 55%" }, "light": { "tint": "white 42%", "fallback": "white 90%", "rim": "white 100% to ink 5%", "shadow": "black 18%" } },
+    "glass-elevated": { "use": "dialogs; window blur 34dp behind, card see-through when window blur is on", "dark": { "tint": "graphite 70%", "fallback": "graphite 97%" }, "light": { "tint": "white 74%", "fallback": "white 98%" } }
   },
   "touch-target-dp": 48
 }

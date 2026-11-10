@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -57,6 +58,7 @@ import androidx.compose.ui.layout.positionInParent
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.aurora.ui.theme.Aurora
 import app.aurora.ui.theme.AuroraType
@@ -103,6 +105,11 @@ fun <T> ChoicePills(
     spokenLabel: (T) -> String = label,
     /** One track holding all options, the chosen one lit inside it (Insights' period switch). */
     segmented: Boolean = false,
+    /** Words only, the chosen one in full ink over a fine rule (Track's menus). [quietSize] sets the type. */
+    quiet: Boolean = false,
+    quietSize: androidx.compose.ui.unit.TextUnit = 15.sp,
+    /** Inset inside the scroll, so a row that runs past the screen scrolls to its edge instead of being cut at the gutter. */
+    inset: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val colors = Aurora.colors
     val reduced = Aurora.reducedMotion
@@ -131,7 +138,8 @@ fun <T> ChoicePills(
     Row(
         modifier
             .then(if (fill) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState()))
-            .then(if (segmented) Modifier.clip(Radius.Pill).background(colors.field).border(1.dp, colors.hairline, Radius.Pill).padding(4.dp) else Modifier)
+            .padding(horizontal = inset)
+            .then(if (segmented) Modifier.glassControl(Radius.Pill).padding(4.dp) else Modifier)
             .selectableGroup()
             .drawBehind {
                 val stroke = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx())
@@ -140,18 +148,23 @@ fun <T> ChoicePills(
                     drawRoundRect(color, Offset(l, 0f), Size(r - l, h), corner)
                     drawRoundRect(line, Offset(l + 0.5f, 0.5f), Size(r - l - 1f, h - 1f), corner, style = stroke)
                 }
+                if (quiet) {
+                    val rule = 1.5.dp.toPx()
+                    if (placed && spot != null) drawRect(colors.textPrimary, Offset(left.value, spot.height - rule), Size(right.value - left.value, rule))
+                    return@drawBehind
+                }
                 if (!segmented) spots.values.forEach { pill(it.left, it.right, it.height, Color.Transparent, colors.hairlineStrong) }
                 if (placed && spot != null) pill(left.value, right.value, spot.height, lit, edge)
             },
-        horizontalArrangement = Arrangement.spacedBy(if (segmented) 0.dp else Space.XS),
+        horizontalArrangement = Arrangement.spacedBy(if (quiet) 28.dp else if (segmented) 0.dp else Space.XS),
     ) {
         options.forEachIndexed { i, option ->
             val isSelected = option == selected
-            val fg by animateColorAsState(if (isSelected) colors.onAccent else if (segmented) colors.textTertiary else colors.textSecondary, auroraTween(), label = "fg")
+            val fg by animateColorAsState(if (quiet) (if (isSelected) colors.textPrimary else colors.textTertiary) else if (isSelected) colors.onAccent else if (segmented) colors.textTertiary else colors.textSecondary, auroraTween(), label = "fg")
             Box(
                 Modifier
                     .then(if (fill) Modifier.weight(1f) else Modifier)
-                    .heightIn(min = if (segmented) 36.dp else 40.dp)
+                    .heightIn(min = if (quiet) 44.dp else if (segmented) 36.dp else 40.dp)
                     .onPlaced { c ->
                         val at = Rect(c.positionInParent(), Size(c.size.width.toFloat(), c.size.height.toFloat()))
                         if (spots[i] != at) spots[i] = at
@@ -161,15 +174,15 @@ fun <T> ChoicePills(
                         if (!isSelected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
                         onSelect(option)
                     })
-                    .padding(horizontal = if (fill) 4.dp else 16.dp)
+                    .padding(horizontal = if (quiet) 0.dp else if (fill) 4.dp else 16.dp)
                     .semantics { contentDescription = spokenLabel(option) },
                 contentAlignment = Alignment.Center,
             ) {
                 // Large text shrinks to fit a segment instead of breaking a word across two lines.
                 BasicText(
                     label(option), Modifier.clearAndSetSemantics { },
-                    style = (if (segmented) AuroraType.Choice.copy(fontSize = 14.sp) else AuroraType.Choice)
-                        .copy(color = fg, fontWeight = androidx.compose.ui.text.font.FontWeight(if (isSelected) 600 else 500)),
+                    style = (if (quiet) AuroraType.Choice.copy(fontSize = quietSize, letterSpacing = (-0.01).em) else if (segmented) AuroraType.Choice.copy(fontSize = 14.sp) else AuroraType.Choice)
+                        .copy(color = fg, fontWeight = androidx.compose.ui.text.font.FontWeight(if (isSelected) 600 else if (quiet) 450 else 500)),
                     maxLines = 1,
                     autoSize = if (fill) TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = if (segmented) 14.sp else AuroraType.Choice.fontSize) else null,
                 )
@@ -181,9 +194,9 @@ fun <T> ChoicePills(
 @Composable
 fun AuroraSwitch(checked: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val colors = Aurora.colors
-    // Decorative: the enclosing row is the toggle (role Switch), so the whole row is one target.
-    val track by animateColorAsState(if (checked) colors.accent else colors.elevated, auroraTween(Motion.Quick), label = "track")
-    val knob by animateColorAsState(if (checked) colors.onAccent else colors.textTertiary, auroraTween(Motion.Quick), label = "knob")
+    // Decorative: the enclosing row is the toggle (role Switch), so the whole row is one target. On, it is Aurora gold.
+    val track by animateColorAsState(if (checked) colors.plus else colors.elevated, auroraTween(Motion.Quick), label = "track")
+    val knob by animateColorAsState(if (checked) Color.White else colors.textTertiary, auroraTween(Motion.Quick), label = "knob")
     val x by animateFloatAsState(if (checked) 1f else 0f, auroraTween(Motion.Standard), label = "x")
     Box(
         modifier
@@ -193,14 +206,15 @@ fun AuroraSwitch(checked: Boolean, modifier: Modifier = Modifier, enabled: Boole
             .background(track)
             .border(1.dp, if (checked) Color.Transparent else colors.hairlineStrong, Radius.Pill)
             .drawBehind {
-                val r = 9.dp.toPx()
+                // A full knob that nearly fills the track, as on iOS.
+                val r = 10.dp.toPx()
                 val inset = 3.dp.toPx() + r
                 drawCircle(knob, r, Offset(inset + (size.width - 2 * inset) * x, size.height / 2f))
             },
     )
 }
 
-/** Pill text field. [onDone] fires on the keyboard action, after the keyboard is dismissed. */
+/** Text field: 14dp corners, a firmer edge while focused. [onDone] fires on the keyboard action, after the keyboard is dismissed. */
 @Composable
 fun AuroraTextField(
     value: String,
@@ -216,10 +230,12 @@ fun AuroraTextField(
 ) {
     val colors = Aurora.colors
     val focus = LocalFocusManager.current
+    var focused by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val edge by androidx.compose.animation.animateColorAsState(if (focused) colors.textSecondary else colors.hairline, app.aurora.ui.theme.auroraTween(app.aurora.ui.theme.Motion.Quick), label = "edge")
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
         singleLine = singleLine,
         textStyle = AuroraType.Body.copy(color = colors.textPrimary),
         cursorBrush = SolidColor(colors.accent),
@@ -228,11 +244,10 @@ fun AuroraTextField(
         decorationBox = { inner ->
             Row(
                 Modifier
-                    .heightIn(min = 48.dp)
-                    .clip(Radius.Pill)
-                    .background(colors.field)
-                    .border(1.dp, colors.hairline, Radius.Pill)
-                    .padding(horizontal = 18.dp),
+                    .heightIn(min = 52.dp)
+                    .glassCard(colors, Radius.M, fill = colors.glassFill(field = true))
+                    .border(1.dp, edge, Radius.M)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Space.S),
             ) {

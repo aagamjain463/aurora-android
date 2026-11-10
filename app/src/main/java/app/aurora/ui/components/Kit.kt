@@ -182,11 +182,7 @@ fun DurationPicker(
                     NumberBox(hours, { hours = it.filter(Char::isDigit).take(3); onChange(parseDuration(hours, minutes, min, max)) }, stringResource(R.string.duration_hours), Modifier.weight(1f))
                     NumberBox(minutes, { minutes = it.filter(Char::isDigit).take(3); onChange(parseDuration(hours, minutes, min, max)) }, stringResource(R.string.duration_minutes), Modifier.weight(1f))
                 }
-                Text(
-                    problem?.text(min, max) ?: stringResource(R.string.duration_custom_hint, minutesText(min), minutesText(max)),
-                    color = if (problem != null) colors.danger else colors.textTertiary,
-                    style = AuroraType.Caption,
-                )
+                problem?.let { Text(it.text(min, max), color = colors.danger, style = AuroraType.Caption) }
             }
         }
         if (endsFromNow && value != null) {
@@ -205,10 +201,8 @@ private fun NumberBox(text: String, onChange: (String) -> Unit, unit: String, mo
     val colors = Aurora.colors
     Column(
         modifier
-            .clip(Radius.M)
-            .background(colors.field)
-            .border(1.dp, colors.hairline, Radius.M)
-            .padding(horizontal = 18.dp, vertical = Space.S),
+            .glassCard(colors, Radius.M, fill = colors.glassFill(field = true))
+            .padding(horizontal = Space.Inner, vertical = Space.S),
     ) {
         BasicTextField(
             text,
@@ -239,8 +233,7 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, spoken:
         modifier
             .heightIn(min = 40.dp)
             .clip(Radius.Pill)
-            .background(bg)
-            .then(if (selected) Modifier else Modifier.border(1.dp, colors.hairlineStrong, Radius.Pill))
+            .then(if (selected) Modifier.background(bg).glassShine(colors, Radius.Pill) else Modifier.glassCard(colors, Radius.Pill))
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics { this.selected = selected; contentDescription = spoken }
             .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -266,7 +259,7 @@ fun ScreenIntro(title: String, modifier: Modifier = Modifier, eyebrow: String? =
 fun GlyphTile(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 38.dp) {
     val colors = Aurora.colors
     Box(
-        modifier.size(size).clip(RoundedCornerShape(50)).background(colors.elevated).border(1.dp, colors.hairline, RoundedCornerShape(50)),
+        modifier.size(size).glassCard(colors, RoundedCornerShape(50)),
         contentAlignment = Alignment.Center,
     ) { androidx.compose.material3.Icon(icon, null, tint = colors.textPrimary, modifier = Modifier.size(18.dp)) }
 }
@@ -305,23 +298,23 @@ fun ChoiceCard(
                 if (!selected) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
                 onClick()
             }
-            .clip(Radius.L)
-            .background(colors.surface)
-            .border(if (selected) 1.5.dp else 1.dp, if (selected) colors.textPrimary else colors.hairline, Radius.L)
+            .glassCard(colors, Radius.L, edge = false)
+            .then(if (selected) Modifier.border(1.5.dp, colors.textPrimary, Radius.L) else Modifier)
             .semantics(mergeDescendants = true) { this.selected = selected }
-            .padding(18.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.Top,
+            .padding(horizontal = 20.dp, vertical = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.M),
+        // A title alone sits centred against its mark; with a line under it, both hang from the top.
+        verticalAlignment = if (body.isEmpty()) Alignment.CenterVertically else Alignment.Top,
     ) {
         if (icon != null) GlyphTile(icon) else if (swatch != null) ModeGlyph(swatch, Modifier.padding(top = 2.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                 Text(title, color = colors.textPrimary, style = AuroraType.Title)
                 if (badge != null) Tag(badge, accent = true)
             }
-            Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
+            if (body.isNotEmpty()) Text(body, color = colors.textSecondary, style = AuroraType.Secondary)
         }
-        RadioMark(selected, Modifier.padding(top = 8.dp))
+        RadioMark(selected, if (body.isEmpty()) Modifier else Modifier.padding(top = 8.dp))
     }
 }
 
@@ -358,7 +351,7 @@ fun Card(modifier: Modifier = Modifier, tint: Color? = null, content: @Composabl
             .fillMaxWidth()
             .glass(colors, Radius.L)
             .then(if (tint != null) Modifier.background(tint) else Modifier)
-            .padding(horizontal = 22.dp, vertical = 20.dp),
+            .padding(horizontal = Space.Inner, vertical = 20.dp),
     ) { content() }
 }
 

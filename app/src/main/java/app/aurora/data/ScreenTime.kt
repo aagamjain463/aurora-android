@@ -14,6 +14,8 @@ import android.os.Build
 import android.os.Process
 import android.provider.Settings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
@@ -76,7 +78,7 @@ class ScreenTimeRepository(private val context: Context) {
      * Hour-sized reads avoid Android 16's large UsageEvents Binder transfer failure. [seedMs] reads that much
      * earlier too, to find the app already in front at [from]; [Records.any] still means records within the window.
      */
-    private fun records(from: Long, to: Long, seedMs: Long): Records? {
+    private suspend fun records(from: Long, to: Long, seedMs: Long): Records? {
         val manager = context.getSystemService(UsageStatsManager::class.java)
         val event = UsageEvents.Event()
         val signals = ArrayList<UsageSignal>()
@@ -84,6 +86,7 @@ class ScreenTimeRepository(private val context: Context) {
         var cursor = (from - seedMs).coerceAtLeast(0)
         try {
             while (cursor < to) {
+                currentCoroutineContext().ensureActive()
                 val end = minOf(cursor + 3_600_000L, to)
                 val events = manager.queryEvents(cursor, end) ?: return null
                 while (events.hasNextEvent()) {

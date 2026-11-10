@@ -11,7 +11,7 @@ import android.view.View
 import android.widget.RemoteViews
 
 /**
- * The home-screen widget: First Light at night, and what is protecting the person right now. While a
+ * The home-screen widget: a Graphite card with the logo, and what is protecting the person right now. While a
  * timed configuration runs it counts down by itself; otherwise it carries the promise and opens Home.
  * State comes from [SessionNotification], which refreshes it whenever protection changes.
  */

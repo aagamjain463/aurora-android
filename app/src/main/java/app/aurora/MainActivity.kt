@@ -1,6 +1,7 @@
 package app.aurora
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -22,7 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.colorResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aurora.ui.AuroraNavHost
 import app.aurora.ui.components.AuroraUnveil
@@ -72,7 +72,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Phones hold the app upright; tablets and unfolded foldables (600dp and wider) turn freely. Folding or
+        // unfolding recreates the activity, so this is decided again for the new screen. The Shield is an overlay
+        // window of the accessibility service, not this activity: it always follows the device's own rotation.
+        requestedOrientation = if (resources.configuration.smallestScreenWidthDp < 600) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         enableEdgeToEdge()
+        // The page's first frame draws the same mark at the same place, so the splash goes at once. The system's own
+        // exit fades the mark out and the page fades in after it: the logo would seem to load twice.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) splashScreen.setOnExitAnimationListener { it.remove() }
         val created = SystemClock.elapsedRealtime()
         // Nothing to draw until the preferences say which screen it is: the empty splash stays over that moment.
         window.decorView.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
@@ -121,7 +129,10 @@ class MainActivity : ComponentActivity() {
                     }
                     Box(Modifier.fillMaxSize().graphicsLayer {
                         alpha = if (Opening.pageHidden) 0f else 1f
-                        translationY = Opening.lift * PageRiseDp.dp.toPx()
+                        // Flown into through the A: the page arrives a touch large and settles to its true size.
+                        val settle = 1f + Opening.lift * PageZoom
+                        scaleX = settle
+                        scaleY = settle
                     }) { app.aurora.ui.account.AccountGate(startOnboarded) { onboarded -> AuroraNavHost(onboarded) } }
                     if (Opening.playing) AuroraUnveil()
                 }
@@ -131,4 +142,4 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val ReadyWaitMs = 1000L
-private const val PageRiseDp = 18
+private const val PageZoom = 0.035f

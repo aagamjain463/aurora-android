@@ -64,7 +64,9 @@ import app.aurora.account.looksLikeEmail
 import app.aurora.ui.components.ArtTier
 import app.aurora.ui.components.AuroraButton
 import app.aurora.ui.components.AuroraDialog
-import app.aurora.ui.components.AuroraLogo
+import androidx.compose.ui.unit.sp
+import app.aurora.ui.components.Seal
+import app.aurora.ui.components.AuroraMark
 import app.aurora.ui.components.AuroraTextField
 import app.aurora.ui.components.ButtonKind
 import app.aurora.ui.components.ContentMaxWidth
@@ -124,13 +126,18 @@ fun AccountGate(firstRunOnboarded: Boolean, content: @Composable (onboarded: Boo
 }
 
 @Composable
-private fun GatePage(tier: ArtTier = ArtTier.Immersive, content: @Composable () -> Unit) {
+private fun GatePage(tier: ArtTier = ArtTier.Immersive, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Box(Modifier.fillMaxSize().background(Aurora.colors.background)) {
-        Column(
-            Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()
-                .verticalScroll(rememberScrollState()).padding(horizontal = Space.Gutter, vertical = Space.M),
-            verticalArrangement = Arrangement.spacedBy(Space.S),
-        ) { content() }
+        // At least a screen tall, so a page can hold its actions at the foot with weighted space.
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.align(Alignment.TopCenter).widthIn(max = ContentMaxWidth).fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(),
+        ) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()).fillMaxWidth().heightIn(min = maxHeight).padding(horizontal = Space.Gutter, vertical = Space.M),
+                verticalArrangement = Arrangement.spacedBy(Space.S),
+                content = content,
+            )
+        }
     }
 }
 
@@ -202,12 +209,16 @@ internal fun Login(onEmail: () -> Unit) {
     var recover by remember { mutableStateOf(false) }
     val available = app.account.identity.configured
     GatePage {
-        Spacer(Modifier.height(Space.M))
-        AuroraLogo(104.dp)
+        // The mark in its seal over the promise, centred; the ways in wait at the foot.
+        Spacer(Modifier.weight(1f).heightIn(min = Space.L))
+        Seal(176.dp, Modifier.align(Alignment.CenterHorizontally)) { AuroraMark(80.dp) }
         Spacer(Modifier.height(Space.L))
-        HeroHeadline(stringResource(R.string.today_headline), style = AuroraType.Display)
-        Text(stringResource(R.string.auth_login_body), color = colors.textSecondary, style = AuroraType.Body)
-        Spacer(Modifier.height(Space.M))
+        HeroHeadline(stringResource(R.string.today_headline), Modifier.fillMaxWidth(), style = AuroraType.BrandLine.copy(fontSize = 40.sp, lineHeight = 44.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+        Text(
+            stringResource(R.string.auth_login_body), Modifier.align(Alignment.CenterHorizontally).widthIn(max = 320.dp),
+            color = colors.textSecondary, style = AuroraType.Body, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Spacer(Modifier.weight(1.2f).heightIn(min = Space.XL))
         ended?.let { Notice(stringResource(R.string.account_title), stringResource(if (it == SessionEnd.DeviceRemoved) R.string.auth_device_removed else R.string.auth_session_expired)) }
         if (!available) Notice(stringResource(R.string.account_title), stringResource(R.string.auth_not_configured))
         failure?.takeUnless { it == AuthFailure.Cancelled }?.let { Text(failureText(it), color = colors.danger, style = AuroraType.Secondary) }

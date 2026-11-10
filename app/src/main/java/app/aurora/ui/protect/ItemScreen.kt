@@ -84,7 +84,7 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
         fun save(change: (AppRule) -> AppRule) = vm.edit { r -> r.copy(apps = r.apps + (key to change(r.rule(key)))) }
         val running = d.sessions.filter { key in it.keys }
 
-        items(running, key = { "s-" + it.id }) { s -> SessionCard(s, d, onTurnOff = { vm.run { vm.app.turnOff(s.id) } }, Modifier.padding(bottom = Space.S)) }
+        items(running, key = { "s-" + it.id }) { s -> SessionCard(s, d, onTurnOff = { vm.run { vm.app.turnOff(s.id) } }, Modifier.padding(bottom = Space.Card)) }
         item(key = "start") {
             AuroraButton(stringResource(R.string.item_start, d.label(key)), { onStart(key) }, Modifier.padding(horizontal = Space.M, vertical = Space.M).fillMaxWidth(), icon = AuroraIcons.Protect)
         }
@@ -101,6 +101,13 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
                         val task = if (rule.friction.task == FrictionTask.Reflection) FrictionTask.Math else rule.friction.task
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS), verticalArrangement = Arrangement.spacedBy(Space.XS)) {
                             FrictionTasks.forEach { t -> Chip(taskName(t), task == t) { save { it.copy(friction = it.friction.copy(task = t)) } } }
+                        }
+                        if (task == FrictionTask.Intention) {
+                            Text(stringResource(R.string.friction_phrase_hint), color = colors.textTertiary, style = AuroraType.Secondary)
+                            // Typed here and stored as it changes: the stored copy lags a keystroke behind.
+                            var words by androidx.compose.runtime.saveable.rememberSaveable(key) { androidx.compose.runtime.mutableStateOf(rule.friction.phrase) }
+                            app.aurora.ui.components.AuroraTextField(words, { p -> words = p.take(120); save { it.copy(friction = it.friction.copy(phrase = words.trim())) } }, stringResource(R.string.friction_phrase_placeholder))
+                            if (words.isBlank()) Text(stringResource(R.string.friction_phrase_need), color = colors.danger, style = AuroraType.Caption)
                         }
                         if (task == FrictionTask.Math) FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.XS)) {
                             Difficulty.entries.forEach { dif -> Chip(difficultyName(dif), rule.friction.difficulty == dif) { save { it.copy(friction = it.friction.copy(difficulty = dif)) } } }
@@ -162,6 +169,6 @@ fun ItemScreen(key: String, onBack: () -> Unit, onStart: (String) -> Unit, onInt
         )
     }
     notice?.let { n ->
-        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) stringResource(R.string.plus_see) else stringResource(R.string.action_ok), { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) stringResource(R.string.action_not_now) else null)
+        AuroraDialog(n.title, vm::dismissNotice, if (n.plus) stringResource(R.string.plus_see) else stringResource(R.string.action_ok), { vm.dismissNotice(); if (n.plus) onPlus() }, n.body, if (n.plus) stringResource(R.string.action_not_now) else null, plus = n.plus)
     }
 }

@@ -19,7 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Starting a saved session asks only when and for how long: its name and contents are changed in Edit. */
+/** Starting a saved session asks only for its unlocks, when and how long: the rest is changed in Edit. */
 @RunWith(AndroidJUnit4::class)
 class SavedSessionStartTest {
     @get:Rule val rule = createComposeRule()
@@ -54,30 +54,23 @@ class SavedSessionStartTest {
         assert(rule.onAllNodes(hasText("What should it include?")).fetchSemanticsNodes().isEmpty())
     }
 
-    /** Home's Start on a saved session: When, then timing, then Start. */
+    /** Starting a saved session: its unlocks first, then when, how long, and Review, whose action starts it. */
     @Test
-    fun homeStartGoesWhenThenTimingThenStart() {
+    fun savedStartGoesUnlocksWhenTimingThenReview() {
         configure("c1", custom = true, startSaved = true)
-        rule.waitUntil(5_000) { rule.onAllNodes(hasText("When should it apply?")).fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(5_000) { rule.onAllNodes(hasText("Passes")).fetchSemanticsNodes().isNotEmpty() }
         assertNoNameOrContents()
+        // The rest of it can be viewed here, not changed.
+        // The session itself sits in one row above its passes; a tap shows every part.
+        rule.onNode(androidx.compose.ui.test.SemanticsMatcher("opens details") { (if (androidx.compose.ui.semantics.SemanticsActions.OnClick in it.config) it.config[androidx.compose.ui.semantics.SemanticsActions.OnClick].label else null) == "View details" }).assertIsDisplayed()
+        rule.onNodeWithText("Next").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodes(hasText("When should it apply?")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Start now").performClick()
         rule.onNodeWithText("Next").performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText("How long?", substring = true, ignoreCase = true)).fetchSemanticsNodes().isNotEmpty() }
         assertNoNameOrContents()
-        // The timing page is the last one: its action starts the session.
-        rule.onNodeWithText("Start").assertIsDisplayed()
-    }
-
-    /** Start session, then picking a saved one: the same short path. */
-    @Test
-    fun pickingASavedSessionSkipsNameAndContents() {
-        configure(null, custom = false, startSaved = false)
-        rule.waitUntil(5_000) { rule.onAllNodes(hasText("Study Session")).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithText("Study Session").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodes(hasText("When should it apply?")).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithText("Start now").performClick()
         rule.onNodeWithText("Next").performClick()
-        assertNoNameOrContents()
+        rule.waitUntil(5_000) { rule.onAllNodes(hasText("Review")).fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Start").assertIsDisplayed()
     }
 }

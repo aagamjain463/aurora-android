@@ -27,7 +27,7 @@ fun LimitPromptDialog(prompt: LimitPrompt, onDismiss: () -> Unit, onPlus: () -> 
             else stringResource(R.string.limit_committed_used, minutesText(max / 60_000), clockTime(d.resetAt ?: 0))
         else -> stringResource(R.string.plus_name) to ""
     }
-    AuroraDialog(title, onDismiss, stringResource(R.string.plus_see), { onDismiss(); onPlus() }, body, stringResource(R.string.action_cancel)) {
+    AuroraDialog(title, onDismiss, stringResource(R.string.plus_see), { onDismiss(); onPlus() }, body, stringResource(R.string.action_cancel), plus = true) {
         val shorter = prompt.shorter
         val minutes = ((d.remaining ?: 0) / 60_000).toInt()
         if (shorter != null && d.remedy == Remedy.ChooseShorter) {
