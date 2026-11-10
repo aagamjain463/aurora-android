@@ -90,7 +90,7 @@ export function idToken(uid, over = {}, { key = firebaseKey.privateKey, kid = KI
 export const verifySignature = ({ payload, signature }) => createVerify('RSA-SHA256').update(payload).verify(signing.publicKey, signature, 'base64')
 
 export function world({ without } = {}) {
-  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [], apple: null }
+  const state = { subs: new Map(), users: new Map(), playDown: false, deleted: [], lookups: 0, accessTokens: 0, jwksFetches: 0, verdict: null, integrityDown: false, decoded: [], apple: null, deviceCheck: null }
   const fetcher = async (url, init) => {
     const u = String(url)
     if (u.includes('/jwk/securetoken')) {
@@ -125,6 +125,7 @@ export function world({ without } = {}) {
       return sub ? new Response(JSON.stringify(sub)) : new Response('{}', { status: 404 })
     }
     if (u.includes('/inApps/v1/subscriptions/') && state.apple) return state.apple(u, init)
+    if (u.includes('devicecheck.apple.com') && state.deviceCheck) return state.deviceCheck(u, init)
     throw new Error(`unexpected fetch ${u}`)
   }
   const DB = new FakeD1(without)

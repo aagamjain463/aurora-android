@@ -76,6 +76,11 @@ export async function attestNonce(env, device, now) {
   if ((env.INTEGRITY ?? 'off') === 'off' || !device.proved) return null
   const due = device.integrity === 'failed' || !device.integrity_at || now - device.integrity_at > ATTEST_EVERY_MS
   if (!due) return null
+  return issueNonce(env, device, now)
+}
+
+/** The device's live nonce, or a new one. Also asked for outside the weekly cycle, by a trial claim. */
+export async function issueNonce(env, device, now) {
   if (device.attest_nonce && device.attest_nonce_expires_at > now) return device.attest_nonce
   const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(33)))).replace(/\+/g, '-').replace(/\//g, '_')
   await env.DB.prepare('UPDATE devices SET attest_nonce = ?, attest_nonce_expires_at = ? WHERE id = ?').bind(nonce, now + NONCE_TTL_MS, device.id).run()
@@ -89,6 +94,9 @@ export async function attestNonce(env, device, now) {
  * - failed: a modified or unknown build of Aurora, or a device that fails even basic integrity.
  * - basic: anything between, such as a genuine device with an unlocked bootloader. Never blocked.
  */
+/** Play's word that the Google account on the device got Aurora from Play. */
+export const licensedOf = (verdict) => verdict?.accountDetails?.appLicensingVerdict === 'LICENSED'
+
 export function judgeIntegrity(verdict, env, nonce, now) {
   const request = verdict?.requestDetails
   if (!request || request.requestPackageName !== env.PACKAGE_NAME || request.nonce !== nonce) return null

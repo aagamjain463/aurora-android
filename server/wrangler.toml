@@ -21,6 +21,12 @@ ENVIRONMENT = "production"
 DEVICE_QUOTA = "shadow"
 INTEGRITY = "off"
 APP_CERT_SHA256 = ""
+# 14-day trial (docs/MONETIZATION_PLAN.md, 3.2): "on" or "off". Needs migration 0005 and the TRIAL_PEPPER secret; iOS
+# claims also need APPLE_TEAM_ID and the DeviceCheck key. Android claims need Play Integrity set up (stage 4 above).
+TRIAL = "off"
+APPLE_TEAM_ID = ""
+# "production" for App Store and TestFlight builds, "development" for Xcode-signed debug builds.
+DEVICECHECK_ENV = "production"
 
 # wrangler d1 create aurora, then paste its id here. Then: wrangler d1 migrations apply aurora --remote
 [[d1_databases]]
@@ -34,4 +40,6 @@ migrations_dir = "migrations"
 crons = ["17 3 * * *"]
 
 # Secrets, set with `wrangler secret put`: GOOGLE_SERVICE_ACCOUNT, FIREBASE_SERVICE_ACCOUNT, SIGNING_KEY, RTDN_TOKEN,
-# APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY (the App Store Connect .p8 file's contents).
+# APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY (the App Store Connect .p8 file's contents), TRIAL_PEPPER (32+ random
+# bytes; rotating it forgets every trial ever claimed, so never rotate it), DEVICECHECK_KEY_ID, DEVICECHECK_PRIVATE_KEY
+# (a .p8 key with DeviceCheck enabled, from Certificates, Identifiers & Profiles > Keys).

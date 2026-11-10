@@ -11,8 +11,12 @@
 
 import { appAccountToken, appleEntitlement, appleStatus, environmentAllowed, verifySigned } from './apple.js'
 import { AuthError, bearer, isEmulated, verifyIdToken } from './auth.js'
-import { ATTEST_EVERY_MS, attestNonce, deviceOf, judgeIntegrity } from './device.js'
+import { ATTEST_EVERY_MS, attestNonce, deviceOf, issueNonce, judgeIntegrity, licensedOf } from './device.js'
 import { fits, quotaZone, statusOf, validZone } from './quota.js'
+import {
+  DeviceCheckInvalid, TRIAL_MS, TRIAL_NEW_ACCOUNT_MS, TRIAL_RETENTION_MS, androidVouches, deviceCheckReady, deviceCheckUsed, keyed, markDeviceCheck,
+  normalizeEmail,
+} from './trial.js'
 
 const PLAY = 'https://androidpublisher.googleapis.com/androidpublisher/v3'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -203,23 +207,42 @@ async function seated(env, account, installId) {
   return seats.some((s) => s.id === installId)
 }
 
-/** What the account's verified purchases grant this installation, ready to store. */
-async function accountSnapshot(env, account, uid, installId, now, extra = {}) {
+/**
+ * The account's entitlement, from durable rows only (docs/MONETIZATION_PLAN.md, 3.1). A paid production purchase,
+ * lifetime or subscription, outranks a trial: lifetime rows are paid through year 9999, so ordering by paid_through
+ * already puts them first. A trial counts from the moment its grant committed until it expires or is revoked.
+ */
+async function entitlementOf(env, account, now) {
   const { results: rows } = await env.DB.prepare('SELECT * FROM purchases WHERE account_id = ? ORDER BY paid_through DESC').bind(account.id).all()
-  const productionRows = rows.filter((r) => r.environment !== 'Sandbox')
-  const best = productionRows.find((r) => r.tier === 'plus' && r.paid_through > now)
-  const review = environmentAllowed(env, 'Sandbox') ? rows.find((r) => r.environment === 'Sandbox' && r.tier === 'plus' && r.paid_through > now) : null
+  const production = rows.filter((r) => r.environment !== 'Sandbox')
+  const best = production.find((r) => r.tier === 'plus' && r.paid_through > now) ?? null
+  const trial = await env.DB.prepare('SELECT * FROM trial_claims WHERE account_id = ?').bind(account.id).first()
+  const trialLive = Boolean(trial) && !trial.revoked_at && trial.granted_at <= now && now < trial.expires_at
+  return { rows, production, best, trial, trialPlus: !best && trialLive ? trial : null }
+}
+
+const trialEnd = (trial) => (trial.revoked_at ? Math.min(trial.expires_at, trial.revoked_at) : trial.expires_at)
+
+/** What the account's verified purchases, or its trial, grant this installation, ready to store. */
+async function accountSnapshot(env, account, uid, installId, now, extra = {}) {
+  const e = await entitlementOf(env, account, now)
+  const review = environmentAllowed(env, 'Sandbox') ? e.rows.find((r) => r.environment === 'Sandbox' && r.tier === 'plus' && r.paid_through > now) : null
   const seat = await seated(env, account, installId)
-  const shown = best ?? productionRows[0]
-  const tier = best && seat ? 'plus' : 'free'
+  const plus = Boolean(e.best ?? e.trialPlus)
+  const tier = plus && seat ? 'plus' : 'free'
+  const shown = e.best ?? (e.trialPlus ? null : e.production[0])
+  // A trial is "paid through" its end and never renews, so clients that predate trials still end it on time offline.
+  const trial = e.trialPlus
   return signed(env, {
     tier,
-    state: best && !seat ? 'too_many_devices' : (shown?.state ?? 'none'),
+    state: plus && !seat ? 'too_many_devices' : trial ? 'trial' : (shown?.state ?? (e.trial ? 'trial_ended' : 'none')),
+    source: !plus ? null : trial ? 'trial' : e.best.state === 'lifetime' ? 'lifetime' : 'subscription',
     productId: shown?.product_id ?? null,
     store: shown?.store ?? null,
-    iosSandbox: review && seat ?{ scope: 'ios_sandbox', productId: review.product_id, expiresAt: Math.min(review.paid_through, now + 15 * 60_000) } : null,
-    paidThrough: shown?.paid_through ?? 0,
-    autoRenewing: tier === 'plus' && Boolean(best.auto_renewing),
+    iosSandbox: review && seat ? { scope: 'ios_sandbox', productId: review.product_id, expiresAt: Math.min(review.paid_through, now + 15 * 60_000) } : null,
+    paidThrough: trial ? trial.expires_at : (shown?.paid_through ?? 0),
+    autoRenewing: tier === 'plus' && !trial && Boolean(e.best.auto_renewing),
+    trialEndsAt: e.trial ? trialEnd(e.trial) : null,
     issuedAt: now,
     installId,
     uid,
@@ -233,11 +256,10 @@ const devicesOf = async (env, account, installId) => {
   return results.map((d) => ({ id: d.id, label: d.label, registeredAt: d.registered_at, lastSeenAt: d.last_seen_at, current: d.id === installId }))
 }
 
-/** Plus here and now: a verified, paid-through production purchase, on one of the account's seats. A sixth phone is Free. */
-// Filtered here, not in SQL: this Worker must also run before migration 0004 adds the column.
+/** Plus here and now: a paid production purchase or a live trial, on one of the account's seats. A sixth phone is Free. */
 const hasPlus = async (env, account, installId, now) => {
-  const { results } = await env.DB.prepare("SELECT * FROM purchases WHERE account_id = ? AND tier = 'plus' AND paid_through > ?").bind(account.id, now).all()
-  return results.some((row) => row.environment !== 'Sandbox') && (await seated(env, account, installId))
+  const e = await entitlementOf(env, account, now)
+  return Boolean(e.best ?? e.trialPlus) && (await seated(env, account, installId))
 }
 
 async function ledgerOf(env, account, now) {
@@ -327,6 +349,7 @@ async function sync(request, env, fetcher) {
     entitlement: await accountSnapshot(env, account, claims.sub, installId, now),
     quota: plus ? null : await quotaFor(env, account, installId, now, validZone(zone) ? zone : 'UTC'),
     devices: await devicesOf(env, account, installId),
+    trial: await trialStatus(env, account, now),
     device: { proved: here.proved, integrity: here.integrity, attestNonce: await attestNonce(env, here, now) },
     serverTime: now,
   })
@@ -720,7 +743,7 @@ async function attest(request, env, fetcher) {
   const claims = await authenticate(request, env, fetcher)
   const { installId, token } = await body(request)
   if (!isId(installId) || !text(token, 8192)) return json(400, { error: 'bad_request' })
-  if ((env.INTEGRITY ?? 'off') === 'off') return json(404, { error: 'not_found' })
+  if ((env.INTEGRITY ?? 'off') === 'off' && env.TRIAL !== 'on') return json(404, { error: 'not_found' })
   const now = Date.now()
   const here = await device(request, env, installId, now)
   if (!here) return deviceRefused()
@@ -740,9 +763,10 @@ async function attest(request, env, fetcher) {
   // Spent either way, in one statement, so the same token or nonce can't be presented twice.
   const { meta } = await env.DB.prepare(
     `UPDATE devices SET attest_nonce = NULL, attest_nonce_expires_at = NULL,
-       integrity = COALESCE(?1, integrity), integrity_at = CASE WHEN ?1 IS NULL THEN integrity_at ELSE ?2 END
+       integrity = COALESCE(?1, integrity), integrity_at = CASE WHEN ?1 IS NULL THEN integrity_at ELSE ?2 END,
+       licensed = CASE WHEN ?1 IS NULL THEN licensed ELSE ?5 END
      WHERE id = ?3 AND attest_nonce = ?4`,
-  ).bind(integrity, now, installId, nonce).run()
+  ).bind(integrity, now, installId, nonce, licensedOf(verdict) ? 1 : 0).run()
   if (meta.changes === 0) return json(409, { error: 'stale_nonce' })
   if (integrity === null) return json(400, { error: 'integrity_mismatch' })
   if (integrity === 'failed') {
@@ -799,6 +823,118 @@ async function rtdn(request, env, fetcher) {
   return new Response(null, { status: 204 })
 }
 
+// ---- Trial ------------------------------------------------------------------------------------------------------
+
+/** Why this account can't have a trial, whatever the device: null when it can. Needs TRIAL_PEPPER. */
+async function accountIneligible(env, account, rows, now) {
+  if (account.status !== 'active') return 'account_deleting'
+  if (now - account.created_at > TRIAL_NEW_ACCOUNT_MS) return 'not_new'
+  if (rows.some((r) => r.environment !== 'Sandbox')) return 'purchased'
+  const used = await env.DB.prepare('SELECT 1 FROM trial_claims WHERE uid_hash = ? OR email_hash = ? LIMIT 1')
+    .bind(await keyed(env, `uid:${account.firebase_uid}`), await keyed(env, `email:${normalizeEmail(account.email ?? '')}`)).first()
+  return used ? 'account_used' : null
+}
+
+const trialsOn = (env) => env.TRIAL === 'on' && Boolean(env.TRIAL_PEPPER)
+
+/** What the app shows about the trial. 'available' is the account's side only; the device is judged at the claim. */
+async function trialStatus(env, account, now) {
+  const e = await entitlementOf(env, account, now)
+  if (e.trial) return { status: e.trialPlus || (!e.trial.revoked_at && now < e.trial.expires_at) ? 'active' : 'ended', startedAt: e.trial.granted_at, endsAt: trialEnd(e.trial) }
+  if (!trialsOn(env)) return { status: 'unavailable', reason: 'off' }
+  const reason = await accountIneligible(env, account, e.rows, now)
+  return reason ? { status: 'unavailable', reason } : { status: 'available', days: TRIAL_MS / 86_400_000 }
+}
+
+const trialRefused = (status, reason, more = {}) => json(status, { error: 'trial_unavailable', reason, ...more })
+
+/**
+ * Grants the 14-day trial: a new verified account, a device that vouches for itself, and no trial before on any of
+ * them. Idempotent per account: asking again, from any phone, returns the same trial and the same end. The grant is
+ * one INSERT guarded by three UNIQUE constraints (account, address, installation), so racing claims can't both win.
+ *
+ * Device evidence. Android: a Play Integrity verdict made for this claim (fresh), judged 'ok' and LICENSED. iOS:
+ * Apple's DeviceCheck says no trial was granted on this device, and is told when one is. No evidence is not
+ * evidence of abuse, but it is never a trial either: the person is told why and keeps Free, and can still buy.
+ */
+async function claimTrial(request, env, fetcher) {
+  const claims = await authenticate(request, env, fetcher, { revocation: true })
+  const { installId, platform, deviceToken } = await body(request)
+  if (!isId(installId) || !['android', 'ios'].includes(platform)) return json(400, { error: 'bad_request' })
+  if (platform === 'ios' && !text(deviceToken, 8192)) return json(400, { error: 'bad_request' })
+  if (!trialsOn(env)) return trialRefused(404, 'off')
+  if (!(await allowed(env, `trial:${claims.sub}`, 10, 3600))) return json(429, { error: 'slow_down' })
+  const now = Date.now()
+  const here = await device(request, env, installId, now)
+  if (!here) return deviceRefused()
+  if (!(await allowed(env, `trial-device:${installId}`, 10, 3600))) return json(429, { error: 'slow_down' })
+  const account = await ensureAccount(env, claims, now)
+  if (!(await ensureInstallation(env, account, claims, installId, null, now))) return json(401, { error: 'installation_removed' })
+  const granted = async () => json(200, { trial: await trialStatus(env, account, now), entitlement: await accountSnapshot(env, account, claims.sub, installId, now) })
+
+  const e = await entitlementOf(env, account, now)
+  if (e.trial) return granted()
+  const refuse = async (status, reason, more) => {
+    await entitlementEvent(env, account.id, 'trial_refused', reason)
+    return trialRefused(status, reason, more)
+  }
+  const ineligible = await accountIneligible(env, account, e.rows, now)
+  if (ineligible) return refuse(403, ineligible)
+  if (await env.DB.prepare('SELECT 1 FROM trial_claims WHERE installation_id = ?').bind(installId).first()) return refuse(403, 'device_used')
+  // Without a key the installation can't be told apart from any other request naming it.
+  if (!here.proved) return refuse(403, 'device_unverifiable')
+
+  let evidence
+  if (platform === 'android') {
+    const verdict = androidVouches(here, now)
+    // No verdict made for this claim yet: ask for one. A fresh verdict that doesn't vouch is an answer, not a retry.
+    if (!verdict.fresh) return trialRefused(428, 'attestation_required', { attestNonce: await issueNonce(env, here, now) })
+    if (!verdict.ok) return refuse(403, 'device_ineligible')
+    evidence = 'play_integrity'
+  } else {
+    if (!deviceCheckReady(env)) return refuse(503, 'not_configured')
+    try {
+      if (await deviceCheckUsed(env, deviceToken, fetcher)) return refuse(403, 'device_used')
+    } catch (err) {
+      if (err instanceof DeviceCheckInvalid) return refuse(403, 'device_unverifiable')
+      return json(503, { error: 'try_again' })
+    }
+    evidence = 'devicecheck'
+  }
+
+  const id = crypto.randomUUID()
+  const { meta } = await env.DB.prepare(
+    `INSERT OR IGNORE INTO trial_claims (id, account_id, uid_hash, email_hash, installation_id, platform, evidence, granted_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, account.id, await keyed(env, `uid:${claims.sub}`), await keyed(env, `email:${normalizeEmail(claims.email)}`), installId, platform, evidence, now, now + TRIAL_MS).run()
+  if (meta.changes === 0) {
+    // Someone got there first: this account (a duplicate request, now a replay), its address, or this installation.
+    if (await env.DB.prepare('SELECT 1 FROM trial_claims WHERE account_id = ?').bind(account.id).first()) return granted()
+    const sameDevice = await env.DB.prepare('SELECT 1 FROM trial_claims WHERE installation_id = ?').bind(installId).first()
+    return refuse(403, sameDevice ? 'device_used' : 'account_used')
+  }
+  if (platform === 'ios') {
+    try {
+      await markDeviceCheck(env, deviceToken, fetcher)
+    } catch {
+      // A trial Apple doesn't know about could be claimed again after a reinstall. Not granted until it does.
+      await env.DB.prepare('DELETE FROM trial_claims WHERE id = ?').bind(id).run()
+      return json(503, { error: 'try_again' })
+    }
+  }
+  await entitlementEvent(env, account.id, 'trial_granted', evidence)
+  return granted()
+}
+
+/** The entitlement audit trail. Never fails the request it describes. */
+async function entitlementEvent(env, accountId, kind, detail = null) {
+  try {
+    await env.DB.prepare('INSERT INTO entitlement_events (account_id, kind, detail, created_at) VALUES (?, ?, ?, ?)').bind(accountId ?? null, kind, detail, Date.now()).run()
+  } catch {
+    // Observability only.
+  }
+}
+
 /** Daily: finishes deletions past their grace, and drops what no longer serves a purpose. */
 export async function housekeeping(env, fetcher, now = Date.now()) {
   const { results } = await env.DB.prepare("SELECT id, firebase_uid FROM accounts WHERE status = 'deletion_requested' AND deletion_requested_at < ? LIMIT 100").bind(now - DELETION_GRACE_MS).all()
@@ -826,6 +962,9 @@ export async function housekeeping(env, fetcher, now = Date.now()) {
     env.DB.prepare('DELETE FROM abuse_events WHERE created_at < ?').bind(now - ABUSE_RETENTION_MS),
     // A device unseen for half a year has nothing left in any ledger; its key goes with it.
     env.DB.prepare('DELETE FROM devices WHERE last_seen_at < ?').bind(now - DEVICE_RETENTION_MS),
+    // A trial outlives its account so a new sign-up with the same address finds it; three years after it ended, not.
+    env.DB.prepare('DELETE FROM trial_claims WHERE account_id IS NULL AND expires_at < ?').bind(now - TRIAL_RETENTION_MS),
+    env.DB.prepare('DELETE FROM entitlement_events WHERE created_at < ?').bind(now - TRIAL_RETENTION_MS),
   ])
   if (appleReady(env)) await recheckLapsedApple(env, fetcher, now)
 }
@@ -847,6 +986,7 @@ const ROUTES = {
   '/v1/quota/release': release,
   '/v1/quota/import': importLedger,
   '/v1/device/attest': attest,
+  '/v1/trial/claim': claimTrial,
   '/v1/rtdn': rtdn,
 }
 
